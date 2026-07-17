@@ -45,7 +45,9 @@ final class OpenDocument extends WorkspaceTab {
   bool sourceMissing = false;
   bool showPreview = false;
   Timer? saveTimer;
+  Timer? statisticsTimer;
   Future<bool>? saveFuture;
+  int characterCount = 0;
 
   @override
   String get relativePath => snapshot.ref.relativePath;
@@ -62,6 +64,7 @@ final class OpenDocument extends WorkspaceTab {
   @override
   void dispose() {
     saveTimer?.cancel();
+    statisticsTimer?.cancel();
     editorController.dispose();
     scrollController.dispose();
     super.dispose();
@@ -77,6 +80,7 @@ final class WorkspaceController extends ChangeNotifier {
 
   static const _autoSaveDelay = Duration(milliseconds: 800);
   static const _sessionSaveDelay = Duration(milliseconds: 500);
+  static const _statisticsDelay = Duration(milliseconds: 250);
   static const _externalChangeDelay = Duration(milliseconds: 180);
   static const _maximumRestoredTabs = 20;
 
@@ -400,6 +404,7 @@ final class WorkspaceController extends ChangeNotifier {
     }
     _activePath = activated.relativePath;
     _selectedPath = activated.relativePath;
+    _selectedEntry = null;
     _scheduleSessionSave();
     _notify();
   }
@@ -629,6 +634,7 @@ final class WorkspaceController extends ChangeNotifier {
         initialScrollOffset: scrollOffset < 0 ? 0 : scrollOffset,
       ),
     );
+    document.characterCount = _characterCount(controller.text);
     var observedVersion = controller.editVersion;
     controller.addListener(() {
       if (_disposed) {
@@ -636,6 +642,7 @@ final class WorkspaceController extends ChangeNotifier {
       }
       if (controller.editVersion != observedVersion) {
         observedVersion = controller.editVersion;
+        _scheduleStatisticsUpdate(document);
         if (document.saveStatus != DocumentSaveStatus.conflict) {
           document.failure = null;
           document.saveStatus = controller.hasUnsavedChanges
@@ -694,6 +701,20 @@ final class WorkspaceController extends ChangeNotifier {
     document.saveTimer?.cancel();
     document.saveTimer = Timer(_autoSaveDelay, () {
       unawaited(saveDocument(document));
+    });
+  }
+
+  void _scheduleStatisticsUpdate(OpenDocument document) {
+    document.statisticsTimer?.cancel();
+    document.statisticsTimer = Timer(_statisticsDelay, () {
+      if (_disposed) {
+        return;
+      }
+      final next = _characterCount(document.editorController.text);
+      if (document.characterCount != next) {
+        document.characterCount = next;
+        document.notifyChanged();
+      }
     });
   }
 
@@ -952,6 +973,10 @@ final class WorkspaceController extends ChangeNotifier {
       '.md' => DocumentFormat.markdown,
       _ => null,
     };
+  }
+
+  int _characterCount(String text) {
+    return text.replaceAll(RegExp(r'\s+'), '').runes.length;
   }
 
   void _notify() {

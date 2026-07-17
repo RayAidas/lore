@@ -9,18 +9,29 @@ final class LoreMarkdownPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Markdown(
-      data: data,
-      selectable: true,
-      padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
-      sizedImageBuilder: (config) {
-        final builder = imageBuilder;
-        if (builder != null) {
-          return builder(config.uri, config.width, config.height);
-        }
-        return Tooltip(
-          message: config.uri.toString(),
-          child: const Icon(Icons.image_not_supported_outlined),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth > 900 ? 900.0 : constraints.maxWidth;
+        return Center(
+          child: SizedBox(
+            width: width,
+            height: constraints.maxHeight,
+            child: Markdown(
+              data: data,
+              selectable: true,
+              padding: const EdgeInsets.symmetric(horizontal: 52, vertical: 42),
+              sizedImageBuilder: (config) {
+                final builder = imageBuilder;
+                if (builder != null) {
+                  return builder(config.uri, config.width, config.height);
+                }
+                return Tooltip(
+                  message: config.uri.toString(),
+                  child: const Icon(Icons.image_not_supported_outlined),
+                );
+              },
+            ),
+          ),
         );
       },
     );

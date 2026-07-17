@@ -16,22 +16,41 @@ final class LoreTextEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      scrollController: scrollController,
-      autofocus: autofocus,
-      expands: true,
-      maxLines: null,
-      minLines: null,
-      keyboardType: TextInputType.multiline,
-      textAlignVertical: TextAlignVertical.top,
-      style: Theme.of(
-        context,
-      ).textTheme.bodyLarge?.copyWith(height: 1.8, fontSize: 17),
-      decoration: const InputDecoration(
-        border: InputBorder.none,
-        contentPadding: EdgeInsets.symmetric(horizontal: 48, vertical: 32),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth > 900 ? 900.0 : constraints.maxWidth;
+        return Center(
+          child: SizedBox(
+            width: width,
+            height: constraints.maxHeight,
+            child: TextField(
+              controller: controller,
+              scrollController: scrollController,
+              autofocus: autofocus,
+              expands: true,
+              maxLines: null,
+              minLines: null,
+              keyboardType: TextInputType.multiline,
+              textAlignVertical: TextAlignVertical.top,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                height: 1.95,
+                fontSize: 17,
+                letterSpacing: 0.2,
+              ),
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                filled: false,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 52,
+                  vertical: 42,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

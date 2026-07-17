@@ -7,8 +7,50 @@ import 'package:lore_storage/lore_storage.dart';
 
 import 'package:lore_app/app/lore_app.dart';
 import 'package:lore_app/features/library/library_providers.dart';
+import 'package:lore_app/features/workspace/workspace_controller.dart';
 
 void main() {
+  test('activating a document tab clears structural selection', () async {
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final repository = _FakeWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: LibrarySession(access: access, metadata: metadata),
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemoryWorkspaceSessionRepository(),
+      ),
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.openPath('第一章.md');
+    controller.selectEntry(
+      const LibraryEntry(
+        name: '第一卷',
+        relativePath: '长夜行/正文/第一卷',
+        type: LibraryEntryType.directory,
+        semanticKind: LibraryEntrySemanticKind.volume,
+        semanticId: '33333333-3333-4333-8333-333333333333',
+        novelId: '22222222-2222-4222-8222-222222222222',
+      ),
+    );
+
+    await controller.activateTab(controller.tabs.single);
+
+    expect(controller.selectedEntry, isNull);
+    expect(controller.activePath, '第一章.md');
+  });
+
   testWidgets('shows directory selection when no library is stored', (
     tester,
   ) async {
@@ -32,6 +74,10 @@ void main() {
   });
 
   testWidgets('shows ready library entries', (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     const access = LibraryAccess(
       token: '/tmp/library',
       displayPath: '/tmp/library',
@@ -80,6 +126,9 @@ void main() {
     expect(find.text('/tmp/library'), findsOneWidget);
     expect(find.text('第一章.md'), findsOneWidget);
     expect(find.text('选择或新建文件开始写作'), findsOneWidget);
+    expect(find.text('助手'), findsOneWidget);
+    expect(find.text('大纲'), findsOneWidget);
+    expect(find.text('信息'), findsOneWidget);
 
     await tester.tap(find.text('第一章.md'));
     await tester.pumpAndSettle();
@@ -87,6 +136,32 @@ void main() {
     expect(find.text('编辑'), findsOneWidget);
     expect(find.text('预览'), findsOneWidget);
     expect(find.text('已保存'), findsOneWidget);
+    expect(find.text('本文 4 字'), findsOneWidget);
+
+    await tester.tap(find.text('信息'));
+    await tester.pumpAndSettle();
+    expect(find.text('4'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '# 新标题\n正文 内容');
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('本文 8 字'), findsOneWidget);
+    expect(find.text('8'), findsOneWidget);
+
+    await tester.tap(find.text('大纲'));
+    await tester.pumpAndSettle();
+    expect(find.text('新标题'), findsOneWidget);
+
+    tester.view.physicalSize = const Size(500, 900);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.menu));
+    await tester.pumpAndSettle();
+    final drawer = find.byType(Drawer);
+    expect(drawer, findsOneWidget);
+    await tester.tap(
+      find.descendant(of: drawer, matching: find.text('第一章.md')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(Drawer), findsNothing);
   });
 
   testWidgets('creates a novel from the workspace toolbar', (tester) async {
@@ -127,7 +202,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('新建小说'));
+    await tester.tap(find.byTooltip('新建'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新建小说'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '长夜行');
     await tester.tap(find.text('确认'));
