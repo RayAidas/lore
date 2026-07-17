@@ -11,3 +11,5 @@ dependencies:
   lore_domain:
     path: ../lore_domain
 
+dev_dependencies:
+  test: ^1.26.3

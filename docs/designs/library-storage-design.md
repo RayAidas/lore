@@ -385,3 +385,10 @@ SQLite 保存在应用私有目录，并以 `libraryId` 区分当前书库缓存
 
 哈希优化、复杂同步冲突和跨文档提供者兼容策略在技术验证后逐步补充。
 
+## 当前实现状态
+
+- macOS 通过原生 MethodChannel 和 security-scoped bookmark 持久化书库目录授权。
+- 新目录经过用户确认后，仅初始化 `.lore/library.json`，其他内部目录按功能需要创建。
+- 授权切换采用 pending/commit 两阶段，新目录成功打开前保留原书库授权。
+- 本地 repository 已支持 manifest 校验、独占初始化、真实路径越界防护和懒加载目录列表。
+- Android 当前返回明确的平台未支持状态，后续在同一 Application 接口下实现 SAF。

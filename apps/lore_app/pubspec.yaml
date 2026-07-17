@@ -11,8 +11,11 @@ resolution: workspace
 dependencies:
   flutter:
     sdk: flutter
+  flutter_riverpod: ^3.0.0
   lore_application:
     path: ../../packages/lore_application
+  lore_domain:
+    path: ../../packages/lore_domain
   lore_editor:
     path: ../../packages/lore_editor
   lore_storage:

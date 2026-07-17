@@ -29,6 +29,8 @@ docs/designs/              产品与技术设计文档
 flutter pub get
 dart format .
 flutter analyze
+(cd packages/lore_application && dart test)
+(cd packages/lore_storage && flutter test)
 (cd apps/lore_app && flutter test)
 (cd apps/lore_app && flutter run -d macos)
 ```
