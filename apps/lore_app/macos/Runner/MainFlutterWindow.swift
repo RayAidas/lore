@@ -1,4 +1,5 @@
 import Cocoa
+import CryptoKit
 import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
@@ -70,9 +71,140 @@ final class LibraryAccessController {
       stopActiveAccess()
       defaults.removeObject(forKey: Self.bookmarkKey)
       result(nil)
+    case "renameLibraryEntry":
+      renameEntry(call: call, result: result)
+    case "replaceLibraryDocument":
+      replaceDocument(call: call, result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  private func replaceDocument(
+    call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) {
+    guard let rootURL = activeURL else {
+      result(flutterError(
+        code: "access_denied",
+        message: "书库目录授权已失效。"))
+      return
+    }
+    guard
+      let arguments = call.arguments as? [String: Any],
+      let relativePath = arguments["relativePath"] as? String,
+      let expectedRevision = arguments["expectedRevision"] as? String,
+      let typedData = arguments["bytes"] as? FlutterStandardTypedData,
+      let fileURL = childURL(rootURL: rootURL, relativePath: relativePath)
+    else {
+      result(flutterError(
+        code: "invalid_location",
+        message: "文档路径超出了书库范围。"))
+      return
+    }
+
+    var coordinatorError: NSError?
+    var operationError: Error?
+    var revisionMatches = true
+    let coordinator = NSFileCoordinator()
+    coordinator.coordinate(
+      writingItemAt: fileURL,
+      options: .forReplacing,
+      error: &coordinatorError
+    ) { coordinatedURL in
+      do {
+        let currentData = try Data(contentsOf: coordinatedURL)
+        guard self.sha256(currentData) == expectedRevision else {
+          revisionMatches = false
+          return
+        }
+        try typedData.data.write(to: coordinatedURL, options: .atomic)
+      } catch {
+        operationError = error
+      }
+    }
+
+    if !revisionMatches {
+      result(false)
+      return
+    }
+    if let error = operationError ?? coordinatorError {
+      let nsError = error as NSError
+      let code = nsError.domain == NSCocoaErrorDomain &&
+        nsError.code == NSFileNoSuchFileError
+        ? "not_found"
+        : "save_failed"
+      result(flutterError(code: code, message: "无法安全保存文档。"))
+      return
+    }
+    result(true)
+  }
+
+  private func sha256(_ data: Data) -> String {
+    return SHA256.hash(data: data)
+      .map { String(format: "%02x", $0) }
+      .joined()
+  }
+
+  private func renameEntry(
+    call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) {
+    guard let rootURL = activeURL else {
+      result(flutterError(
+        code: "access_denied",
+        message: "书库目录授权已失效。"))
+      return
+    }
+    guard
+      let arguments = call.arguments as? [String: Any],
+      let sourcePath = arguments["sourcePath"] as? String,
+      let targetPath = arguments["targetPath"] as? String,
+      let sourceURL = childURL(rootURL: rootURL, relativePath: sourcePath),
+      let targetURL = childURL(rootURL: rootURL, relativePath: targetPath),
+      sourceURL.deletingLastPathComponent() == targetURL.deletingLastPathComponent()
+    else {
+      result(flutterError(
+        code: "invalid_location",
+        message: "重命名路径超出了书库范围。"))
+      return
+    }
+
+    let fileManager = FileManager.default
+    guard fileManager.fileExists(atPath: sourceURL.path) else {
+      result(flutterError(code: "not_found", message: "原文件不存在。"))
+      return
+    }
+    guard !fileManager.fileExists(atPath: targetURL.path) else {
+      result(flutterError(code: "name_conflict", message: "目标名称已存在。"))
+      return
+    }
+
+    do {
+      try fileManager.moveItem(at: sourceURL, to: targetURL)
+      result(nil)
+    } catch let error as NSError {
+      let code = error.domain == NSCocoaErrorDomain &&
+        error.code == NSFileWriteFileExistsError
+        ? "name_conflict"
+        : "rename_failed"
+      result(flutterError(
+        code: code,
+        message: "无法重命名所选内容。"))
+    }
+  }
+
+  private func childURL(rootURL: URL, relativePath: String) -> URL? {
+    guard !relativePath.hasPrefix("/"), !relativePath.isEmpty else {
+      return nil
+    }
+    let root = rootURL.standardizedFileURL
+    let child = root.appendingPathComponent(relativePath).standardizedFileURL
+    let rootPrefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+    guard child.path.hasPrefix(rootPrefix) else {
+      return nil
+    }
+    return child
   }
 
   private func restore(result: @escaping FlutterResult) {

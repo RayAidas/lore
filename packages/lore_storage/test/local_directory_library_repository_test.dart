@@ -243,6 +243,131 @@ void main() {
       await externalDirectory.delete(recursive: true);
     }
   });
+
+  test('creates folders and UTF-8 documents without overwriting', () async {
+    final directory = await repository.createDirectory(
+      access,
+      parentPath: '',
+      name: '随笔',
+    );
+    final document = await repository.createDocument(
+      access,
+      parentPath: directory.relativePath,
+      name: '今日',
+      format: DocumentFormat.text,
+      initialText: '第一句',
+    );
+
+    expect(directory.type, LibraryEntryType.directory);
+    expect(document.relativePath, p.join('随笔', '今日.txt'));
+    expect(
+      await File(p.join(root.path, document.relativePath)).readAsString(),
+      '第一句',
+    );
+    await expectLater(
+      repository.createDocument(
+        access,
+        parentPath: directory.relativePath,
+        name: '今日',
+        format: DocumentFormat.text,
+      ),
+      throwsA(
+        isA<LibraryOperationException>().having(
+          (error) => error.failure.code,
+          'code',
+          LibraryFailureCode.alreadyExists,
+        ),
+      ),
+    );
+  });
+
+  test('reads and preserves UTF-8 BOM and CRLF', () async {
+    final file = File(p.join(root.path, '章节.txt'));
+    await file.writeAsBytes([
+      0xef,
+      0xbb,
+      0xbf,
+      ...utf8.encode('第一行\r\n第二行\r\n'),
+    ]);
+    const ref = DocumentRef(
+      relativePath: '章节.txt',
+      format: DocumentFormat.text,
+    );
+
+    final loaded = await repository.readDocument(access, ref);
+    final saved = await repository.saveDocument(
+      access,
+      original: loaded,
+      text: '${loaded.text}第三行\n',
+    );
+
+    expect(loaded.encoding, TextEncoding.utf8Bom);
+    expect(loaded.lineEnding, LineEnding.crlf);
+    expect(loaded.text, '第一行\n第二行\n');
+    expect(saved, isA<DocumentSaveSuccess>());
+    final bytes = await file.readAsBytes();
+    expect(bytes.take(3), [0xef, 0xbb, 0xbf]);
+    expect(utf8.decode(bytes.skip(3).toList()), '第一行\r\n第二行\r\n第三行\r\n');
+  });
+
+  test('detects an external modification before saving', () async {
+    final file = File(p.join(root.path, '章节.md'));
+    await file.writeAsString('原文');
+    const ref = DocumentRef(
+      relativePath: '章节.md',
+      format: DocumentFormat.markdown,
+    );
+    final loaded = await repository.readDocument(access, ref);
+    await file.writeAsString('外部修改');
+
+    final result = await repository.saveDocument(
+      access,
+      original: loaded,
+      text: '本地修改',
+    );
+
+    expect(result, isA<DocumentSaveConflict>());
+    expect((result as DocumentSaveConflict).diskSnapshot.text, '外部修改');
+    expect(await file.readAsString(), '外部修改');
+  });
+
+  test('renames documents without changing their extension', () async {
+    await File(p.join(root.path, '旧名.md')).writeAsString('');
+
+    final renamed = await repository.renameEntry(
+      access,
+      relativePath: '旧名.md',
+      newName: '新名',
+    );
+
+    expect(renamed.name, '新名.md');
+    expect(await File(p.join(root.path, '新名.md')).exists(), isTrue);
+    await expectLater(
+      repository.renameEntry(access, relativePath: '新名.md', newName: '错误.txt'),
+      throwsA(
+        isA<LibraryOperationException>().having(
+          (error) => error.failure.code,
+          'code',
+          LibraryFailureCode.invalidName,
+        ),
+      ),
+    );
+  });
+
+  test('rejects direct access to internal metadata', () async {
+    await repository.initialize(access);
+
+    await expectLater(
+      repository.listChildren(access, relativePath: '.lore'),
+      throwsA(
+        isA<LibraryOperationException>().having(
+          (error) => error.failure.code,
+          'code',
+          LibraryFailureCode.invalidLocation,
+        ),
+      ),
+    );
+  });
 }
 
 final class _SequenceIdGenerator implements IdGenerator {

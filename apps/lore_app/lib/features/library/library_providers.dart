@@ -5,6 +5,8 @@ import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_storage/lore_storage.dart';
 
+import '../workspace/workspace_controller.dart';
+
 final idGeneratorProvider = Provider<IdGenerator>((ref) {
   return const UuidIdGenerator();
 });
@@ -20,12 +22,52 @@ final libraryAccessGatewayProvider = Provider<LibraryAccessGateway>((ref) {
   return const UnsupportedLibraryAccessGateway();
 });
 
+final localDirectoryLibraryRepositoryProvider =
+    Provider<LocalDirectoryLibraryRepository>((ref) {
+      return LocalDirectoryLibraryRepository(
+        idGenerator: ref.watch(idGeneratorProvider),
+        clock: ref.watch(clockProvider),
+        fileOperationsGateway: Platform.isMacOS
+            ? MacOsLibraryFileOperationsGateway()
+            : null,
+      );
+    });
+
 final libraryRepositoryProvider = Provider<LibraryRepository>((ref) {
-  return LocalDirectoryLibraryRepository(
-    idGenerator: ref.watch(idGeneratorProvider),
-    clock: ref.watch(clockProvider),
+  return ref.watch(localDirectoryLibraryRepositoryProvider);
+});
+
+final libraryTreeRepositoryProvider = Provider<LibraryTreeRepository>((ref) {
+  return ref.watch(localDirectoryLibraryRepositoryProvider);
+});
+
+final documentRepositoryProvider = Provider<DocumentRepository>((ref) {
+  return ref.watch(localDirectoryLibraryRepositoryProvider);
+});
+
+final workspaceSessionRepositoryProvider = Provider<WorkspaceSessionRepository>(
+  (ref) => const SharedPreferencesWorkspaceSessionRepository(),
+);
+
+final libraryWorkspaceServiceProvider = Provider<LibraryWorkspaceService>((
+  ref,
+) {
+  return LibraryWorkspaceService(
+    treeRepository: ref.watch(libraryTreeRepositoryProvider),
+    documentRepository: ref.watch(documentRepositoryProvider),
+    sessionRepository: ref.watch(workspaceSessionRepositoryProvider),
   );
 });
+
+final workspaceControllerProvider = Provider.autoDispose
+    .family<WorkspaceController, LibrarySession>((ref, session) {
+      final controller = WorkspaceController(
+        session: session,
+        service: ref.watch(libraryWorkspaceServiceProvider),
+      );
+      ref.onDispose(controller.dispose);
+      return controller;
+    });
 
 final libraryBootstrapServiceProvider = Provider<LibraryBootstrapService>((
   ref,

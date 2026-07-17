@@ -22,6 +22,7 @@ dependencies:
     path: ../../packages/lore_storage
   lore_ui:
     path: ../../packages/lore_ui
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:

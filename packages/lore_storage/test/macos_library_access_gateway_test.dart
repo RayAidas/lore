@@ -63,4 +63,98 @@ void main() {
       ),
     );
   });
+
+  test('invokes native no-replace rename', () async {
+    MethodCall? received;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      received = call;
+      return null;
+    });
+    final gateway = MacOsLibraryFileOperationsGateway(channel: channel);
+
+    await gateway.rename(
+      const LibraryAccess(
+        token: '/tmp/library',
+        displayPath: '/tmp/library',
+        isPending: false,
+      ),
+      sourcePath: '旧名.md',
+      targetPath: '新名.md',
+    );
+
+    expect(received?.method, 'renameLibraryEntry');
+    expect(received?.arguments, {'sourcePath': '旧名.md', 'targetPath': '新名.md'});
+  });
+
+  test('maps native rename conflicts', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      throw PlatformException(code: 'name_conflict', message: 'exists');
+    });
+    final gateway = MacOsLibraryFileOperationsGateway(channel: channel);
+
+    await expectLater(
+      gateway.rename(
+        const LibraryAccess(
+          token: '/tmp/library',
+          displayPath: '/tmp/library',
+          isPending: false,
+        ),
+        sourcePath: '旧名.md',
+        targetPath: '新名.md',
+      ),
+      throwsA(
+        isA<LibraryOperationException>().having(
+          (error) => error.failure.code,
+          'code',
+          LibraryFailureCode.alreadyExists,
+        ),
+      ),
+    );
+  });
+
+  test('coordinates document replacement with an expected revision', () async {
+    MethodCall? received;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      received = call;
+      return true;
+    });
+    final gateway = MacOsLibraryFileOperationsGateway(channel: channel);
+
+    final replaced = await gateway.replaceDocument(
+      const LibraryAccess(
+        token: '/tmp/library',
+        displayPath: '/tmp/library',
+        isPending: false,
+      ),
+      relativePath: '章节.txt',
+      expectedRevision: 'revision-1',
+      bytes: Uint8List.fromList([1, 2, 3]),
+    );
+
+    expect(replaced, isTrue);
+    expect(received?.method, 'replaceLibraryDocument');
+    expect(received?.arguments, {
+      'relativePath': '章节.txt',
+      'expectedRevision': 'revision-1',
+      'bytes': Uint8List.fromList([1, 2, 3]),
+    });
+  });
+
+  test('reports a coordinated replacement conflict', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async => false);
+    final gateway = MacOsLibraryFileOperationsGateway(channel: channel);
+
+    final replaced = await gateway.replaceDocument(
+      const LibraryAccess(
+        token: '/tmp/library',
+        displayPath: '/tmp/library',
+        isPending: false,
+      ),
+      relativePath: '章节.txt',
+      expectedRevision: 'revision-1',
+      bytes: Uint8List(0),
+    );
+
+    expect(replaced, isFalse);
+  });
 }

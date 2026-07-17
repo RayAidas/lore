@@ -6,6 +6,11 @@ enum LibraryFailureCode {
   unsupportedSchema,
   invalidLocation,
   platformUnsupported,
+  invalidName,
+  alreadyExists,
+  unsupportedFormat,
+  unsupportedEncoding,
+  externalModification,
   io,
 }
 

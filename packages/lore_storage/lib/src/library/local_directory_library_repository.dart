@@ -1,14 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:path/path.dart' as p;
 
-final class LocalDirectoryLibraryRepository implements LibraryRepository {
+final class LocalDirectoryLibraryRepository
+    implements LibraryRepository, LibraryTreeRepository, DocumentRepository {
   const LocalDirectoryLibraryRepository({
     required this._idGenerator,
     required this._clock,
+    this.fileOperationsGateway,
   });
 
   static const _schemaVersion = 1;
@@ -17,6 +21,7 @@ final class LocalDirectoryLibraryRepository implements LibraryRepository {
 
   final IdGenerator _idGenerator;
   final Clock _clock;
+  final LibraryFileOperationsGateway? fileOperationsGateway;
 
   @override
   Future<LibraryInspection> inspect(LibraryAccess access) async {
@@ -186,6 +191,14 @@ final class LocalDirectoryLibraryRepository implements LibraryRepository {
   }) async {
     try {
       final rootPath = await _resolveRoot(access);
+      if (relativePath.isNotEmpty && _isHiddenPath(relativePath)) {
+        throw const LibraryOperationException(
+          LibraryFailure(
+            code: LibraryFailureCode.invalidLocation,
+            message: '不能访问书库内部目录。',
+          ),
+        );
+      }
       final directoryPath = await _resolveChildPath(rootPath, relativePath);
       final directory = Directory(directoryPath);
       if (!await directory.exists()) {
@@ -228,6 +241,246 @@ final class LocalDirectoryLibraryRepository implements LibraryRepository {
     }
   }
 
+  @override
+  Future<LibraryEntry> createDirectory(
+    LibraryAccess access, {
+    required String parentPath,
+    required String name,
+  }) async {
+    try {
+      final rootPath = await _resolveRoot(access);
+      final parent = await _resolveExistingDirectory(rootPath, parentPath);
+      final validName = _validateName(name);
+      final targetPath = p.join(parent, validName);
+      if (await FileSystemEntity.type(targetPath, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        throw _alreadyExists(validName);
+      }
+      await Directory(targetPath).create();
+      return _entryForPath(
+        rootPath,
+        targetPath,
+        FileSystemEntityType.directory,
+      );
+    } on LibraryOperationException {
+      rethrow;
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+  }
+
+  @override
+  Future<LibraryEntry> createDocument(
+    LibraryAccess access, {
+    required String parentPath,
+    required String name,
+    required DocumentFormat format,
+    String initialText = '',
+  }) async {
+    String? createdPath;
+    try {
+      final rootPath = await _resolveRoot(access);
+      final parent = await _resolveExistingDirectory(rootPath, parentPath);
+      final fileName = _documentFileName(name, format);
+      final targetPath = p.join(parent, fileName);
+      final file = File(targetPath);
+      try {
+        await file.create(exclusive: true);
+        createdPath = targetPath;
+      } on PathExistsException {
+        throw _alreadyExists(fileName);
+      }
+      await file.writeAsBytes(utf8.encode(initialText), flush: true);
+      createdPath = null;
+      return _entryForPath(rootPath, targetPath, FileSystemEntityType.file);
+    } on LibraryOperationException {
+      rethrow;
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
+    } finally {
+      if (createdPath != null) {
+        await _deleteFileSafely(createdPath);
+      }
+    }
+  }
+
+  @override
+  Future<LibraryEntry> renameEntry(
+    LibraryAccess access, {
+    required String relativePath,
+    required String newName,
+  }) async {
+    try {
+      final rootPath = await _resolveRoot(access);
+      final sourcePath = await _resolveExistingEntity(rootPath, relativePath);
+      final sourceType = await FileSystemEntity.type(
+        sourcePath,
+        followLinks: false,
+      );
+      final currentName = p.basename(sourcePath);
+      final validName = sourceType == FileSystemEntityType.file
+          ? _renamedDocumentName(currentName, newName)
+          : _validateName(newName);
+      if (validName == currentName) {
+        return _entryForPath(rootPath, sourcePath, sourceType);
+      }
+
+      final targetPath = p.join(p.dirname(sourcePath), validName);
+      final targetType = await FileSystemEntity.type(
+        targetPath,
+        followLinks: false,
+      );
+      final caseOnlyRename =
+          targetType != FileSystemEntityType.notFound &&
+          p.equals(targetPath.toLowerCase(), sourcePath.toLowerCase());
+      if (targetType != FileSystemEntityType.notFound && !caseOnlyRename) {
+        throw _alreadyExists(validName);
+      }
+
+      final renamedPath = caseOnlyRename
+          ? await _renameChangingCase(
+              access,
+              rootPath,
+              sourcePath,
+              targetPath,
+              sourceType,
+            )
+          : await _renameEntity(
+              access,
+              rootPath,
+              sourcePath,
+              targetPath,
+              sourceType,
+            );
+      return _entryForPath(rootPath, renamedPath, sourceType);
+    } on LibraryOperationException {
+      rethrow;
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+  }
+
+  @override
+  Future<DocumentSnapshot> readDocument(
+    LibraryAccess access,
+    DocumentRef ref,
+  ) async {
+    try {
+      final rootPath = await _resolveRoot(access);
+      final filePath = await _resolveExistingFile(rootPath, ref.relativePath);
+      _validateDocumentFormat(filePath, ref.format);
+      return _readSnapshot(filePath, ref);
+    } on LibraryOperationException {
+      rethrow;
+    } on FormatException {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.unsupportedEncoding,
+          message: '文件不是有效的 UTF-8 文本。',
+        ),
+      );
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+  }
+
+  @override
+  Future<DocumentSaveResult> saveDocument(
+    LibraryAccess access, {
+    required DocumentSnapshot original,
+    required String text,
+  }) async {
+    String? temporaryPath;
+    try {
+      final rootPath = await _resolveRoot(access);
+      final filePath = await _resolveExistingFile(
+        rootPath,
+        original.ref.relativePath,
+      );
+      _validateDocumentFormat(filePath, original.ref.format);
+      final current = await _readSnapshot(filePath, original.ref);
+      if (current.revision != original.revision) {
+        return DocumentSaveConflict(current);
+      }
+
+      final bytes = _encodeDocument(original, text);
+      final gateway = fileOperationsGateway;
+      if (gateway != null) {
+        final replaced = await gateway.replaceDocument(
+          access,
+          relativePath: original.ref.relativePath,
+          expectedRevision: original.revision.value,
+          bytes: Uint8List.fromList(bytes),
+        );
+        if (!replaced) {
+          return DocumentSaveConflict(
+            await _readSnapshot(filePath, original.ref),
+          );
+        }
+        return DocumentSaveSuccess(
+          _savedSnapshot(original: original, text: text, bytes: bytes),
+        );
+      }
+      temporaryPath = p.join(
+        p.dirname(filePath),
+        '.${p.basename(filePath)}.tmp-${_idGenerator.generate()}',
+      );
+      final temporaryFile = File(temporaryPath);
+      await temporaryFile.writeAsBytes(bytes, flush: true);
+
+      final latest = await _readSnapshot(filePath, original.ref);
+      if (latest.revision != original.revision) {
+        return DocumentSaveConflict(latest);
+      }
+      await temporaryFile.rename(filePath);
+      temporaryPath = null;
+      return DocumentSaveSuccess(
+        _savedSnapshot(original: original, text: text, bytes: bytes),
+      );
+    } on LibraryOperationException {
+      rethrow;
+    } on FormatException {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.unsupportedEncoding,
+          message: '文件不是有效的 UTF-8 文本。',
+        ),
+      );
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
+    } finally {
+      if (temporaryPath != null) {
+        await _deleteFileSafely(temporaryPath);
+      }
+    }
+  }
+
+  @override
+  Stream<DocumentChange> watchDocuments(LibraryAccess access) async* {
+    final rootPath = await _resolveRoot(access);
+    await for (final event in Directory(rootPath).watch(recursive: true)) {
+      final relativePath = p.relative(event.path, from: rootPath);
+      if (_isHiddenPath(relativePath)) {
+        continue;
+      }
+      final type = switch (event) {
+        FileSystemCreateEvent() => DocumentChangeType.created,
+        FileSystemDeleteEvent() => DocumentChangeType.deleted,
+        FileSystemMoveEvent() => DocumentChangeType.moved,
+        _ => DocumentChangeType.modified,
+      };
+      yield DocumentChange(relativePath: relativePath, type: type);
+      if (event case FileSystemMoveEvent(
+        :final destination?,
+      ) when p.isWithin(rootPath, destination)) {
+        yield DocumentChange(
+          relativePath: p.relative(destination, from: rootPath),
+          type: DocumentChangeType.created,
+        );
+      }
+    }
+  }
+
   Future<String> _resolveRoot(LibraryAccess access) async {
     final directory = Directory(p.normalize(p.absolute(access.token)));
     if (!await directory.exists()) {
@@ -248,6 +501,78 @@ final class LocalDirectoryLibraryRepository implements LibraryRepository {
       );
     }
     return rootPath;
+  }
+
+  Future<String> _resolveExistingDirectory(
+    String rootPath,
+    String relativePath,
+  ) async {
+    if (relativePath.isNotEmpty && _isHiddenPath(relativePath)) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.invalidLocation,
+          message: '不能操作书库内部目录。',
+        ),
+      );
+    }
+    final path = await _resolveChildPath(rootPath, relativePath);
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type != FileSystemEntityType.directory) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.notFound,
+          message: '目录不存在或已被移动。',
+        ),
+      );
+    }
+    return path;
+  }
+
+  Future<String> _resolveExistingFile(
+    String rootPath,
+    String relativePath,
+  ) async {
+    final path = await _resolveExistingEntity(rootPath, relativePath);
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type != FileSystemEntityType.file) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.notFound,
+          message: '文件不存在或已被移动。',
+        ),
+      );
+    }
+    return path;
+  }
+
+  Future<String> _resolveExistingEntity(
+    String rootPath,
+    String relativePath,
+  ) async {
+    if (_isHiddenPath(relativePath)) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.invalidLocation,
+          message: '不能操作书库内部文件。',
+        ),
+      );
+    }
+    final path = await _resolveChildPath(rootPath, relativePath);
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) {
+      throw const LibraryOperationException(
+        LibraryFailure(code: LibraryFailureCode.notFound, message: '文件或目录不存在。'),
+      );
+    }
+    if (type == FileSystemEntityType.link) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.invalidLocation,
+          message: '不能操作符号链接。',
+        ),
+      );
+    }
+    return path;
   }
 
   Future<String> _resolveChildPath(String rootPath, String relativePath) async {
@@ -304,6 +629,232 @@ final class LocalDirectoryLibraryRepository implements LibraryRepository {
     return p.join(rootPath, _metadataDirectoryName, _manifestFileName);
   }
 
+  String _validateName(String name) {
+    final value = name.trim();
+    if (value.isEmpty ||
+        value == '.' ||
+        value == '..' ||
+        value.startsWith('.') ||
+        value.contains('/') ||
+        value.contains('\\') ||
+        value.contains('\u0000')) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.invalidName,
+          message: '名称无效，请勿使用空名称、隐藏名称或路径分隔符。',
+        ),
+      );
+    }
+    return value;
+  }
+
+  String _documentFileName(String name, DocumentFormat format) {
+    final value = _validateName(name);
+    final extension = switch (format) {
+      DocumentFormat.text => '.txt',
+      DocumentFormat.markdown => '.md',
+    };
+    final existingExtension = p.extension(value);
+    if (existingExtension.isEmpty) {
+      return '$value$extension';
+    }
+    if (existingExtension.toLowerCase() != extension) {
+      throw LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.invalidName,
+          message: '文件名必须使用 $extension 扩展名。',
+        ),
+      );
+    }
+    return value;
+  }
+
+  String _renamedDocumentName(String currentName, String newName) {
+    final extension = p.extension(currentName);
+    final value = _validateName(newName);
+    if (p.extension(value).isNotEmpty) {
+      if (p.extension(value).toLowerCase() != extension.toLowerCase()) {
+        throw LibraryOperationException(
+          LibraryFailure(
+            code: LibraryFailureCode.invalidName,
+            message: '重命名不能修改 $extension 扩展名。',
+          ),
+        );
+      }
+      return value;
+    }
+    return '$value$extension';
+  }
+
+  void _validateDocumentFormat(String filePath, DocumentFormat format) {
+    final expected = switch (format) {
+      DocumentFormat.text => '.txt',
+      DocumentFormat.markdown => '.md',
+    };
+    if (p.extension(filePath).toLowerCase() != expected) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.unsupportedFormat,
+          message: '当前文件格式不支持文本编辑。',
+        ),
+      );
+    }
+  }
+
+  Future<DocumentSnapshot> _readSnapshot(
+    String filePath,
+    DocumentRef ref,
+  ) async {
+    final bytes = await File(filePath).readAsBytes();
+    final hasBom =
+        bytes.length >= 3 &&
+        bytes[0] == 0xef &&
+        bytes[1] == 0xbb &&
+        bytes[2] == 0xbf;
+    final text = utf8.decode(hasBom ? bytes.sublist(3) : bytes);
+    final lineEnding = _lineEnding(text);
+    return DocumentSnapshot(
+      ref: ref,
+      text: lineEnding == LineEnding.crlf
+          ? text.replaceAll('\r\n', '\n')
+          : text,
+      encoding: hasBom ? TextEncoding.utf8Bom : TextEncoding.utf8,
+      lineEnding: lineEnding,
+      revision: _revision(bytes),
+    );
+  }
+
+  List<int> _encodeDocument(DocumentSnapshot original, String text) {
+    final normalized = switch (original.lineEnding) {
+      LineEnding.crlf =>
+        text
+            .replaceAll('\r\n', '\n')
+            .replaceAll('\r', '\n')
+            .replaceAll('\n', '\r\n'),
+      LineEnding.lf => text.replaceAll('\r\n', '\n').replaceAll('\r', '\n'),
+      LineEnding.mixed => text,
+    };
+    return [
+      if (original.encoding == TextEncoding.utf8Bom) ...const [
+        0xef,
+        0xbb,
+        0xbf,
+      ],
+      ...utf8.encode(normalized),
+    ];
+  }
+
+  DocumentSnapshot _savedSnapshot({
+    required DocumentSnapshot original,
+    required String text,
+    required List<int> bytes,
+  }) {
+    return DocumentSnapshot(
+      ref: original.ref,
+      text: text,
+      encoding: original.encoding,
+      lineEnding: original.lineEnding,
+      revision: _revision(bytes),
+    );
+  }
+
+  LineEnding _lineEnding(String text) {
+    final withoutCrLf = text.replaceAll('\r\n', '');
+    final hasCrLf = text.contains('\r\n');
+    final hasOtherBreak =
+        withoutCrLf.contains('\n') || withoutCrLf.contains('\r');
+    if (hasCrLf && !hasOtherBreak) {
+      return LineEnding.crlf;
+    }
+    if (!hasCrLf && !withoutCrLf.contains('\r')) {
+      return LineEnding.lf;
+    }
+    return LineEnding.mixed;
+  }
+
+  DocumentRevision _revision(List<int> bytes) {
+    return DocumentRevision(sha256.convert(bytes).toString());
+  }
+
+  LibraryEntry _entryForPath(
+    String rootPath,
+    String entityPath,
+    FileSystemEntityType type,
+  ) {
+    final name = p.basename(entityPath);
+    return LibraryEntry(
+      name: name,
+      relativePath: p.relative(entityPath, from: rootPath),
+      type: _entryType(name, type),
+    );
+  }
+
+  Future<String> _renameEntity(
+    LibraryAccess access,
+    String rootPath,
+    String sourcePath,
+    String targetPath,
+    FileSystemEntityType type,
+  ) async {
+    final gateway = fileOperationsGateway;
+    if (gateway != null) {
+      await gateway.rename(
+        access,
+        sourcePath: p.relative(sourcePath, from: rootPath),
+        targetPath: p.relative(targetPath, from: rootPath),
+      );
+      return targetPath;
+    }
+    if (type == FileSystemEntityType.directory) {
+      return (await Directory(sourcePath).rename(targetPath)).path;
+    }
+    return (await File(sourcePath).rename(targetPath)).path;
+  }
+
+  Future<String> _renameChangingCase(
+    LibraryAccess access,
+    String rootPath,
+    String sourcePath,
+    String targetPath,
+    FileSystemEntityType type,
+  ) async {
+    final temporaryPath = p.join(
+      p.dirname(sourcePath),
+      '.lore-rename-${_idGenerator.generate()}',
+    );
+    await _renameEntity(access, rootPath, sourcePath, temporaryPath, type);
+    try {
+      return await _renameEntity(
+        access,
+        rootPath,
+        temporaryPath,
+        targetPath,
+        type,
+      );
+    } on FileSystemException {
+      await _renameEntity(access, rootPath, temporaryPath, sourcePath, type);
+      rethrow;
+    } on LibraryOperationException {
+      await _renameEntity(access, rootPath, temporaryPath, sourcePath, type);
+      rethrow;
+    }
+  }
+
+  LibraryOperationException _alreadyExists(String name) {
+    return LibraryOperationException(
+      LibraryFailure(
+        code: LibraryFailureCode.alreadyExists,
+        message: '“$name”已存在。',
+      ),
+    );
+  }
+
+  bool _isHiddenPath(String relativePath) {
+    return p
+        .split(p.normalize(relativePath))
+        .any((component) => component.startsWith('.'));
+  }
+
   Map<String, Object?> _toJson(LibraryMetadata metadata) {
     return {
       'schemaVersion': metadata.schemaVersion,
@@ -327,11 +878,23 @@ final class LocalDirectoryLibraryRepository implements LibraryRepository {
   LibraryFailure _fileSystemFailure(FileSystemException error) {
     final errorCode = error.osError?.errorCode;
     final permissionDenied = errorCode == 1 || errorCode == 13;
+    final notFound = errorCode == 2;
+    final alreadyExists = errorCode == 17;
     return LibraryFailure(
       code: permissionDenied
           ? LibraryFailureCode.notWritable
+          : notFound
+          ? LibraryFailureCode.notFound
+          : alreadyExists
+          ? LibraryFailureCode.alreadyExists
           : LibraryFailureCode.io,
-      message: permissionDenied ? '没有权限写入书库目录。' : '书库文件操作失败。',
+      message: permissionDenied
+          ? '没有权限写入书库目录。'
+          : notFound
+          ? '文件或目录不存在。'
+          : alreadyExists
+          ? '目标名称已存在。'
+          : '书库文件操作失败。',
     );
   }
 
