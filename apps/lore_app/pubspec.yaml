@@ -1,0 +1,29 @@
+name: lore_app
+description: Lore desktop and mobile application.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  lore_application:
+    path: ../../packages/lore_application
+  lore_editor:
+    path: ../../packages/lore_editor
+  lore_storage:
+    path: ../../packages/lore_storage
+  lore_ui:
+    path: ../../packages/lore_ui
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

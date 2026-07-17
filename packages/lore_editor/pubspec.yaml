@@ -1,0 +1,15 @@
+name: lore_editor
+description: Text editor abstractions and widgets for Lore.
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+

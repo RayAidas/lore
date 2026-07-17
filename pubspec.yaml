@@ -1,0 +1,15 @@
+name: lore_workspace
+description: Lore monorepo workspace.
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+workspace:
+  - apps/lore_app
+  - packages/lore_domain
+  - packages/lore_application
+  - packages/lore_storage
+  - packages/lore_editor
+  - packages/lore_ui
+

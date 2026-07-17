@@ -1,0 +1,9 @@
+name: lore_domain
+description: Core domain models and rules for Lore.
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+

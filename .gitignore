@@ -1,0 +1,15 @@
+.DS_Store
+
+.claude
+.omc
+.codex
+
+# Dart and Flutter
+**/.dart_tool/
+**/.flutter-plugins-dependencies
+**/build/
+**/coverage/
+
+# IDE
+.idea/
+*.iml

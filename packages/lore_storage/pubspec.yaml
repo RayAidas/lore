@@ -1,0 +1,19 @@
+name: lore_storage
+description: Local storage adapters for Lore.
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  lore_application:
+    path: ../lore_application
+  lore_domain:
+    path: ../lore_domain
+
+flutter:
+
