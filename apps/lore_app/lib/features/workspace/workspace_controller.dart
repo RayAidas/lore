@@ -69,7 +69,11 @@ final class OpenDocument extends WorkspaceTab {
 }
 
 final class WorkspaceController extends ChangeNotifier {
-  WorkspaceController({required this.session, required this.service});
+  WorkspaceController({
+    required this.session,
+    required this.service,
+    this.novelStructureService,
+  });
 
   static const _autoSaveDelay = Duration(milliseconds: 800);
   static const _sessionSaveDelay = Duration(milliseconds: 500);
@@ -78,13 +82,18 @@ final class WorkspaceController extends ChangeNotifier {
 
   final LibrarySession session;
   final LibraryWorkspaceService service;
+  final NovelStructureService? novelStructureService;
   final List<WorkspaceTab> _tabs = [];
   final Map<String, Timer> _externalChangeTimers = {};
+  final Map<String, Timer> _structureChangeTimers = {};
+  final List<NovelSnapshot> _novels = [];
+  final List<ReconciliationIssue> _reconciliationIssues = [];
 
   StreamSubscription<DocumentChange>? _changeSubscription;
   Timer? _sessionSaveTimer;
   String? _activePath;
   String? _selectedPath;
+  LibraryEntry? _selectedEntry;
   bool _initialized = false;
   bool _disposed = false;
   int _treeRevision = 0;
@@ -97,6 +106,29 @@ final class WorkspaceController extends ChangeNotifier {
   String? get activePath => _activePath;
 
   String? get selectedPath => _selectedPath;
+
+  LibraryEntry? get selectedEntry => _selectedEntry;
+
+  List<NovelSnapshot> get novels => List.unmodifiable(_novels);
+
+  List<ReconciliationIssue> get reconciliationIssues =>
+      List.unmodifiable(_reconciliationIssues);
+
+  NovelSnapshot? get selectedNovel {
+    final novelId = _selectedEntry?.novelId;
+    return _novels
+        .where((novel) => novel.metadata.id.value == novelId)
+        .firstOrNull;
+  }
+
+  ContentNode? get selectedContentNode {
+    final entry = _selectedEntry;
+    final novel = selectedNovel;
+    if (entry?.semanticId == null || novel == null) {
+      return null;
+    }
+    return novel.contentTree.nodeById(ContentId(entry!.semanticId!));
+  }
 
   int get treeRevision => _treeRevision;
 
@@ -136,8 +168,10 @@ final class WorkspaceController extends ChangeNotifier {
     _changeSubscription = service
         .watchDocuments(session)
         .listen(_handleDocumentChange, onError: (_) {});
+    await _loadNovelStructures();
     _initialized = true;
     _notify();
+    unawaited(_reconcileLoadedNovels());
     final activeTab = _tabForPath(_activePath);
     if (activeTab != null) {
       await activateTab(activeTab);
@@ -146,6 +180,13 @@ final class WorkspaceController extends ChangeNotifier {
 
   void selectPath(String relativePath) {
     _selectedPath = relativePath;
+    _selectedEntry = null;
+    _notify();
+  }
+
+  void selectEntry(LibraryEntry entry) {
+    _selectedPath = entry.relativePath;
+    _selectedEntry = entry;
     _notify();
   }
 
@@ -156,6 +197,122 @@ final class WorkspaceController extends ChangeNotifier {
 
   Future<List<LibraryEntry>> listChildren({String relativePath = ''}) {
     return service.listChildren(session, relativePath: relativePath);
+  }
+
+  Future<NovelStructureMutation> createNovel(String title) async {
+    final structureService = _requireNovelStructureService();
+    final mutation = await structureService.createNovel(session, title: title);
+    _replaceNovel(mutation.snapshot);
+    _selectedEntry = mutation.entry;
+    _selectedPath = mutation.entry.relativePath;
+    _treeRevision += 1;
+    _notify();
+    return mutation;
+  }
+
+  Future<NovelStructureMutation> registerExistingNovel(String path) async {
+    final mutation = await _requireNovelStructureService()
+        .registerExistingNovel(session, relativePath: path);
+    _replaceNovel(mutation.snapshot);
+    _selectedEntry = mutation.entry;
+    _selectedPath = mutation.entry.relativePath;
+    _treeRevision += 1;
+    _notify();
+    return mutation;
+  }
+
+  Future<NovelStructureMutation> createVolume(NovelId novelId) async {
+    final mutation = await _requireNovelStructureService().createVolume(
+      session,
+      novelId: novelId,
+    );
+    _applyStructureMutation(mutation);
+    return mutation;
+  }
+
+  Future<NovelStructureMutation> renameNovel(
+    NovelId novelId,
+    String newName,
+  ) async {
+    final mutation = await _requireNovelStructureService().renameNovel(
+      session,
+      novelId: novelId,
+      newName: newName,
+    );
+    _applyStructureMutation(mutation);
+    return mutation;
+  }
+
+  Future<NovelStructureMutation> renameBody(
+    NovelId novelId,
+    String newName,
+  ) async {
+    final mutation = await _requireNovelStructureService().renameBody(
+      session,
+      novelId: novelId,
+      newName: newName,
+    );
+    _applyStructureMutation(mutation);
+    return mutation;
+  }
+
+  Future<NovelStructureMutation> createChapter(
+    NovelId novelId, {
+    ContentId? volumeId,
+  }) async {
+    final mutation = await _requireNovelStructureService().createChapter(
+      session,
+      novelId: novelId,
+      volumeId: volumeId,
+    );
+    _applyStructureMutation(mutation);
+    await openPath(mutation.entry.relativePath);
+    return mutation;
+  }
+
+  Future<NovelStructureMutation> renameContentNode(
+    NovelId novelId,
+    ContentId nodeId,
+    String newName,
+  ) async {
+    final mutation = await _requireNovelStructureService().renameNode(
+      session,
+      novelId: novelId,
+      nodeId: nodeId,
+      newName: newName,
+    );
+    _applyStructureMutation(mutation);
+    return mutation;
+  }
+
+  Future<NovelStructureMutation> moveChapter(
+    NovelId novelId,
+    ContentId chapterId, {
+    ContentId? volumeId,
+  }) async {
+    final mutation = await _requireNovelStructureService().moveChapter(
+      session,
+      novelId: novelId,
+      chapterId: chapterId,
+      volumeId: volumeId,
+    );
+    _applyStructureMutation(mutation);
+    return mutation;
+  }
+
+  Future<NovelStructureMutation> reorderContentNode(
+    NovelId novelId,
+    ContentId nodeId,
+    int newIndex,
+  ) async {
+    final mutation = await _requireNovelStructureService().reorderNode(
+      session,
+      novelId: novelId,
+      nodeId: nodeId,
+      newIndex: newIndex,
+    );
+    _applyStructureMutation(mutation);
+    return mutation;
   }
 
   Future<void> openPath(String relativePath) async {
@@ -183,6 +340,7 @@ final class WorkspaceController extends ChangeNotifier {
       parentPath: parentPath,
       name: name,
     );
+    _selectedEntry = entry;
     _selectedPath = entry.relativePath;
     _treeRevision += 1;
     _notify();
@@ -200,6 +358,8 @@ final class WorkspaceController extends ChangeNotifier {
       name: name,
       format: format,
     );
+    _selectedEntry = entry;
+    _selectedPath = entry.relativePath;
     _treeRevision += 1;
     await openPath(entry.relativePath);
     return entry;
@@ -221,6 +381,7 @@ final class WorkspaceController extends ChangeNotifier {
       newName: newName,
     );
     _updatePathsAfterRename(sourcePath, entry.relativePath);
+    _selectedEntry = entry;
     _selectedPath = entry.relativePath;
     _treeRevision += 1;
     _scheduleSessionSave();
@@ -550,6 +711,12 @@ final class WorkspaceController extends ChangeNotifier {
     final treeChanged = change.type != DocumentChangeType.modified;
     if (treeChanged) {
       _treeRevision += 1;
+      for (final novel in _novels) {
+        if (change.relativePath == novel.rootPath ||
+            p.isWithin(novel.rootPath, change.relativePath)) {
+          _scheduleStructureReconciliation(novel.metadata.id);
+        }
+      }
     }
     final affectedDocuments = documents.where((document) {
       if (document.relativePath == change.relativePath) {
@@ -615,6 +782,104 @@ final class WorkspaceController extends ChangeNotifier {
       return;
     }
     document.saveStatus = DocumentSaveStatus.error;
+  }
+
+  Future<void> _loadNovelStructures() async {
+    final structureService = novelStructureService;
+    if (structureService == null) {
+      return;
+    }
+    try {
+      final loaded = await structureService.listNovels(session);
+      _novels
+        ..clear()
+        ..addAll(loaded);
+    } on LibraryOperationException catch (error) {
+      _workspaceFailure = error.failure;
+    }
+  }
+
+  Future<void> _reconcileLoadedNovels() async {
+    for (final novel in List<NovelSnapshot>.of(_novels)) {
+      if (_disposed) {
+        return;
+      }
+      await _reconcileNovel(novel.metadata.id);
+    }
+  }
+
+  NovelStructureService _requireNovelStructureService() {
+    final structureService = novelStructureService;
+    if (structureService == null) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.platformUnsupported,
+          message: '当前工作区未启用小说结构管理。',
+        ),
+      );
+    }
+    return structureService;
+  }
+
+  void _replaceNovel(NovelSnapshot snapshot) {
+    final index = _novels.indexWhere(
+      (novel) => novel.metadata.id == snapshot.metadata.id,
+    );
+    if (index < 0) {
+      _novels.add(snapshot);
+    } else {
+      _novels[index] = snapshot;
+    }
+  }
+
+  void _applyStructureMutation(NovelStructureMutation mutation) {
+    _replaceNovel(mutation.snapshot);
+    for (final change in mutation.pathChanges) {
+      _updatePathsAfterRename(change.oldPath, change.newPath);
+    }
+    _selectedEntry = mutation.entry;
+    _selectedPath = mutation.entry.relativePath;
+    _treeRevision += 1;
+    _scheduleSessionSave();
+    _notify();
+  }
+
+  void _scheduleStructureReconciliation(NovelId novelId) {
+    final key = novelId.value;
+    _structureChangeTimers[key]?.cancel();
+    _structureChangeTimers[key] = Timer(_externalChangeDelay, () {
+      unawaited(_reconcileNovel(novelId));
+    });
+  }
+
+  Future<void> _reconcileNovel(NovelId novelId) async {
+    final structureService = novelStructureService;
+    if (structureService == null || _disposed) {
+      return;
+    }
+    try {
+      final result = await structureService.reconcile(
+        session,
+        novelId: novelId,
+      );
+      _replaceNovel(result.snapshot);
+      _reconciliationIssues.removeWhere(
+        (issue) =>
+            issue.relativePath == null ||
+            _novels.any(
+              (novel) =>
+                  novel.metadata.id == novelId &&
+                  (issue.relativePath == novel.rootPath ||
+                      p.isWithin(novel.rootPath, issue.relativePath!)),
+            ),
+      );
+      _reconciliationIssues.addAll(result.issues);
+      _treeRevision += 1;
+      _notify();
+    } on LibraryOperationException catch (error) {
+      _workspaceFailure = error.failure;
+      _notify();
+    }
   }
 
   void _updatePathsAfterRename(String oldPath, String newPath) {
@@ -700,6 +965,9 @@ final class WorkspaceController extends ChangeNotifier {
     _disposed = true;
     _sessionSaveTimer?.cancel();
     for (final timer in _externalChangeTimers.values) {
+      timer.cancel();
+    }
+    for (final timer in _structureChangeTimers.values) {
       timer.cancel();
     }
     unawaited(_changeSubscription?.cancel());

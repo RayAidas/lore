@@ -1,4 +1,5 @@
 import 'library_id.dart';
+import 'novel.dart';
 
 final class LibraryMetadata {
   const LibraryMetadata({
@@ -6,10 +7,12 @@ final class LibraryMetadata {
     required this.id,
     required this.createdAt,
     required this.updatedAt,
+    this.novels = const [],
   });
 
   final int schemaVersion;
   final LibraryId id;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final List<NovelRegistration> novels;
 }

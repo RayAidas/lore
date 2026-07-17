@@ -30,8 +30,6 @@ final class LibraryWorkspacePage extends ConsumerStatefulWidget {
 final class _LibraryWorkspacePageState
     extends ConsumerState<LibraryWorkspacePage>
     with WidgetsBindingObserver {
-  LibraryEntry? _selectedEntry;
-
   WorkspaceController get _controller {
     return ref.read(workspaceControllerProvider(widget.session));
   }
@@ -47,7 +45,6 @@ final class _LibraryWorkspacePageState
   void didUpdateWidget(covariant LibraryWorkspacePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.session != widget.session) {
-      _selectedEntry = null;
       Future<void>.microtask(_controller.initialize);
     }
   }
@@ -144,6 +141,12 @@ final class _LibraryWorkspacePageState
               ),
               IconButton(
                 visualDensity: VisualDensity.compact,
+                tooltip: '新建小说',
+                onPressed: () => unawaited(_createNovel(controller)),
+                icon: const Icon(Icons.auto_stories_outlined, size: 20),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
                 tooltip: '新建文件夹',
                 onPressed: () => unawaited(_createDirectory(controller)),
                 icon: const Icon(Icons.create_new_folder_outlined, size: 20),
@@ -168,7 +171,7 @@ final class _LibraryWorkspacePageState
               IconButton(
                 visualDensity: VisualDensity.compact,
                 tooltip: '重命名',
-                onPressed: _selectedEntry == null
+                onPressed: controller.selectedEntry == null
                     ? null
                     : () => unawaited(_renameSelected(controller)),
                 icon: const Icon(Icons.drive_file_rename_outline, size: 20),
@@ -184,8 +187,7 @@ final class _LibraryWorkspacePageState
                   selectedPath: controller.selectedPath,
                   reloadToken: controller.treeRevision,
                   onSelected: (entry) {
-                    setState(() => _selectedEntry = entry);
-                    controller.selectPath(entry.relativePath);
+                    controller.selectEntry(entry);
                     if (!entry.isDirectory &&
                         entry.type != LibraryEntryType.otherFile) {
                       unawaited(_openPath(controller, entry.relativePath));
@@ -202,6 +204,16 @@ final class _LibraryWorkspacePageState
     if (!controller.initialized) {
       return const Center(child: CircularProgressIndicator());
     }
+    final selectedEntry = controller.selectedEntry;
+    final selectedNovel = controller.selectedNovel;
+    final showStructure =
+        selectedNovel != null &&
+        switch (selectedEntry?.semanticKind) {
+          LibraryEntrySemanticKind.novel ||
+          LibraryEntrySemanticKind.body ||
+          LibraryEntrySemanticKind.volume => true,
+          _ => false,
+        };
     final activeDocument = controller.activeDocument;
     return Column(
       children: [
@@ -211,7 +223,14 @@ final class _LibraryWorkspacePageState
         ),
         const Divider(height: 1),
         Expanded(
-          child: activeDocument != null
+          child: showStructure
+              ? _NovelStructurePane(
+                  controller: controller,
+                  snapshot: selectedNovel,
+                  selectedEntry: selectedEntry!,
+                  onFailure: _showFailure,
+                )
+              : activeDocument != null
               ? _DocumentPane(
                   controller: controller,
                   document: activeDocument,
@@ -231,8 +250,8 @@ final class _LibraryWorkspacePageState
     );
   }
 
-  String _creationParentPath() {
-    final entry = _selectedEntry;
+  String _creationParentPath(WorkspaceController controller) {
+    final entry = controller.selectedEntry;
     if (entry == null) {
       return '';
     }
@@ -243,17 +262,55 @@ final class _LibraryWorkspacePageState
     return parent == '.' ? '' : parent;
   }
 
+  Future<void> _createNovel(WorkspaceController controller) async {
+    final title = await _promptName(title: '新建小说', label: '书名');
+    if (title == null) {
+      return;
+    }
+    try {
+      await controller.createNovel(title);
+    } on LibraryOperationException catch (error) {
+      if (error.failure.code != LibraryFailureCode.alreadyExists || !mounted) {
+        _showFailure(error.failure);
+        return;
+      }
+      final register = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('同名目录已存在'),
+          content: Text('是否将“${title.trim()}”注册为小说并扫描其中的正文？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('修改书名'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('注册现有目录'),
+            ),
+          ],
+        ),
+      );
+      if (register == true) {
+        try {
+          await controller.registerExistingNovel(title.trim());
+        } on LibraryOperationException catch (registerError) {
+          _showFailure(registerError.failure);
+        }
+      }
+    }
+  }
+
   Future<void> _createDirectory(WorkspaceController controller) async {
     final name = await _promptName(title: '新建文件夹', label: '文件夹名称');
     if (name == null) {
       return;
     }
     try {
-      final entry = await controller.createDirectory(
-        parentPath: _creationParentPath(),
+      await controller.createDirectory(
+        parentPath: _creationParentPath(controller),
         name: name,
       );
-      setState(() => _selectedEntry = entry);
     } on LibraryOperationException catch (error) {
       _showFailure(error.failure);
     }
@@ -273,19 +330,18 @@ final class _LibraryWorkspacePageState
       return;
     }
     try {
-      final entry = await controller.createDocument(
-        parentPath: _creationParentPath(),
+      await controller.createDocument(
+        parentPath: _creationParentPath(controller),
         name: name,
         format: format,
       );
-      setState(() => _selectedEntry = entry);
     } on LibraryOperationException catch (error) {
       _showFailure(error.failure);
     }
   }
 
   Future<void> _renameSelected(WorkspaceController controller) async {
-    final entry = _selectedEntry;
+    final entry = controller.selectedEntry;
     if (entry == null) {
       return;
     }
@@ -304,8 +360,21 @@ final class _LibraryWorkspacePageState
       return;
     }
     try {
-      final renamed = await controller.renameSelected(name);
-      setState(() => _selectedEntry = renamed);
+      final novelId = entry.novelId == null ? null : NovelId(entry.novelId!);
+      await switch (entry.semanticKind) {
+        LibraryEntrySemanticKind.novel when novelId != null =>
+          controller.renameNovel(novelId, name),
+        LibraryEntrySemanticKind.body when novelId != null =>
+          controller.renameBody(novelId, name),
+        LibraryEntrySemanticKind.volume || LibraryEntrySemanticKind.chapter
+            when novelId != null && entry.semanticId != null =>
+          controller.renameContentNode(
+            novelId,
+            ContentId(entry.semanticId!),
+            name,
+          ),
+        _ => controller.renameSelected(name),
+      };
     } on LibraryOperationException catch (error) {
       _showFailure(error.failure);
     }
@@ -316,32 +385,16 @@ final class _LibraryWorkspacePageState
     required String label,
     String initialValue = '',
     String? suffix,
-  }) async {
-    final textController = TextEditingController(text: initialValue);
-    final result = await showDialog<String>(
+  }) {
+    return showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: textController,
-          autofocus: true,
-          decoration: InputDecoration(labelText: label, suffixText: suffix),
-          onSubmitted: (value) => Navigator.of(context).pop(value),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(textController.text),
-            child: const Text('确认'),
-          ),
-        ],
+      builder: (context) => _NamePromptDialog(
+        title: title,
+        label: label,
+        initialValue: initialValue,
+        suffix: suffix,
       ),
     );
-    textController.dispose();
-    return result;
   }
 
   Future<void> _closeDocument(
@@ -417,6 +470,316 @@ final class _LibraryWorkspacePageState
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(failure.message)));
+  }
+}
+
+final class _NamePromptDialog extends StatefulWidget {
+  const _NamePromptDialog({
+    required this.title,
+    required this.label,
+    required this.initialValue,
+    this.suffix,
+  });
+
+  final String title;
+  final String label;
+  final String initialValue;
+  final String? suffix;
+
+  @override
+  State<_NamePromptDialog> createState() => _NamePromptDialogState();
+}
+
+final class _NamePromptDialogState extends State<_NamePromptDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: InputDecoration(
+          labelText: widget.label,
+          suffixText: widget.suffix,
+        ),
+        onSubmitted: (value) => Navigator.of(context).pop(value),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('确认'),
+        ),
+      ],
+    );
+  }
+}
+
+final class _NovelStructurePane extends StatelessWidget {
+  const _NovelStructurePane({
+    required this.controller,
+    required this.snapshot,
+    required this.selectedEntry,
+    required this.onFailure,
+  });
+
+  final WorkspaceController controller;
+  final NovelSnapshot snapshot;
+  final LibraryEntry selectedEntry;
+  final ValueChanged<LibraryFailure> onFailure;
+
+  ContentId get _parentId {
+    if (selectedEntry.semanticKind == LibraryEntrySemanticKind.volume) {
+      return ContentId(selectedEntry.semanticId!);
+    }
+    return snapshot.metadata.body.id;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final nodes = snapshot.contentTree.childrenOf(_parentId);
+    final isVolume =
+        selectedEntry.semanticKind == LibraryEntrySemanticKind.volume;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 16, 12),
+          child: Row(
+            children: [
+              Icon(
+                isVolume
+                    ? Icons.folder_copy_outlined
+                    : Icons.menu_book_outlined,
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isVolume ? selectedEntry.name : snapshot.metadata.title,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    Text(
+                      isVolume
+                          ? '${nodes.length} 章'
+                          : '${snapshot.contentTree.nodes.where((node) => node.type == ContentNodeType.volume).length} 卷 · ${snapshot.contentTree.nodes.where((node) => node.type == ContentNodeType.chapter).length} 章',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              if (!isVolume)
+                FilledButton.tonalIcon(
+                  onPressed: () =>
+                      _run(() => controller.createVolume(snapshot.metadata.id)),
+                  icon: const Icon(Icons.create_new_folder_outlined),
+                  label: const Text('新建卷'),
+                ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: () => _run(
+                  () => controller.createChapter(
+                    snapshot.metadata.id,
+                    volumeId: isVolume ? _parentId : null,
+                  ),
+                ),
+                icon: const Icon(Icons.note_add_outlined),
+                label: const Text('新建章'),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        if (controller.reconciliationIssues.isNotEmpty)
+          MaterialBanner(
+            content: Text(controller.reconciliationIssues.first.message),
+            actions: const [SizedBox.shrink()],
+          ),
+        Expanded(
+          child: nodes.isEmpty
+              ? Center(child: Text(isVolume ? '本卷还没有章节' : '正文还没有卷或章节'))
+              : ReorderableListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: nodes.length,
+                  onReorderItem: (oldIndex, newIndex) {
+                    _run(
+                      () => controller.reorderContentNode(
+                        snapshot.metadata.id,
+                        nodes[oldIndex].id,
+                        newIndex,
+                      ),
+                    );
+                  },
+                  itemBuilder: (context, index) {
+                    final node = nodes[index];
+                    return ListTile(
+                      key: ValueKey(node.id.value),
+                      leading: Icon(
+                        node.type == ContentNodeType.volume
+                            ? Icons.folder_copy_outlined
+                            : Icons.article_outlined,
+                      ),
+                      title: Text(p.basename(node.relativePath)),
+                      subtitle: Text(
+                        node.type == ContentNodeType.volume
+                            ? '${snapshot.contentTree.childrenOf(node.id).length} 章'
+                            : node.number == null
+                            ? '未编号章节'
+                            : '第 ${node.number} 章',
+                      ),
+                      onTap: () {
+                        final entry = _entryForNode(node);
+                        controller.selectEntry(entry);
+                        if (node.type == ContentNodeType.chapter) {
+                          unawaited(controller.openPath(entry.relativePath));
+                        }
+                      },
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: '上移',
+                            onPressed: index == 0
+                                ? null
+                                : () => _run(
+                                    () => controller.reorderContentNode(
+                                      snapshot.metadata.id,
+                                      node.id,
+                                      index - 1,
+                                    ),
+                                  ),
+                            icon: const Icon(Icons.keyboard_arrow_up),
+                          ),
+                          IconButton(
+                            tooltip: '下移',
+                            onPressed: index == nodes.length - 1
+                                ? null
+                                : () => _run(
+                                    () => controller.reorderContentNode(
+                                      snapshot.metadata.id,
+                                      node.id,
+                                      index + 1,
+                                    ),
+                                  ),
+                            icon: const Icon(Icons.keyboard_arrow_down),
+                          ),
+                          if (node.type == ContentNodeType.chapter)
+                            PopupMenuButton<String>(
+                              tooltip: '移动章节',
+                              onSelected: (target) => _run(
+                                () => controller.moveChapter(
+                                  snapshot.metadata.id,
+                                  node.id,
+                                  volumeId: target == 'body'
+                                      ? null
+                                      : ContentId(target),
+                                ),
+                              ),
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'body',
+                                  child: Text('移动到正文根级'),
+                                ),
+                                ...snapshot.contentTree.nodes
+                                    .where(
+                                      (candidate) =>
+                                          candidate.type ==
+                                          ContentNodeType.volume,
+                                    )
+                                    .map(
+                                      (volume) => PopupMenuItem(
+                                        value: volume.id.value,
+                                        child: Text(
+                                          '移动到 ${p.basename(volume.relativePath)}',
+                                        ),
+                                      ),
+                                    ),
+                              ],
+                              icon: const Icon(Icons.drive_file_move_outline),
+                            ),
+                          IconButton(
+                            tooltip: '重命名',
+                            onPressed: () => _rename(context, node),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                          const Icon(Icons.drag_handle),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  LibraryEntry _entryForNode(ContentNode node) {
+    final relativePath = p.join(snapshot.rootPath, node.relativePath);
+    return LibraryEntry(
+      name: p.basename(node.relativePath),
+      relativePath: relativePath,
+      type: node.type == ContentNodeType.volume
+          ? LibraryEntryType.directory
+          : p.extension(node.relativePath).toLowerCase() == '.txt'
+          ? LibraryEntryType.textFile
+          : LibraryEntryType.markdownFile,
+      semanticKind: node.type == ContentNodeType.volume
+          ? LibraryEntrySemanticKind.volume
+          : LibraryEntrySemanticKind.chapter,
+      semanticId: node.id.value,
+      novelId: snapshot.metadata.id.value,
+      semanticOrder: node.order,
+    );
+  }
+
+  Future<void> _rename(BuildContext context, ContentNode node) async {
+    final extension = node.type == ContentNodeType.chapter
+        ? p.extension(node.relativePath)
+        : null;
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => _NamePromptDialog(
+        title: node.type == ContentNodeType.volume ? '重命名卷' : '重命名章节',
+        label: '新名称',
+        initialValue: extension == null
+            ? p.basename(node.relativePath)
+            : p.basenameWithoutExtension(node.relativePath),
+        suffix: extension,
+      ),
+    );
+    if (name != null) {
+      await _run(
+        () => controller.renameContentNode(snapshot.metadata.id, node.id, name),
+      );
+    }
+  }
+
+  Future<void> _run(Future<Object?> Function() operation) async {
+    try {
+      await operation();
+    } on LibraryOperationException catch (error) {
+      onFailure(error.failure);
+    }
   }
 }
 
@@ -798,7 +1161,7 @@ final class _WorkspaceDirectoryState extends State<_WorkspaceDirectory> {
           }
           return ListTile(
             dense: true,
-            leading: Icon(_fileIcon(entry.type), size: 20),
+            leading: Icon(_entryIcon(entry), size: 20),
             title: Text(
               entry.name,
               maxLines: 1,
@@ -846,7 +1209,9 @@ final class _WorkspaceDirectoryTileState
       dense: true,
       initiallyExpanded: _expanded,
       leading: Icon(
-        _expanded ? Icons.folder_open_outlined : Icons.folder_outlined,
+        _expanded && widget.entry.semanticKind == null
+            ? Icons.folder_open_outlined
+            : _entryIcon(widget.entry),
         size: 20,
       ),
       title: Text(
@@ -878,8 +1243,18 @@ final class _WorkspaceDirectoryTileState
   }
 }
 
-IconData _fileIcon(LibraryEntryType type) {
-  return switch (type) {
+IconData _entryIcon(LibraryEntry entry) {
+  final semanticIcon = switch (entry.semanticKind) {
+    LibraryEntrySemanticKind.novel => Icons.auto_stories_outlined,
+    LibraryEntrySemanticKind.body => Icons.menu_book_outlined,
+    LibraryEntrySemanticKind.volume => Icons.folder_copy_outlined,
+    LibraryEntrySemanticKind.chapter => Icons.article_outlined,
+    null => null,
+  };
+  if (semanticIcon != null) {
+    return semanticIcon;
+  }
+  return switch (entry.type) {
     LibraryEntryType.directory => Icons.folder_outlined,
     LibraryEntryType.textFile => Icons.notes_outlined,
     LibraryEntryType.markdownFile => Icons.description_outlined,

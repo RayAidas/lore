@@ -17,7 +17,7 @@ docs/designs/              产品与技术设计文档
 
 未来的 Rust + Axum 服务端将加入同一 monorepo，但当前阶段保持客户端和本地存储优先。
 
-当前 macOS 版已支持本地书库选择、文件树、TXT/Markdown 创建与重命名、多标签编辑、Markdown 预览、安全自动保存和会话恢复。
+当前 macOS 版已支持本地书库选择、小说与正文注册、卷章创建和排序、文件树、TXT/Markdown 多标签编辑、Markdown 预览、安全自动保存和会话恢复。
 
 ## 开发环境
 

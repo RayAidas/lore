@@ -45,6 +45,21 @@ final documentRepositoryProvider = Provider<DocumentRepository>((ref) {
   return ref.watch(localDirectoryLibraryRepositoryProvider);
 });
 
+final novelRepositoryProvider = Provider<NovelRepository>((ref) {
+  return ref.watch(localDirectoryLibraryRepositoryProvider);
+});
+
+final contentTreeRepositoryProvider = Provider<ContentTreeRepository>((ref) {
+  return ref.watch(localDirectoryLibraryRepositoryProvider);
+});
+
+final novelStructureServiceProvider = Provider<NovelStructureService>((ref) {
+  return NovelStructureService(
+    novelRepository: ref.watch(novelRepositoryProvider),
+    contentTreeRepository: ref.watch(contentTreeRepositoryProvider),
+  );
+});
+
 final workspaceSessionRepositoryProvider = Provider<WorkspaceSessionRepository>(
   (ref) => const SharedPreferencesWorkspaceSessionRepository(),
 );
@@ -64,6 +79,7 @@ final workspaceControllerProvider = Provider.autoDispose
       final controller = WorkspaceController(
         session: session,
         service: ref.watch(libraryWorkspaceServiceProvider),
+        novelStructureService: ref.watch(novelStructureServiceProvider),
       );
       ref.onDispose(controller.dispose);
       return controller;

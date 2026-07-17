@@ -354,6 +354,317 @@ void main() {
     );
   });
 
+  test('creates a registered novel with body metadata', () async {
+    repository = LocalDirectoryLibraryRepository(
+      idGenerator: _IncrementingIdGenerator(),
+      clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
+    );
+    await repository.initialize(access);
+
+    final mutation = await repository.createNovel(access, title: '长夜行');
+
+    expect(mutation.snapshot.metadata.title, '长夜行');
+    expect(mutation.snapshot.metadata.chapterFormat, ChapterFormat.markdown);
+    expect(await Directory(p.join(root.path, '长夜行', '正文')).exists(), isTrue);
+    final manifest =
+        jsonDecode(
+              await File(
+                p.join(root.path, '.lore', 'library.json'),
+              ).readAsString(),
+            )
+            as Map<String, Object?>;
+    expect(manifest['novels'], hasLength(1));
+    final entries = await repository.listChildren(access);
+    expect(entries.single.semanticKind, LibraryEntrySemanticKind.novel);
+  });
+
+  test('registers and scans an existing novel directory', () async {
+    repository = LocalDirectoryLibraryRepository(
+      idGenerator: _IncrementingIdGenerator(),
+      clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
+    );
+    await repository.initialize(access);
+    final body = Directory(p.join(root.path, '旧作', '正文'));
+    await Directory(p.join(body.path, '第一卷')).create(recursive: true);
+    await File(p.join(body.path, '序章.md')).writeAsString('序');
+    await File(p.join(body.path, '第一卷', '第1章.txt')).writeAsString('章');
+
+    final mutation = await repository.registerExistingNovel(
+      access,
+      relativePath: '旧作',
+    );
+
+    expect(mutation.snapshot.contentTree.nodes, hasLength(3));
+    expect(
+      mutation.snapshot.contentTree.nodes.where(
+        (node) => node.role == ContentRole.prologue,
+      ),
+      hasLength(1),
+    );
+    final bodyEntries = await repository.listChildren(
+      access,
+      relativePath: p.join('旧作', '正文'),
+    );
+    expect(
+      bodyEntries.map((entry) => entry.semanticKind),
+      containsAll([
+        LibraryEntrySemanticKind.volume,
+        LibraryEntrySemanticKind.chapter,
+      ]),
+    );
+  });
+
+  test('creates, moves and reorders chapters with stable identities', () async {
+    repository = LocalDirectoryLibraryRepository(
+      idGenerator: _IncrementingIdGenerator(),
+      clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
+    );
+    await repository.initialize(access);
+    final novel = await repository.createNovel(access, title: '新书');
+    final volume = await repository.createVolume(
+      access,
+      novelId: novel.snapshot.metadata.id,
+    );
+    final first = await repository.createChapter(
+      access,
+      novelId: novel.snapshot.metadata.id,
+    );
+    final second = await repository.createChapter(
+      access,
+      novelId: novel.snapshot.metadata.id,
+    );
+
+    final reordered = await repository.reorderNode(
+      access,
+      novelId: novel.snapshot.metadata.id,
+      nodeId: ContentId(second.entry.semanticId!),
+      newIndex: 0,
+    );
+    final moved = await repository.moveChapter(
+      access,
+      novelId: novel.snapshot.metadata.id,
+      chapterId: ContentId(first.entry.semanticId!),
+      volumeId: ContentId(volume.entry.semanticId!),
+    );
+
+    expect(
+      reordered.snapshot.contentTree
+          .childrenOf(novel.snapshot.metadata.body.id)
+          .first
+          .id
+          .value,
+      second.entry.semanticId,
+    );
+    expect(moved.entry.semanticId, first.entry.semanticId);
+    expect(
+      await File(p.join(root.path, moved.entry.relativePath)).exists(),
+      isTrue,
+    );
+  });
+
+  test('renames novel and body while preserving chapter identity', () async {
+    repository = LocalDirectoryLibraryRepository(
+      idGenerator: _IncrementingIdGenerator(),
+      clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
+    );
+    await repository.initialize(access);
+    final novel = await repository.createNovel(access, title: '旧书名');
+    final chapter = await repository.createChapter(
+      access,
+      novelId: novel.snapshot.metadata.id,
+    );
+
+    final renamedNovel = await repository.renameNovel(
+      access,
+      novelId: novel.snapshot.metadata.id,
+      newName: '新书名',
+    );
+    final renamedBody = await repository.renameBody(
+      access,
+      novelId: novel.snapshot.metadata.id,
+      newName: '故事正文',
+    );
+
+    expect(renamedNovel.snapshot.metadata.title, '新书名');
+    expect(renamedBody.snapshot.metadata.body.relativePath, '故事正文');
+    expect(
+      renamedBody.snapshot.contentTree.nodes.single.id.value,
+      chapter.entry.semanticId,
+    );
+    expect(
+      await File(
+        p.join(
+          root.path,
+          '新书名',
+          renamedBody.snapshot.contentTree.nodes.single.relativePath,
+        ),
+      ).exists(),
+      isTrue,
+    );
+  });
+
+  test(
+    'recovers an interrupted body rename without changing chapter ids',
+    () async {
+      repository = LocalDirectoryLibraryRepository(
+        idGenerator: _IncrementingIdGenerator(),
+        clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
+      );
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '恢复测试');
+      final chapter = await repository.createChapter(
+        access,
+        novelId: novel.snapshot.metadata.id,
+      );
+      await Directory(
+        p.join(root.path, '恢复测试', '正文'),
+      ).rename(p.join(root.path, '恢复测试', '故事正文'));
+      final pending = File(
+        p.join(root.path, '.lore', 'recovery', 'pending-operation.json'),
+      );
+      await pending.parent.create(recursive: true);
+      await pending.writeAsString(
+        jsonEncode({
+          'schemaVersion': 1,
+          'novelId': novel.snapshot.metadata.id.value,
+          'novelPath': '恢复测试',
+          'operation': 'renameBody',
+          'sourcePath': p.join('恢复测试', '正文'),
+          'targetPath': p.join('恢复测试', '故事正文'),
+          'startedAt': '2026-07-17T08:30:00.000Z',
+        }),
+      );
+
+      expect(await repository.inspect(access), isA<LibraryInspectionReady>());
+      final recovered = await repository.loadNovel(
+        access,
+        novelId: novel.snapshot.metadata.id,
+      );
+
+      expect(recovered.metadata.body.relativePath, '故事正文');
+      expect(
+        recovered.contentTree.nodes.single.id.value,
+        chapter.entry.semanticId,
+      );
+      expect(await pending.exists(), isFalse);
+    },
+  );
+
+  test('rejects novel metadata paths outside the novel directory', () async {
+    repository = LocalDirectoryLibraryRepository(
+      idGenerator: _IncrementingIdGenerator(),
+      clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
+    );
+    await repository.initialize(access);
+    final novel = await repository.createNovel(access, title: '路径测试');
+    final novelFile = File(p.join(root.path, '路径测试', '.lore', 'novel.json'));
+    final metadata =
+        jsonDecode(await novelFile.readAsString()) as Map<String, Object?>;
+    final body = metadata['body']! as Map<String, Object?>;
+    body['path'] = p.join('..', '..', '书库外');
+    await novelFile.writeAsString(jsonEncode(metadata));
+
+    await expectLater(
+      repository.loadNovel(access, novelId: novel.snapshot.metadata.id),
+      throwsA(
+        isA<LibraryOperationException>().having(
+          (error) => error.failure.code,
+          'code',
+          LibraryFailureCode.metadataCorrupt,
+        ),
+      ),
+    );
+    expect(await Directory(p.join(root.parent.path, '书库外')).exists(), isFalse);
+  });
+
+  test('does not commit a pending rename before the file moved', () async {
+    repository = LocalDirectoryLibraryRepository(
+      idGenerator: _IncrementingIdGenerator(),
+      clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
+    );
+    await repository.initialize(access);
+    final novel = await repository.createNovel(access, title: '恢复测试');
+    final chapter = await repository.createChapter(
+      access,
+      novelId: novel.snapshot.metadata.id,
+    );
+    final sourcePath = chapter.entry.relativePath;
+    final targetPath = p.join(p.dirname(sourcePath), '改名后.md');
+    final pending = File(
+      p.join(root.path, '.lore', 'recovery', 'pending-operation.json'),
+    );
+    await pending.writeAsString(
+      jsonEncode({
+        'schemaVersion': 1,
+        'novelId': novel.snapshot.metadata.id.value,
+        'novelPath': '恢复测试',
+        'operation': 'renameNode',
+        'sourcePath': sourcePath,
+        'targetPath': targetPath,
+        'startedAt': '2026-07-17T08:30:00.000Z',
+      }),
+    );
+
+    expect(await repository.inspect(access), isA<LibraryInspectionReady>());
+    final recovered = await repository.loadNovel(
+      access,
+      novelId: novel.snapshot.metadata.id,
+    );
+
+    expect(recovered.contentTree.nodes, hasLength(1));
+    expect(
+      recovered.contentTree.nodes.single.id.value,
+      chapter.entry.semanticId,
+    );
+    expect(
+      recovered.contentTree.nodes.single.relativePath,
+      p.relative(sourcePath, from: '恢复测试'),
+    );
+    expect(await File(p.join(root.path, sourcePath)).exists(), isTrue);
+    expect(await File(p.join(root.path, targetPath)).exists(), isFalse);
+  });
+
+  test('preserves volume and chapter ids after an external rename', () async {
+    repository = LocalDirectoryLibraryRepository(
+      idGenerator: _IncrementingIdGenerator(),
+      clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
+    );
+    await repository.initialize(access);
+    final novel = await repository.createNovel(access, title: '外部改名');
+    final volume = await repository.createVolume(
+      access,
+      novelId: novel.snapshot.metadata.id,
+    );
+    final chapter = await repository.createChapter(
+      access,
+      novelId: novel.snapshot.metadata.id,
+      volumeId: ContentId(volume.entry.semanticId!),
+    );
+    final renamedVolumePath = p.join('外部改名', '正文', '新卷名');
+    await Directory(
+      p.join(root.path, volume.entry.relativePath),
+    ).rename(p.join(root.path, renamedVolumePath));
+
+    final result = await repository.reconcile(
+      access,
+      novelId: novel.snapshot.metadata.id,
+    );
+
+    expect(result.issues, isEmpty);
+    expect(result.snapshot.contentTree.nodes, hasLength(2));
+    final recoveredVolume = result.snapshot.contentTree.nodeById(
+      ContentId(volume.entry.semanticId!),
+    );
+    final recoveredChapter = result.snapshot.contentTree.nodeById(
+      ContentId(chapter.entry.semanticId!),
+    );
+    expect(recoveredVolume?.relativePath, p.join('正文', '新卷名'));
+    expect(
+      recoveredChapter?.relativePath,
+      p.join('正文', '新卷名', p.basename(chapter.entry.relativePath)),
+    );
+  });
+
   test('rejects direct access to internal metadata', () async {
     await repository.initialize(access);
 
@@ -402,5 +713,15 @@ final class _CreatingIdGenerator implements IdGenerator {
   String generate() {
     manifest.writeAsStringSync(content);
     return '11111111-1111-4111-8111-111111111111';
+  }
+}
+
+final class _IncrementingIdGenerator implements IdGenerator {
+  var _value = 0;
+
+  @override
+  String generate() {
+    _value += 1;
+    return '00000000-0000-4000-8000-${_value.toString().padLeft(12, '0')}';
   }
 }

@@ -8,7 +8,12 @@ import 'package:lore_domain/lore_domain.dart';
 import 'package:path/path.dart' as p;
 
 final class LocalDirectoryLibraryRepository
-    implements LibraryRepository, LibraryTreeRepository, DocumentRepository {
+    implements
+        LibraryRepository,
+        LibraryTreeRepository,
+        DocumentRepository,
+        NovelRepository,
+        ContentTreeRepository {
   const LocalDirectoryLibraryRepository({
     required this._idGenerator,
     required this._clock,
@@ -18,6 +23,10 @@ final class LocalDirectoryLibraryRepository
   static const _schemaVersion = 1;
   static const _metadataDirectoryName = '.lore';
   static const _manifestFileName = 'library.json';
+  static const _novelManifestFileName = 'novel.json';
+  static const _contentManifestFileName = 'content.json';
+  static const _bodyDirectoryName = '正文';
+  static const _orderStep = 1000;
 
   final IdGenerator _idGenerator;
   final Clock _clock;
@@ -61,7 +70,7 @@ final class LocalDirectoryLibraryRepository
         );
       }
 
-      final value = jsonDecode(await manifest.readAsString());
+      var value = jsonDecode(await manifest.readAsString());
       if (value is! Map<String, Object?>) {
         return _corrupt('书库元数据不是有效的 JSON 对象。');
       }
@@ -99,12 +108,20 @@ final class LocalDirectoryLibraryRepository
         return _corrupt('书库时间信息无法解析。');
       }
 
+      await _recoverPending(rootPath);
+      value = jsonDecode(await manifest.readAsString());
+      if (value is! Map<String, Object?>) {
+        return _corrupt('恢复后的书库元数据无效。');
+      }
+
+      final novels = _parseNovelRegistrations(value['novels']);
       return LibraryInspectionReady(
         LibraryMetadata(
           schemaVersion: schemaVersion,
           id: LibraryId(libraryId),
           createdAt: created.toUtc(),
           updatedAt: updated.toUtc(),
+          novels: novels,
         ),
       );
     } on FormatException {
@@ -153,6 +170,7 @@ final class LocalDirectoryLibraryRepository
         id: LibraryId(_idGenerator.generate()),
         createdAt: now,
         updatedAt: now,
+        novels: const [],
       );
       final manifestPath = _manifestPath(rootPath);
       final manifest = File(manifestPath);
@@ -232,8 +250,9 @@ final class LocalDirectoryLibraryRepository
           ),
         );
       }
-      entries.sort(_compareEntries);
-      return entries;
+      final annotated = await _annotateEntries(rootPath, relativePath, entries);
+      annotated.sort(_compareEntries);
+      return annotated;
     } on LibraryOperationException {
       rethrow;
     } on FileSystemException catch (error) {
@@ -358,6 +377,774 @@ final class LocalDirectoryLibraryRepository
     } on FileSystemException catch (error) {
       throw LibraryOperationException(_fileSystemFailure(error));
     }
+  }
+
+  @override
+  Future<List<NovelSnapshot>> listNovels(LibraryAccess access) async {
+    final rootPath = await _resolveRoot(access);
+    final manifest = await _readJsonObject(File(_manifestPath(rootPath)));
+    final novels = <NovelSnapshot>[];
+    for (final registration in _parseNovelRegistrations(manifest['novels'])) {
+      try {
+        novels.add(await _loadNovel(rootPath, registration));
+      } on LibraryOperationException catch (error) {
+        if (error.failure.code != LibraryFailureCode.notFound) {
+          rethrow;
+        }
+      }
+    }
+    return novels;
+  }
+
+  @override
+  Future<NovelSnapshot> loadNovel(
+    LibraryAccess access, {
+    required NovelId novelId,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    return _loadNovel(rootPath, await _registrationFor(rootPath, novelId));
+  }
+
+  @override
+  Future<NovelStructureMutation> createNovel(
+    LibraryAccess access, {
+    required String title,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final validTitle = _validateName(title);
+    final novelRoot = p.join(rootPath, validTitle);
+    if (await FileSystemEntity.type(novelRoot, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      throw _alreadyExists(validTitle);
+    }
+
+    final now = _clock.nowUtc();
+    final metadata = NovelMetadata(
+      schemaVersion: _schemaVersion,
+      id: NovelId(_idGenerator.generate()),
+      title: validTitle,
+      description: '',
+      coverPath: null,
+      body: NovelBody(
+        id: ContentId(_idGenerator.generate()),
+        relativePath: _bodyDirectoryName,
+      ),
+      chapterFormat: ChapterFormat.markdown,
+      numberingMode: NumberingMode.continuous,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final tree = ContentTree(
+      schemaVersion: _schemaVersion,
+      novelId: metadata.id,
+      revision: 0,
+      nodes: const [],
+    );
+    await _writePending(
+      rootPath,
+      metadata.id,
+      validTitle,
+      operation: 'createNovel',
+      targetPath: validTitle,
+    );
+    var created = false;
+    try {
+      await Directory(novelRoot).create();
+      created = true;
+      await Directory(p.join(novelRoot, _metadataDirectoryName)).create();
+      await Directory(p.join(novelRoot, _bodyDirectoryName)).create();
+      await _writeJsonNew(
+        File(_novelManifestPath(novelRoot)),
+        _novelToJson(metadata),
+      );
+      await _writeJsonNew(
+        File(_contentManifestPath(novelRoot)),
+        _contentToJson(tree),
+      );
+      await _registerNovel(rootPath, metadata.id, validTitle);
+      await _clearPending(rootPath);
+      final snapshot = NovelSnapshot(
+        rootPath: validTitle,
+        metadata: metadata,
+        contentTree: tree,
+      );
+      return NovelStructureMutation(
+        snapshot: snapshot,
+        entry: _semanticEntry(
+          name: validTitle,
+          relativePath: validTitle,
+          type: LibraryEntryType.directory,
+          kind: LibraryEntrySemanticKind.novel,
+          semanticId: metadata.id.value,
+          novelId: metadata.id.value,
+        ),
+      );
+    } catch (error) {
+      if (created) {
+        await _deleteDirectorySafely(novelRoot, recursive: true);
+      }
+      await _clearPending(rootPath);
+      if (error is FileSystemException) {
+        throw LibraryOperationException(_fileSystemFailure(error));
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<NovelStructureMutation> registerExistingNovel(
+    LibraryAccess access, {
+    required String relativePath,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final novelRoot = await _resolveExistingDirectory(rootPath, relativePath);
+    final normalizedPath = p.relative(novelRoot, from: rootPath);
+    if (p.dirname(normalizedPath) != '.') {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.invalidLocation,
+          message: '小说目录必须位于书库根级。',
+        ),
+      );
+    }
+    final novelFile = File(_novelManifestPath(novelRoot));
+    NovelMetadata metadata;
+    if (await novelFile.exists()) {
+      metadata = _parseNovelMetadata(await _readJsonObject(novelFile));
+    } else {
+      final bodyPath = p.join(novelRoot, _bodyDirectoryName);
+      final bodyType = await FileSystemEntity.type(
+        bodyPath,
+        followLinks: false,
+      );
+      if (bodyType == FileSystemEntityType.notFound) {
+        await Directory(bodyPath).create();
+      } else if (bodyType != FileSystemEntityType.directory) {
+        throw const LibraryOperationException(
+          LibraryFailure(
+            code: LibraryFailureCode.invalidLocation,
+            message: '“正文”已存在，但不是文件夹。',
+          ),
+        );
+      }
+      final now = _clock.nowUtc();
+      metadata = NovelMetadata(
+        schemaVersion: _schemaVersion,
+        id: NovelId(_idGenerator.generate()),
+        title: p.basename(novelRoot),
+        description: '',
+        coverPath: null,
+        body: NovelBody(
+          id: ContentId(_idGenerator.generate()),
+          relativePath: _bodyDirectoryName,
+        ),
+        chapterFormat: ChapterFormat.markdown,
+        numberingMode: NumberingMode.continuous,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await Directory(p.join(novelRoot, _metadataDirectoryName)).create();
+      await _writeJsonNew(novelFile, _novelToJson(metadata));
+    }
+
+    await _writePending(
+      rootPath,
+      metadata.id,
+      normalizedPath,
+      operation: 'registerNovel',
+    );
+    try {
+      final contentFile = File(_contentManifestPath(novelRoot));
+      final tree = await contentFile.exists()
+          ? _parseContentTree(await _readJsonObject(contentFile))
+          : await _scanContentTree(novelRoot, metadata, const []);
+      if (tree.novelId != metadata.id) {
+        throw const LibraryOperationException(
+          LibraryFailure(
+            code: LibraryFailureCode.metadataCorrupt,
+            message: '小说与正文内容树的 ID 不一致。',
+          ),
+        );
+      }
+      if (!await contentFile.exists()) {
+        await _writeJsonNew(contentFile, _contentToJson(tree));
+      }
+      await _registerNovel(rootPath, metadata.id, normalizedPath);
+      await _clearPending(rootPath);
+      final snapshot = NovelSnapshot(
+        rootPath: normalizedPath,
+        metadata: metadata,
+        contentTree: tree,
+      );
+      return NovelStructureMutation(
+        snapshot: snapshot,
+        entry: _semanticEntry(
+          name: p.basename(novelRoot),
+          relativePath: normalizedPath,
+          type: LibraryEntryType.directory,
+          kind: LibraryEntrySemanticKind.novel,
+          semanticId: metadata.id.value,
+          novelId: metadata.id.value,
+        ),
+      );
+    } catch (error) {
+      await _clearPending(rootPath);
+      if (error is FileSystemException) {
+        throw LibraryOperationException(_fileSystemFailure(error));
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<NovelStructureMutation> renameNovel(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required String newName,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final registration = await _registrationFor(rootPath, novelId);
+    final snapshot = await _loadNovel(rootPath, registration);
+    final validName = _validateName(newName);
+    if (validName == snapshot.rootPath) {
+      return NovelStructureMutation(
+        snapshot: snapshot,
+        entry: _semanticEntry(
+          name: validName,
+          relativePath: snapshot.rootPath,
+          type: LibraryEntryType.directory,
+          kind: LibraryEntrySemanticKind.novel,
+          semanticId: novelId.value,
+          novelId: novelId.value,
+        ),
+      );
+    }
+    final sourcePath = p.join(rootPath, snapshot.rootPath);
+    final targetPath = p.join(rootPath, validName);
+    if (await FileSystemEntity.type(targetPath, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      throw _alreadyExists(validName);
+    }
+    await _writePending(
+      rootPath,
+      novelId,
+      validName,
+      operation: 'renameNovel',
+      sourcePath: snapshot.rootPath,
+      targetPath: validName,
+    );
+    await _renameEntity(
+      access,
+      rootPath,
+      sourcePath,
+      targetPath,
+      FileSystemEntityType.directory,
+    );
+    final metadata = NovelMetadata(
+      schemaVersion: snapshot.metadata.schemaVersion,
+      id: snapshot.metadata.id,
+      title: validName,
+      description: snapshot.metadata.description,
+      coverPath: snapshot.metadata.coverPath,
+      body: snapshot.metadata.body,
+      chapterFormat: snapshot.metadata.chapterFormat,
+      numberingMode: snapshot.metadata.numberingMode,
+      createdAt: snapshot.metadata.createdAt,
+      updatedAt: _clock.nowUtc(),
+    );
+    await _writeJsonAtomic(
+      File(_novelManifestPath(targetPath)),
+      _novelToJson(metadata),
+    );
+    await _updateNovelRegistration(rootPath, novelId, validName);
+    await _clearPending(rootPath);
+    final updated = NovelSnapshot(
+      rootPath: validName,
+      metadata: metadata,
+      contentTree: snapshot.contentTree,
+    );
+    return NovelStructureMutation(
+      snapshot: updated,
+      entry: _semanticEntry(
+        name: validName,
+        relativePath: validName,
+        type: LibraryEntryType.directory,
+        kind: LibraryEntrySemanticKind.novel,
+        semanticId: novelId.value,
+        novelId: novelId.value,
+      ),
+      pathChanges: [PathChange(oldPath: snapshot.rootPath, newPath: validName)],
+    );
+  }
+
+  @override
+  Future<NovelStructureMutation> renameBody(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required String newName,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final snapshot = await _loadNovel(
+      rootPath,
+      await _registrationFor(rootPath, novelId),
+    );
+    final validName = _validateName(newName);
+    final oldBody = snapshot.metadata.body.relativePath;
+    if (validName == oldBody) {
+      return NovelStructureMutation(
+        snapshot: snapshot,
+        entry: _bodyEntry(snapshot),
+      );
+    }
+    final sourcePath = p.join(rootPath, snapshot.rootPath, oldBody);
+    final targetPath = p.join(rootPath, snapshot.rootPath, validName);
+    if (await FileSystemEntity.type(targetPath, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      throw _alreadyExists(validName);
+    }
+    await _writePending(
+      rootPath,
+      novelId,
+      snapshot.rootPath,
+      operation: 'renameBody',
+      sourcePath: p.join(snapshot.rootPath, oldBody),
+      targetPath: p.join(snapshot.rootPath, validName),
+    );
+    await _renameEntity(
+      access,
+      rootPath,
+      sourcePath,
+      targetPath,
+      FileSystemEntityType.directory,
+    );
+    final metadata = NovelMetadata(
+      schemaVersion: snapshot.metadata.schemaVersion,
+      id: snapshot.metadata.id,
+      title: snapshot.metadata.title,
+      description: snapshot.metadata.description,
+      coverPath: snapshot.metadata.coverPath,
+      body: NovelBody(id: snapshot.metadata.body.id, relativePath: validName),
+      chapterFormat: snapshot.metadata.chapterFormat,
+      numberingMode: snapshot.metadata.numberingMode,
+      createdAt: snapshot.metadata.createdAt,
+      updatedAt: _clock.nowUtc(),
+    );
+    final nodes = snapshot.contentTree.nodes
+        .map((node) {
+          return node.copyWith(
+            relativePath: p.join(
+              validName,
+              p.relative(node.relativePath, from: oldBody),
+            ),
+          );
+        })
+        .toList(growable: false);
+    final tree = ContentTree(
+      schemaVersion: snapshot.contentTree.schemaVersion,
+      novelId: novelId,
+      revision: snapshot.contentTree.revision + 1,
+      nodes: nodes,
+    );
+    final novelRoot = p.join(rootPath, snapshot.rootPath);
+    await _writeJsonAtomic(
+      File(_novelManifestPath(novelRoot)),
+      _novelToJson(metadata),
+    );
+    await _writeJsonAtomic(
+      File(_contentManifestPath(novelRoot)),
+      _contentToJson(tree),
+    );
+    await _clearPending(rootPath);
+    final updated = NovelSnapshot(
+      rootPath: snapshot.rootPath,
+      metadata: metadata,
+      contentTree: tree,
+    );
+    return NovelStructureMutation(
+      snapshot: updated,
+      entry: _bodyEntry(updated),
+      pathChanges: [
+        PathChange(
+          oldPath: p.join(snapshot.rootPath, oldBody),
+          newPath: p.join(snapshot.rootPath, validName),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<NovelStructureMutation> createVolume(
+    LibraryAccess access, {
+    required NovelId novelId,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final snapshot = await _loadNovel(
+      rootPath,
+      await _registrationFor(rootPath, novelId),
+    );
+    var number =
+        _maximumNumber(
+          snapshot.contentTree.nodes.where(
+            (node) => node.type == ContentNodeType.volume,
+          ),
+        ) +
+        1;
+    late String name;
+    late String targetPath;
+    do {
+      name = '第${_chineseNumber(number)}卷';
+      targetPath = p.join(
+        rootPath,
+        snapshot.rootPath,
+        snapshot.metadata.body.relativePath,
+        name,
+      );
+      number += 1;
+    } while (await FileSystemEntity.type(targetPath, followLinks: false) !=
+        FileSystemEntityType.notFound);
+    final node = ContentNode(
+      id: ContentId(_idGenerator.generate()),
+      type: ContentNodeType.volume,
+      parentId: snapshot.metadata.body.id,
+      relativePath: p.join(snapshot.metadata.body.relativePath, name),
+      order: _nextOrder(
+        snapshot.contentTree.childrenOf(snapshot.metadata.body.id),
+      ),
+      number: number - 1,
+      role: ContentRole.normal,
+    );
+    return _createContentEntity(
+      access,
+      rootPath,
+      snapshot,
+      node,
+      isDirectory: true,
+    );
+  }
+
+  @override
+  Future<NovelStructureMutation> createChapter(
+    LibraryAccess access, {
+    required NovelId novelId,
+    ContentId? volumeId,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final snapshot = await _loadNovel(
+      rootPath,
+      await _registrationFor(rootPath, novelId),
+    );
+    final volume = volumeId == null
+        ? null
+        : snapshot.contentTree.nodeById(volumeId);
+    if (volumeId != null && volume?.type != ContentNodeType.volume) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.invalidLocation,
+          message: '章节只能创建在正文或卷中。',
+        ),
+      );
+    }
+    final parentId = volumeId ?? snapshot.metadata.body.id;
+    final parentPath =
+        volume?.relativePath ?? snapshot.metadata.body.relativePath;
+    final candidates =
+        snapshot.metadata.numberingMode == NumberingMode.continuous
+        ? snapshot.contentTree.nodes.where(
+            (node) => node.type == ContentNodeType.chapter,
+          )
+        : snapshot.contentTree
+              .childrenOf(parentId)
+              .where((node) => node.type == ContentNodeType.chapter);
+    var number = _maximumNumber(candidates) + 1;
+    final extension = snapshot.metadata.chapterFormat == ChapterFormat.text
+        ? '.txt'
+        : '.md';
+    late String name;
+    late String targetPath;
+    do {
+      name = '第$number章$extension';
+      targetPath = p.join(rootPath, snapshot.rootPath, parentPath, name);
+      number += 1;
+    } while (await FileSystemEntity.type(targetPath, followLinks: false) !=
+        FileSystemEntityType.notFound);
+    final node = ContentNode(
+      id: ContentId(_idGenerator.generate()),
+      type: ContentNodeType.chapter,
+      parentId: parentId,
+      relativePath: p.join(parentPath, name),
+      order: _nextOrder(snapshot.contentTree.childrenOf(parentId)),
+      number: number - 1,
+      role: ContentRole.normal,
+    );
+    return _createContentEntity(
+      access,
+      rootPath,
+      snapshot,
+      node,
+      isDirectory: false,
+    );
+  }
+
+  @override
+  Future<NovelStructureMutation> renameNode(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required ContentId nodeId,
+    required String newName,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final snapshot = await _loadNovel(
+      rootPath,
+      await _registrationFor(rootPath, novelId),
+    );
+    final node = snapshot.contentTree.nodeById(nodeId);
+    if (node == null) {
+      throw const LibraryOperationException(
+        LibraryFailure(code: LibraryFailureCode.notFound, message: '卷或章节不存在。'),
+      );
+    }
+    final sourcePath = p.join(rootPath, snapshot.rootPath, node.relativePath);
+    final currentName = p.basename(sourcePath);
+    final validName = node.type == ContentNodeType.chapter
+        ? _renamedDocumentName(currentName, newName)
+        : _validateName(newName);
+    if (validName == currentName) {
+      return NovelStructureMutation(
+        snapshot: snapshot,
+        entry: _entryForContent(snapshot, node),
+      );
+    }
+    final targetPath = p.join(p.dirname(sourcePath), validName);
+    if (await FileSystemEntity.type(targetPath, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      throw _alreadyExists(validName);
+    }
+    await _writePending(
+      rootPath,
+      novelId,
+      snapshot.rootPath,
+      operation: 'renameNode',
+      sourcePath: p.join(snapshot.rootPath, node.relativePath),
+      targetPath: p.relative(targetPath, from: rootPath),
+    );
+    await _renameEntity(
+      access,
+      rootPath,
+      sourcePath,
+      targetPath,
+      node.type == ContentNodeType.volume
+          ? FileSystemEntityType.directory
+          : FileSystemEntityType.file,
+    );
+    final oldRelative = node.relativePath;
+    final newRelative = p.join(p.dirname(oldRelative), validName);
+    final nodes = snapshot.contentTree.nodes
+        .map((candidate) {
+          if (candidate.id == node.id) {
+            return candidate.copyWith(relativePath: newRelative);
+          }
+          if (node.type == ContentNodeType.volume &&
+              p.isWithin(oldRelative, candidate.relativePath)) {
+            return candidate.copyWith(
+              relativePath: p.join(
+                newRelative,
+                p.relative(candidate.relativePath, from: oldRelative),
+              ),
+            );
+          }
+          return candidate;
+        })
+        .toList(growable: false);
+    final updated = await _writeContentTree(rootPath, snapshot, nodes);
+    await _clearPending(rootPath);
+    final libraryOld = p.join(snapshot.rootPath, oldRelative);
+    final libraryNew = p.join(snapshot.rootPath, newRelative);
+    return NovelStructureMutation(
+      snapshot: updated,
+      entry: _entryForContent(updated, updated.contentTree.nodeById(node.id)!),
+      pathChanges: [PathChange(oldPath: libraryOld, newPath: libraryNew)],
+    );
+  }
+
+  @override
+  Future<NovelStructureMutation> moveChapter(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required ContentId chapterId,
+    ContentId? volumeId,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final snapshot = await _loadNovel(
+      rootPath,
+      await _registrationFor(rootPath, novelId),
+    );
+    final chapter = snapshot.contentTree.nodeById(chapterId);
+    final volume = volumeId == null
+        ? null
+        : snapshot.contentTree.nodeById(volumeId);
+    if (chapter?.type != ContentNodeType.chapter ||
+        (volumeId != null && volume?.type != ContentNodeType.volume)) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.invalidLocation,
+          message: '章节或目标卷无效。',
+        ),
+      );
+    }
+    final parentId = volumeId ?? snapshot.metadata.body.id;
+    if (chapter!.parentId == parentId) {
+      return NovelStructureMutation(
+        snapshot: snapshot,
+        entry: _entryForContent(snapshot, chapter),
+      );
+    }
+    final parentPath =
+        volume?.relativePath ?? snapshot.metadata.body.relativePath;
+    final newRelative = p.join(parentPath, p.basename(chapter.relativePath));
+    final oldLibraryPath = p.join(snapshot.rootPath, chapter.relativePath);
+    final newLibraryPath = p.join(snapshot.rootPath, newRelative);
+    if (await FileSystemEntity.type(
+          p.join(rootPath, newLibraryPath),
+          followLinks: false,
+        ) !=
+        FileSystemEntityType.notFound) {
+      throw _alreadyExists(p.basename(newRelative));
+    }
+    await _writePending(
+      rootPath,
+      novelId,
+      snapshot.rootPath,
+      operation: 'moveChapter',
+      sourcePath: oldLibraryPath,
+      targetPath: newLibraryPath,
+    );
+    await _renameEntity(
+      access,
+      rootPath,
+      p.join(rootPath, oldLibraryPath),
+      p.join(rootPath, newLibraryPath),
+      FileSystemEntityType.file,
+    );
+    final moved = chapter.copyWith(
+      parentId: parentId,
+      relativePath: newRelative,
+      order: _nextOrder(snapshot.contentTree.childrenOf(parentId)),
+    );
+    final nodes = snapshot.contentTree.nodes
+        .map((node) => node.id == chapter.id ? moved : node)
+        .toList(growable: false);
+    final updated = await _writeContentTree(rootPath, snapshot, nodes);
+    await _clearPending(rootPath);
+    return NovelStructureMutation(
+      snapshot: updated,
+      entry: _entryForContent(updated, moved),
+      pathChanges: [
+        PathChange(oldPath: oldLibraryPath, newPath: newLibraryPath),
+      ],
+    );
+  }
+
+  @override
+  Future<NovelStructureMutation> reorderNode(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required ContentId nodeId,
+    required int newIndex,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final snapshot = await _loadNovel(
+      rootPath,
+      await _registrationFor(rootPath, novelId),
+    );
+    final node = snapshot.contentTree.nodeById(nodeId);
+    if (node == null) {
+      throw const LibraryOperationException(
+        LibraryFailure(code: LibraryFailureCode.notFound, message: '内容不存在。'),
+      );
+    }
+    final siblings = snapshot.contentTree.childrenOf(node.parentId).toList();
+    final oldIndex = siblings.indexWhere((item) => item.id == nodeId);
+    if (oldIndex < 0 || newIndex < 0 || newIndex >= siblings.length) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.invalidLocation,
+          message: '排序位置无效。',
+        ),
+      );
+    }
+    final moved = siblings.removeAt(oldIndex);
+    siblings.insert(newIndex, moved);
+    final orders = <ContentId, int>{
+      for (var index = 0; index < siblings.length; index += 1)
+        siblings[index].id: (index + 1) * _orderStep,
+    };
+    final nodes = snapshot.contentTree.nodes
+        .map(
+          (item) => orders[item.id] == null
+              ? item
+              : item.copyWith(order: orders[item.id]),
+        )
+        .toList(growable: false);
+    await _writePending(
+      rootPath,
+      novelId,
+      snapshot.rootPath,
+      operation: 'reorderNode',
+    );
+    final updated = await _writeContentTree(rootPath, snapshot, nodes);
+    await _clearPending(rootPath);
+    return NovelStructureMutation(
+      snapshot: updated,
+      entry: _entryForContent(updated, updated.contentTree.nodeById(nodeId)!),
+    );
+  }
+
+  @override
+  Future<NovelReconciliationResult> reconcile(
+    LibraryAccess access, {
+    required NovelId novelId,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final snapshot = await _loadNovel(
+      rootPath,
+      await _registrationFor(rootPath, novelId),
+    );
+    final novelRoot = p.join(rootPath, snapshot.rootPath);
+    final scanned = await _scanContentTree(
+      novelRoot,
+      snapshot.metadata,
+      snapshot.contentTree.nodes,
+    );
+    final scannedPaths = scanned.nodes.map((node) => node.relativePath).toSet();
+    final scannedIds = scanned.nodes.map((node) => node.id).toSet();
+    final issues = snapshot.contentTree.nodes
+        .where(
+          (node) =>
+              !scannedPaths.contains(node.relativePath) &&
+              !scannedIds.contains(node.id),
+        )
+        .map(
+          (node) => ReconciliationIssue(
+            message: '卷章文件缺失，已保留原有身份信息。',
+            relativePath: p.join(snapshot.rootPath, node.relativePath),
+          ),
+        )
+        .toList(growable: false);
+    final merged = <ContentNode>[
+      ...scanned.nodes,
+      ...snapshot.contentTree.nodes.where(
+        (node) =>
+            !scannedPaths.contains(node.relativePath) &&
+            !scannedIds.contains(node.id),
+      ),
+    ];
+    final changed =
+        _contentSignature(merged) !=
+        _contentSignature(snapshot.contentTree.nodes);
+    final updated = changed
+        ? await _writeContentTree(rootPath, snapshot, merged)
+        : snapshot;
+    return NovelReconciliationResult(snapshot: updated, issues: issues);
   }
 
   @override
@@ -758,6 +1545,1160 @@ final class LocalDirectoryLibraryRepository
     );
   }
 
+  Future<List<LibraryEntry>> _annotateEntries(
+    String rootPath,
+    String relativePath,
+    List<LibraryEntry> entries,
+  ) async {
+    final manifestFile = File(_manifestPath(rootPath));
+    if (!await manifestFile.exists()) {
+      return entries;
+    }
+    final manifest = await _readJsonObject(manifestFile);
+    final registrations = _parseNovelRegistrations(manifest['novels']);
+    if (relativePath.isEmpty) {
+      final novelIdsByPath = <String, NovelId>{};
+      for (final registration in registrations) {
+        if (!entries.any(
+          (entry) => entry.relativePath == registration.relativePath,
+        )) {
+          continue;
+        }
+        try {
+          final metadata = await _loadNovelMetadata(rootPath, registration);
+          novelIdsByPath[registration.relativePath] = metadata.id;
+        } on LibraryOperationException {
+          continue;
+        }
+      }
+      return entries
+          .map((entry) {
+            final novelId = novelIdsByPath[entry.relativePath];
+            if (novelId == null) {
+              return entry;
+            }
+            return _semanticEntry(
+              name: entry.name,
+              relativePath: entry.relativePath,
+              type: entry.type,
+              kind: LibraryEntrySemanticKind.novel,
+              semanticId: novelId.value,
+              novelId: novelId.value,
+            );
+          })
+          .toList(growable: false);
+    }
+
+    final registration = registrations
+        .where(
+          (item) =>
+              relativePath == item.relativePath ||
+              p.isWithin(item.relativePath, relativePath),
+        )
+        .firstOrNull;
+    if (registration == null) {
+      return entries;
+    }
+    NovelSnapshot snapshot;
+    try {
+      snapshot = await _loadNovel(rootPath, registration);
+    } on LibraryOperationException {
+      return entries;
+    }
+    return entries
+        .map((entry) {
+          if (!p.isWithin(snapshot.rootPath, entry.relativePath)) {
+            return entry;
+          }
+          final novelRelative = p.relative(
+            entry.relativePath,
+            from: snapshot.rootPath,
+          );
+          if (novelRelative == snapshot.metadata.body.relativePath) {
+            return _semanticEntry(
+              name: entry.name,
+              relativePath: entry.relativePath,
+              type: entry.type,
+              kind: LibraryEntrySemanticKind.body,
+              semanticId: snapshot.metadata.body.id.value,
+              novelId: snapshot.metadata.id.value,
+            );
+          }
+          final node = snapshot.contentTree.nodes
+              .where((candidate) => candidate.relativePath == novelRelative)
+              .firstOrNull;
+          if (node == null) {
+            return entry;
+          }
+          return _semanticEntry(
+            name: entry.name,
+            relativePath: entry.relativePath,
+            type: entry.type,
+            kind: node.type == ContentNodeType.volume
+                ? LibraryEntrySemanticKind.volume
+                : LibraryEntrySemanticKind.chapter,
+            semanticId: node.id.value,
+            novelId: snapshot.metadata.id.value,
+            semanticOrder: node.order,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Future<ContentTree> _scanContentTree(
+    String novelRoot,
+    NovelMetadata metadata,
+    List<ContentNode> existing,
+  ) async {
+    final bodyRoot = p.join(novelRoot, metadata.body.relativePath);
+    if (!await Directory(bodyRoot).exists()) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.notFound,
+          message: '小说正文目录不存在。',
+        ),
+      );
+    }
+    final existingByPath = {
+      for (final node in existing) node.relativePath: node,
+    };
+    final nextOrders = <ContentId, int>{};
+    int takeOrder(ContentId parentId) {
+      final next = nextOrders.putIfAbsent(parentId, () {
+        return _nextOrder(
+          existing.where((node) => node.parentId == parentId).toList(),
+        );
+      });
+      nextOrders[parentId] = next + _orderStep;
+      return next;
+    }
+
+    final nodes = <ContentNode>[];
+    final matchedIds = <ContentId>{};
+
+    Future<void> scanChapters(
+      String directoryPath,
+      ContentId parentId, {
+      required String previousParentPath,
+    }) async {
+      final chapterPaths = <String>[];
+      for (final entity in await _visibleEntities(directoryPath)) {
+        final type = await FileSystemEntity.type(
+          entity.path,
+          followLinks: false,
+        );
+        if (type == FileSystemEntityType.file &&
+            _isDocumentName(p.basename(entity.path))) {
+          chapterPaths.add(p.relative(entity.path, from: novelRoot));
+        }
+      }
+
+      final matches = <String, ContentNode>{};
+      for (final relativePath in chapterPaths) {
+        var candidate = existingByPath[relativePath];
+        if (candidate?.type != ContentNodeType.chapter ||
+            candidate?.parentId != parentId) {
+          final previousPath = p.join(
+            previousParentPath,
+            p.basename(relativePath),
+          );
+          candidate = existingByPath[previousPath];
+        }
+        if (candidate?.type == ContentNodeType.chapter &&
+            candidate?.parentId == parentId &&
+            !matchedIds.contains(candidate!.id)) {
+          matches[relativePath] = candidate;
+          matchedIds.add(candidate.id);
+        }
+      }
+
+      final unmatchedPaths = chapterPaths
+          .where((path) => !matches.containsKey(path))
+          .toList(growable: false);
+      final missingChapters = existing
+          .where(
+            (node) =>
+                node.type == ContentNodeType.chapter &&
+                node.parentId == parentId &&
+                !matchedIds.contains(node.id),
+          )
+          .toList(growable: false);
+      if (unmatchedPaths.length == 1 && missingChapters.length == 1) {
+        final renamed = missingChapters.single;
+        matches[unmatchedPaths.single] = renamed;
+        matchedIds.add(renamed.id);
+      }
+
+      for (final relativePath in chapterPaths) {
+        final matched = matches[relativePath];
+        nodes.add(
+          matched != null
+              ? matched.copyWith(parentId: parentId, relativePath: relativePath)
+              : _scannedChapter(relativePath, parentId, takeOrder(parentId)),
+        );
+      }
+    }
+
+    final volumeEntities = <FileSystemEntity>[];
+    final rootChapterEntities = <FileSystemEntity>[];
+    for (final entity in await _visibleEntities(bodyRoot)) {
+      final type = await FileSystemEntity.type(entity.path, followLinks: false);
+      if (type == FileSystemEntityType.directory) {
+        volumeEntities.add(entity);
+      } else if (type == FileSystemEntityType.file &&
+          _isDocumentName(p.basename(entity.path))) {
+        rootChapterEntities.add(entity);
+      }
+    }
+
+    final detectedVolumePaths = volumeEntities
+        .map((entity) => p.relative(entity.path, from: novelRoot))
+        .toSet();
+    final unmatchedVolumes = volumeEntities
+        .where((entity) {
+          final relativePath = p.relative(entity.path, from: novelRoot);
+          return existingByPath[relativePath]?.type != ContentNodeType.volume;
+        })
+        .toList(growable: false);
+    final missingVolumes = existing
+        .where(
+          (node) =>
+              node.type == ContentNodeType.volume &&
+              node.parentId == metadata.body.id &&
+              !detectedVolumePaths.contains(node.relativePath),
+        )
+        .toList(growable: false);
+    final renamedVolume =
+        unmatchedVolumes.length == 1 && missingVolumes.length == 1
+        ? missingVolumes.single
+        : null;
+
+    for (final entity in volumeEntities) {
+      final relativePath = p.relative(entity.path, from: novelRoot);
+      final existingVolume = existingByPath[relativePath];
+      final matched = existingVolume?.type == ContentNodeType.volume
+          ? existingVolume
+          : renamedVolume;
+      final previousPath = matched?.relativePath ?? relativePath;
+      final volume = matched != null
+          ? matched.copyWith(relativePath: relativePath)
+          : ContentNode(
+              id: ContentId(_idGenerator.generate()),
+              type: ContentNodeType.volume,
+              parentId: metadata.body.id,
+              relativePath: relativePath,
+              order: takeOrder(metadata.body.id),
+              number: _volumeNumber(p.basename(entity.path)),
+              role: ContentRole.normal,
+            );
+      matchedIds.add(volume.id);
+      nodes.add(volume);
+      await scanChapters(
+        entity.path,
+        volume.id,
+        previousParentPath: previousPath,
+      );
+    }
+
+    if (rootChapterEntities.isNotEmpty) {
+      await scanChapters(
+        bodyRoot,
+        metadata.body.id,
+        previousParentPath: metadata.body.relativePath,
+      );
+    }
+    return ContentTree(
+      schemaVersion: _schemaVersion,
+      novelId: metadata.id,
+      revision: existing.isEmpty ? 0 : 1,
+      nodes: nodes,
+    );
+  }
+
+  Future<List<FileSystemEntity>> _visibleEntities(String path) async {
+    try {
+      final entities = await Directory(path)
+          .list(followLinks: false)
+          .where((entity) => !p.basename(entity.path).startsWith('.'))
+          .toList();
+      entities.sort(
+        (left, right) =>
+            _naturalCompare(p.basename(left.path), p.basename(right.path)),
+      );
+      return entities;
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+  }
+
+  ContentNode _scannedChapter(
+    String relativePath,
+    ContentId parentId,
+    int order,
+  ) {
+    final name = p.basenameWithoutExtension(relativePath);
+    final role = name.startsWith('序章')
+        ? ContentRole.prologue
+        : name.startsWith('后记')
+        ? ContentRole.epilogue
+        : name.startsWith('番外')
+        ? ContentRole.extra
+        : ContentRole.normal;
+    final match = RegExp(r'^第(\d+)章').firstMatch(name);
+    return ContentNode(
+      id: ContentId(_idGenerator.generate()),
+      type: ContentNodeType.chapter,
+      parentId: parentId,
+      relativePath: relativePath,
+      order: order,
+      number: match == null ? null : int.parse(match.group(1)!),
+      role: role,
+    );
+  }
+
+  int? _volumeNumber(String name) {
+    final arabic = RegExp(r'^第(\d+)卷').firstMatch(name);
+    if (arabic != null) {
+      return int.parse(arabic.group(1)!);
+    }
+    final chinese = RegExp(r'^第([零一二三四五六七八九十百千]+)卷').firstMatch(name);
+    return chinese == null ? null : _parseChineseNumber(chinese.group(1)!);
+  }
+
+  bool _isDocumentName(String name) {
+    final extension = p.extension(name).toLowerCase();
+    return extension == '.txt' || extension == '.md';
+  }
+
+  int _nextOrder(List<ContentNode> siblings) {
+    return siblings.fold<int>(
+          0,
+          (value, node) => node.order > value ? node.order : value,
+        ) +
+        _orderStep;
+  }
+
+  int _maximumNumber(Iterable<ContentNode> nodes) {
+    return nodes.fold<int>(
+      0,
+      (value, node) => (node.number ?? 0) > value ? node.number! : value,
+    );
+  }
+
+  String _contentSignature(List<ContentNode> nodes) {
+    final sorted = [...nodes]
+      ..sort((left, right) => left.id.value.compareTo(right.id.value));
+    return sorted
+        .map(
+          (node) =>
+              '${node.id}:${node.parentId}:${node.relativePath}:${node.order}:${node.number}:${node.role.name}',
+        )
+        .join('|');
+  }
+
+  int _naturalCompare(String left, String right) {
+    final pattern = RegExp(r'(\d+)|(\D+)');
+    final leftParts = pattern.allMatches(left.toLowerCase()).toList();
+    final rightParts = pattern.allMatches(right.toLowerCase()).toList();
+    for (
+      var index = 0;
+      index < leftParts.length && index < rightParts.length;
+      index += 1
+    ) {
+      final leftPart = leftParts[index].group(0)!;
+      final rightPart = rightParts[index].group(0)!;
+      final leftNumber = int.tryParse(leftPart);
+      final rightNumber = int.tryParse(rightPart);
+      final comparison = leftNumber != null && rightNumber != null
+          ? leftNumber.compareTo(rightNumber)
+          : leftPart.compareTo(rightPart);
+      if (comparison != 0) {
+        return comparison;
+      }
+    }
+    return leftParts.length.compareTo(rightParts.length);
+  }
+
+  String _chineseNumber(int value) {
+    if (value <= 0 || value > 9999) {
+      return value.toString();
+    }
+    const digits = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+    const units = ['', '十', '百', '千'];
+    final text = value.toString();
+    final buffer = StringBuffer();
+    var pendingZero = false;
+    for (var index = 0; index < text.length; index += 1) {
+      final digit = int.parse(text[index]);
+      final unit = text.length - index - 1;
+      if (digit == 0) {
+        pendingZero = buffer.isNotEmpty;
+        continue;
+      }
+      if (pendingZero) {
+        buffer.write('零');
+        pendingZero = false;
+      }
+      if (!(digit == 1 && unit == 1 && buffer.isEmpty)) {
+        buffer.write(digits[digit]);
+      }
+      buffer.write(units[unit]);
+    }
+    return buffer.toString();
+  }
+
+  int? _parseChineseNumber(String value) {
+    const digits = {
+      '零': 0,
+      '一': 1,
+      '二': 2,
+      '三': 3,
+      '四': 4,
+      '五': 5,
+      '六': 6,
+      '七': 7,
+      '八': 8,
+      '九': 9,
+    };
+    const units = {'十': 10, '百': 100, '千': 1000};
+    var total = 0;
+    var current = 0;
+    for (final character in value.split('')) {
+      if (digits[character] case final digit?) {
+        current = digit;
+      } else if (units[character] case final unit?) {
+        total += (current == 0 ? 1 : current) * unit;
+        current = 0;
+      } else {
+        return null;
+      }
+    }
+    return total + current;
+  }
+
+  LibraryEntry _semanticEntry({
+    required String name,
+    required String relativePath,
+    required LibraryEntryType type,
+    required LibraryEntrySemanticKind kind,
+    required String semanticId,
+    required String novelId,
+    int? semanticOrder,
+  }) {
+    return LibraryEntry(
+      name: name,
+      relativePath: relativePath,
+      type: type,
+      semanticKind: kind,
+      semanticId: semanticId,
+      novelId: novelId,
+      semanticOrder: semanticOrder,
+    );
+  }
+
+  Future<NovelRegistration> _registrationFor(
+    String rootPath,
+    NovelId novelId,
+  ) async {
+    final manifest = await _readJsonObject(File(_manifestPath(rootPath)));
+    for (final registration in _parseNovelRegistrations(manifest['novels'])) {
+      if (registration.id == novelId) {
+        return registration;
+      }
+    }
+    throw const LibraryOperationException(
+      LibraryFailure(code: LibraryFailureCode.notFound, message: '小说未在书库中注册。'),
+    );
+  }
+
+  Future<NovelSnapshot> _loadNovel(
+    String rootPath,
+    NovelRegistration registration,
+  ) async {
+    final metadata = await _loadNovelMetadata(rootPath, registration);
+    final novelRoot = p.join(rootPath, registration.relativePath);
+    final tree = _parseContentTree(
+      await _readJsonObject(File(_contentManifestPath(novelRoot))),
+    );
+    if (tree.novelId != metadata.id) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '小说与内容树的 ID 不一致。',
+        ),
+      );
+    }
+    return NovelSnapshot(
+      rootPath: registration.relativePath,
+      metadata: metadata,
+      contentTree: tree,
+    );
+  }
+
+  Future<NovelMetadata> _loadNovelMetadata(
+    String rootPath,
+    NovelRegistration registration,
+  ) async {
+    final novelRoot = await _resolveExistingDirectory(
+      rootPath,
+      registration.relativePath,
+    );
+    final metadata = _parseNovelMetadata(
+      await _readJsonObject(File(_novelManifestPath(novelRoot))),
+    );
+    if (metadata.id != registration.id) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '书库注册信息与小说元数据不一致。',
+        ),
+      );
+    }
+    return metadata;
+  }
+
+  Future<NovelStructureMutation> _createContentEntity(
+    LibraryAccess access,
+    String rootPath,
+    NovelSnapshot snapshot,
+    ContentNode node, {
+    required bool isDirectory,
+  }) async {
+    final libraryPath = p.join(snapshot.rootPath, node.relativePath);
+    final parentPath = await _resolveExistingDirectory(
+      rootPath,
+      p.dirname(libraryPath),
+    );
+    final entityPath = p.join(parentPath, p.basename(libraryPath));
+    await _writePending(
+      rootPath,
+      snapshot.metadata.id,
+      snapshot.rootPath,
+      operation: isDirectory ? 'createVolume' : 'createChapter',
+      targetPath: libraryPath,
+    );
+    var created = false;
+    try {
+      if (isDirectory) {
+        await Directory(entityPath).create();
+      } else {
+        await File(entityPath).create(exclusive: true);
+        await File(entityPath).writeAsString('', flush: true);
+      }
+      created = true;
+      final updated = await _writeContentTree(rootPath, snapshot, [
+        ...snapshot.contentTree.nodes,
+        node,
+      ]);
+      await _clearPending(rootPath);
+      return NovelStructureMutation(
+        snapshot: updated,
+        entry: _entryForContent(updated, node),
+      );
+    } catch (error) {
+      if (created) {
+        if (isDirectory) {
+          await _deleteDirectorySafely(entityPath);
+        } else {
+          await _deleteFileSafely(entityPath);
+        }
+      }
+      await _clearPending(rootPath);
+      if (error is FileSystemException) {
+        throw LibraryOperationException(_fileSystemFailure(error));
+      }
+      rethrow;
+    }
+  }
+
+  Future<NovelSnapshot> _writeContentTree(
+    String rootPath,
+    NovelSnapshot snapshot,
+    List<ContentNode> nodes,
+  ) async {
+    final now = _clock.nowUtc();
+    final metadata = NovelMetadata(
+      schemaVersion: snapshot.metadata.schemaVersion,
+      id: snapshot.metadata.id,
+      title: snapshot.metadata.title,
+      description: snapshot.metadata.description,
+      coverPath: snapshot.metadata.coverPath,
+      body: snapshot.metadata.body,
+      chapterFormat: snapshot.metadata.chapterFormat,
+      numberingMode: snapshot.metadata.numberingMode,
+      createdAt: snapshot.metadata.createdAt,
+      updatedAt: now,
+    );
+    final tree = ContentTree(
+      schemaVersion: snapshot.contentTree.schemaVersion,
+      novelId: snapshot.contentTree.novelId,
+      revision: snapshot.contentTree.revision + 1,
+      nodes: nodes,
+    );
+    final novelRoot = p.join(rootPath, snapshot.rootPath);
+    await _writeJsonAtomic(
+      File(_novelManifestPath(novelRoot)),
+      _novelToJson(metadata),
+    );
+    await _writeJsonAtomic(
+      File(_contentManifestPath(novelRoot)),
+      _contentToJson(tree),
+    );
+    return NovelSnapshot(
+      rootPath: snapshot.rootPath,
+      metadata: metadata,
+      contentTree: tree,
+    );
+  }
+
+  LibraryEntry _entryForContent(NovelSnapshot snapshot, ContentNode node) {
+    final libraryPath = p.join(snapshot.rootPath, node.relativePath);
+    return _semanticEntry(
+      name: p.basename(node.relativePath),
+      relativePath: libraryPath,
+      type: node.type == ContentNodeType.volume
+          ? LibraryEntryType.directory
+          : p.extension(node.relativePath).toLowerCase() == '.txt'
+          ? LibraryEntryType.textFile
+          : LibraryEntryType.markdownFile,
+      kind: node.type == ContentNodeType.volume
+          ? LibraryEntrySemanticKind.volume
+          : LibraryEntrySemanticKind.chapter,
+      semanticId: node.id.value,
+      novelId: snapshot.metadata.id.value,
+      semanticOrder: node.order,
+    );
+  }
+
+  LibraryEntry _bodyEntry(NovelSnapshot snapshot) {
+    return _semanticEntry(
+      name: snapshot.metadata.body.relativePath,
+      relativePath: p.join(
+        snapshot.rootPath,
+        snapshot.metadata.body.relativePath,
+      ),
+      type: LibraryEntryType.directory,
+      kind: LibraryEntrySemanticKind.body,
+      semanticId: snapshot.metadata.body.id.value,
+      novelId: snapshot.metadata.id.value,
+    );
+  }
+
+  Future<void> _registerNovel(
+    String rootPath,
+    NovelId novelId,
+    String relativePath,
+  ) async {
+    final file = File(_manifestPath(rootPath));
+    final manifest = await _readJsonObject(file);
+    final registrations = _parseNovelRegistrations(manifest['novels']);
+    final idConflict = registrations.where(
+      (item) => item.id == novelId && item.relativePath != relativePath,
+    );
+    final pathConflict = registrations.where(
+      (item) => item.relativePath == relativePath && item.id != novelId,
+    );
+    if (idConflict.isNotEmpty || pathConflict.isNotEmpty) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '小说 ID 或注册路径与现有记录冲突。',
+        ),
+      );
+    }
+    if (!registrations.any((item) => item.id == novelId)) {
+      registrations.add(
+        NovelRegistration(id: novelId, relativePath: relativePath),
+      );
+    }
+    manifest['novels'] = registrations
+        .map((item) => {'id': item.id.value, 'path': item.relativePath})
+        .toList(growable: false);
+    manifest['updatedAt'] = _clock.nowUtc().toIso8601String();
+    await _writeJsonAtomic(file, manifest);
+  }
+
+  Future<void> _updateNovelRegistration(
+    String rootPath,
+    NovelId novelId,
+    String relativePath,
+  ) async {
+    final file = File(_manifestPath(rootPath));
+    final manifest = await _readJsonObject(file);
+    final registrations = _parseNovelRegistrations(manifest['novels']);
+    final index = registrations.indexWhere((item) => item.id == novelId);
+    if (index < 0) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.notFound,
+          message: '小说未在书库中注册。',
+        ),
+      );
+    }
+    if (registrations.any(
+      (item) => item.id != novelId && item.relativePath == relativePath,
+    )) {
+      throw _alreadyExists(relativePath);
+    }
+    registrations[index] = NovelRegistration(
+      id: novelId,
+      relativePath: relativePath,
+    );
+    manifest['novels'] = registrations
+        .map((item) => {'id': item.id.value, 'path': item.relativePath})
+        .toList(growable: false);
+    manifest['updatedAt'] = _clock.nowUtc().toIso8601String();
+    await _writeJsonAtomic(file, manifest);
+  }
+
+  List<NovelRegistration> _parseNovelRegistrations(Object? value) {
+    if (value is! List<Object?>) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '书库小说注册信息无效。',
+        ),
+      );
+    }
+    return value.map((item) {
+      if (item is! Map<String, Object?> ||
+          item['id'] is! String ||
+          item['path'] is! String ||
+          !_isUuid(item['id']! as String)) {
+        throw const LibraryOperationException(
+          LibraryFailure(
+            code: LibraryFailureCode.metadataCorrupt,
+            message: '书库包含无效的小说注册项。',
+          ),
+        );
+      }
+      return NovelRegistration(
+        id: NovelId(item['id']! as String),
+        relativePath: item['path']! as String,
+      );
+    }).toList();
+  }
+
+  NovelMetadata _parseNovelMetadata(Map<String, Object?> value) {
+    final body = value['body'];
+    final novelId = value['novelId'];
+    final createdAt = value['createdAt'];
+    final updatedAt = value['updatedAt'];
+    if (value['schemaVersion'] != _schemaVersion ||
+        novelId is! String ||
+        !_isUuid(novelId) ||
+        value['title'] is! String ||
+        value['description'] is! String ||
+        body is! Map<String, Object?> ||
+        body['id'] is! String ||
+        !_isUuid(body['id']! as String) ||
+        body['path'] is! String ||
+        !_isMetadataRelativePath(body['path']! as String) ||
+        createdAt is! String ||
+        updatedAt is! String) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '小说元数据无效。',
+        ),
+      );
+    }
+    final chapterFormat = switch (value['chapterFormat']) {
+      'text' => ChapterFormat.text,
+      'markdown' => ChapterFormat.markdown,
+      _ => null,
+    };
+    final numberingMode = switch (value['numberingMode']) {
+      'continuous' => NumberingMode.continuous,
+      'perVolume' => NumberingMode.perVolume,
+      _ => null,
+    };
+    final created = DateTime.tryParse(createdAt);
+    final updated = DateTime.tryParse(updatedAt);
+    if (chapterFormat == null ||
+        numberingMode == null ||
+        created == null ||
+        updated == null) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '小说设置或时间信息无效。',
+        ),
+      );
+    }
+    return NovelMetadata(
+      schemaVersion: _schemaVersion,
+      id: NovelId(novelId),
+      title: value['title']! as String,
+      description: value['description']! as String,
+      coverPath: value['cover'] as String?,
+      body: NovelBody(
+        id: ContentId(body['id']! as String),
+        relativePath: body['path']! as String,
+      ),
+      chapterFormat: chapterFormat,
+      numberingMode: numberingMode,
+      createdAt: created.toUtc(),
+      updatedAt: updated.toUtc(),
+    );
+  }
+
+  ContentTree _parseContentTree(Map<String, Object?> value) {
+    final novelId = value['novelId'];
+    final nodes = value['nodes'];
+    if (value['schemaVersion'] != _schemaVersion ||
+        novelId is! String ||
+        !_isUuid(novelId) ||
+        value['revision'] is! int ||
+        nodes is! List<Object?>) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '正文内容树无效。',
+        ),
+      );
+    }
+    return ContentTree(
+      schemaVersion: _schemaVersion,
+      novelId: NovelId(novelId),
+      revision: value['revision']! as int,
+      nodes: nodes.map(_parseContentNode).toList(growable: false),
+    );
+  }
+
+  ContentNode _parseContentNode(Object? value) {
+    if (value is! Map<String, Object?> ||
+        value['id'] is! String ||
+        !_isUuid(value['id']! as String) ||
+        value['parentId'] is! String ||
+        !_isUuid(value['parentId']! as String) ||
+        value['path'] is! String ||
+        !_isMetadataRelativePath(value['path']! as String) ||
+        value['order'] is! int ||
+        (value['number'] != null && value['number'] is! int)) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '正文内容节点无效。',
+        ),
+      );
+    }
+    final type = switch (value['type']) {
+      'volume' => ContentNodeType.volume,
+      'chapter' => ContentNodeType.chapter,
+      _ => null,
+    };
+    final role = switch (value['role']) {
+      'normal' => ContentRole.normal,
+      'prologue' => ContentRole.prologue,
+      'epilogue' => ContentRole.epilogue,
+      'extra' => ContentRole.extra,
+      _ => null,
+    };
+    if (type == null || role == null) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '正文内容节点类型无效。',
+        ),
+      );
+    }
+    return ContentNode(
+      id: ContentId(value['id']! as String),
+      type: type,
+      parentId: ContentId(value['parentId']! as String),
+      relativePath: value['path']! as String,
+      order: value['order']! as int,
+      number: value['number'] as int?,
+      role: role,
+    );
+  }
+
+  Map<String, Object?> _novelToJson(NovelMetadata metadata) => {
+    'schemaVersion': metadata.schemaVersion,
+    'novelId': metadata.id.value,
+    'title': metadata.title,
+    'description': metadata.description,
+    'cover': metadata.coverPath,
+    'body': {'id': metadata.body.id.value, 'path': metadata.body.relativePath},
+    'chapterFormat': metadata.chapterFormat.name,
+    'numberingMode': metadata.numberingMode.name,
+    'createdAt': metadata.createdAt.toUtc().toIso8601String(),
+    'updatedAt': metadata.updatedAt.toUtc().toIso8601String(),
+  };
+
+  Map<String, Object?> _contentToJson(ContentTree tree) => {
+    'schemaVersion': tree.schemaVersion,
+    'novelId': tree.novelId.value,
+    'revision': tree.revision,
+    'nodes': tree.nodes
+        .map(
+          (node) => {
+            'id': node.id.value,
+            'type': node.type.name,
+            'parentId': node.parentId.value,
+            'path': node.relativePath,
+            'order': node.order,
+            'number': node.number,
+            'role': node.role.name,
+          },
+        )
+        .toList(growable: false),
+  };
+
+  Future<Map<String, Object?>> _readJsonObject(File file) async {
+    try {
+      final value = jsonDecode(await file.readAsString());
+      if (value is Map<String, Object?>) {
+        return value;
+      }
+      throw const FormatException();
+    } on FormatException {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '元数据不是有效的 JSON 对象。',
+        ),
+      );
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+  }
+
+  Future<void> _writeJsonNew(File file, Map<String, Object?> value) async {
+    try {
+      await file.create(exclusive: true);
+      await file.writeAsString(_encodedJson(value), flush: true);
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+  }
+
+  Future<void> _writeJsonAtomic(File file, Map<String, Object?> value) async {
+    final temporary = File('${file.path}.tmp-${_idGenerator.generate()}');
+    try {
+      await temporary.writeAsString(_encodedJson(value), flush: true);
+      await temporary.rename(file.path);
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
+    } finally {
+      await _deleteFileSafely(temporary.path);
+    }
+  }
+
+  String _encodedJson(Map<String, Object?> value) {
+    return '${const JsonEncoder.withIndent('  ').convert(value)}\n';
+  }
+
+  String _novelManifestPath(String novelRoot) =>
+      p.join(novelRoot, _metadataDirectoryName, _novelManifestFileName);
+
+  String _contentManifestPath(String novelRoot) =>
+      p.join(novelRoot, _metadataDirectoryName, _contentManifestFileName);
+
+  String _pendingPath(String rootPath) => p.join(
+    rootPath,
+    _metadataDirectoryName,
+    'recovery',
+    'pending-operation.json',
+  );
+
+  Future<void> _writePending(
+    String rootPath,
+    NovelId novelId,
+    String novelPath, {
+    required String operation,
+    String? sourcePath,
+    String? targetPath,
+  }) async {
+    final file = File(_pendingPath(rootPath));
+    await file.parent.create(recursive: true);
+    if (await file.exists()) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.externalModification,
+          message: '存在尚未恢复的结构操作，请重新打开书库。',
+        ),
+      );
+    }
+    await _writeJsonNew(file, {
+      'schemaVersion': _schemaVersion,
+      'novelId': novelId.value,
+      'novelPath': novelPath,
+      'operation': operation,
+      'sourcePath': sourcePath,
+      'targetPath': targetPath,
+      'startedAt': _clock.nowUtc().toIso8601String(),
+    });
+  }
+
+  Future<void> _clearPending(String rootPath) {
+    return _deleteFileSafely(_pendingPath(rootPath));
+  }
+
+  Future<void> _recoverPending(String rootPath) async {
+    final pendingFile = File(_pendingPath(rootPath));
+    if (!await pendingFile.exists()) {
+      return;
+    }
+    final pending = await _readJsonObject(pendingFile);
+    final novelIdValue = pending['novelId'];
+    final novelPath = pending['novelPath'];
+    final operation = pending['operation'];
+    final sourcePath = pending['sourcePath'];
+    final targetPath = pending['targetPath'];
+    if (novelIdValue is! String ||
+        !_isUuid(novelIdValue) ||
+        novelPath is! String ||
+        !_isMetadataRelativePath(novelPath) ||
+        operation is! String ||
+        (sourcePath != null && sourcePath is! String) ||
+        (sourcePath != null &&
+            !_isMetadataRelativePath(sourcePath as String)) ||
+        (targetPath != null && targetPath is! String) ||
+        (targetPath != null &&
+            !_isMetadataRelativePath(targetPath as String))) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '结构操作恢复记录已损坏。',
+        ),
+      );
+    }
+    final novelRoot = p.join(rootPath, novelPath);
+    if (!await Directory(novelRoot).exists()) {
+      await _clearPending(rootPath);
+      return;
+    }
+    final novelFile = File(_novelManifestPath(novelRoot));
+    if (!await novelFile.exists()) {
+      await _clearPending(rootPath);
+      return;
+    }
+    var metadata = _parseNovelMetadata(await _readJsonObject(novelFile));
+    if (metadata.id.value != novelIdValue) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.metadataCorrupt,
+          message: '恢复记录与小说元数据不一致。',
+        ),
+      );
+    }
+    if (operation == 'renameNovel' &&
+        sourcePath is String &&
+        targetPath is String &&
+        !await Directory(p.join(rootPath, sourcePath)).exists() &&
+        await Directory(p.join(rootPath, targetPath)).exists() &&
+        metadata.title != p.basename(targetPath)) {
+      metadata = NovelMetadata(
+        schemaVersion: metadata.schemaVersion,
+        id: metadata.id,
+        title: p.basename(targetPath),
+        description: metadata.description,
+        coverPath: metadata.coverPath,
+        body: metadata.body,
+        chapterFormat: metadata.chapterFormat,
+        numberingMode: metadata.numberingMode,
+        createdAt: metadata.createdAt,
+        updatedAt: _clock.nowUtc(),
+      );
+      await _writeJsonAtomic(novelFile, _novelToJson(metadata));
+    }
+    final contentFile = File(_contentManifestPath(novelRoot));
+    var existing = await contentFile.exists()
+        ? _parseContentTree(await _readJsonObject(contentFile)).nodes
+        : const <ContentNode>[];
+    if (operation == 'renameBody' &&
+        sourcePath is String &&
+        targetPath is String) {
+      final oldBody = p.relative(sourcePath, from: novelPath);
+      final newBody = p.relative(targetPath, from: novelPath);
+      if (metadata.body.relativePath == oldBody &&
+          !await Directory(p.join(rootPath, sourcePath)).exists() &&
+          await Directory(p.join(rootPath, targetPath)).exists()) {
+        metadata = NovelMetadata(
+          schemaVersion: metadata.schemaVersion,
+          id: metadata.id,
+          title: metadata.title,
+          description: metadata.description,
+          coverPath: metadata.coverPath,
+          body: NovelBody(id: metadata.body.id, relativePath: newBody),
+          chapterFormat: metadata.chapterFormat,
+          numberingMode: metadata.numberingMode,
+          createdAt: metadata.createdAt,
+          updatedAt: _clock.nowUtc(),
+        );
+        existing = existing
+            .map(
+              (node) => node.copyWith(
+                relativePath: p.join(
+                  newBody,
+                  p.relative(node.relativePath, from: oldBody),
+                ),
+              ),
+            )
+            .toList(growable: false);
+        await _writeJsonAtomic(novelFile, _novelToJson(metadata));
+      }
+    }
+    if ((operation == 'renameNode' || operation == 'moveChapter') &&
+        sourcePath is String &&
+        targetPath is String &&
+        await FileSystemEntity.type(
+              p.join(rootPath, sourcePath),
+              followLinks: false,
+            ) ==
+            FileSystemEntityType.notFound &&
+        await FileSystemEntity.type(
+              p.join(rootPath, targetPath),
+              followLinks: false,
+            ) !=
+            FileSystemEntityType.notFound) {
+      final oldRelative = p.relative(sourcePath, from: novelPath);
+      final newRelative = p.relative(targetPath, from: novelPath);
+      final targetParentPath = p.dirname(newRelative);
+      final targetParent = targetParentPath == metadata.body.relativePath
+          ? metadata.body.id
+          : existing
+                .where(
+                  (node) =>
+                      node.type == ContentNodeType.volume &&
+                      node.relativePath == targetParentPath,
+                )
+                .firstOrNull
+                ?.id;
+      existing = existing
+          .map((node) {
+            if (node.relativePath == oldRelative) {
+              return node.copyWith(
+                parentId: targetParent ?? node.parentId,
+                relativePath: newRelative,
+              );
+            }
+            if (p.isWithin(oldRelative, node.relativePath)) {
+              return node.copyWith(
+                relativePath: p.join(
+                  newRelative,
+                  p.relative(node.relativePath, from: oldRelative),
+                ),
+              );
+            }
+            return node;
+          })
+          .toList(growable: false);
+    }
+    final scanned = await _scanContentTree(novelRoot, metadata, existing);
+    await _writeJsonAtomic(contentFile, _contentToJson(scanned));
+    final manifest = await _readJsonObject(File(_manifestPath(rootPath)));
+    final registrations = _parseNovelRegistrations(manifest['novels']);
+    if (registrations.any((registration) => registration.id == metadata.id)) {
+      await _updateNovelRegistration(rootPath, metadata.id, novelPath);
+    } else {
+      await _registerNovel(rootPath, metadata.id, novelPath);
+    }
+    await _clearPending(rootPath);
+  }
+
   LineEnding _lineEnding(String text) {
     final withoutCrLf = text.replaceAll('\r\n', '');
     final hasCrLf = text.contains('\r\n');
@@ -796,19 +2737,23 @@ final class LocalDirectoryLibraryRepository
     String targetPath,
     FileSystemEntityType type,
   ) async {
-    final gateway = fileOperationsGateway;
-    if (gateway != null) {
-      await gateway.rename(
-        access,
-        sourcePath: p.relative(sourcePath, from: rootPath),
-        targetPath: p.relative(targetPath, from: rootPath),
-      );
-      return targetPath;
+    try {
+      final gateway = fileOperationsGateway;
+      if (gateway != null) {
+        await gateway.rename(
+          access,
+          sourcePath: p.relative(sourcePath, from: rootPath),
+          targetPath: p.relative(targetPath, from: rootPath),
+        );
+        return targetPath;
+      }
+      if (type == FileSystemEntityType.directory) {
+        return (await Directory(sourcePath).rename(targetPath)).path;
+      }
+      return (await File(sourcePath).rename(targetPath)).path;
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
     }
-    if (type == FileSystemEntityType.directory) {
-      return (await Directory(sourcePath).rename(targetPath)).path;
-    }
-    return (await File(sourcePath).rename(targetPath)).path;
   }
 
   Future<String> _renameChangingCase(
@@ -861,7 +2806,9 @@ final class LocalDirectoryLibraryRepository
       'libraryId': metadata.id.value,
       'createdAt': metadata.createdAt.toUtc().toIso8601String(),
       'updatedAt': metadata.updatedAt.toUtc().toIso8601String(),
-      'novels': <Object?>[],
+      'novels': metadata.novels
+          .map((novel) => {'id': novel.id.value, 'path': novel.relativePath})
+          .toList(growable: false),
       'templates': <Object?>[],
     };
   }
@@ -904,6 +2851,14 @@ final class LocalDirectoryLibraryRepository
     ).hasMatch(value);
   }
 
+  bool _isMetadataRelativePath(String value) {
+    return value.isNotEmpty &&
+        value != '.' &&
+        !p.isAbsolute(value) &&
+        !p.split(value).contains('..') &&
+        p.normalize(value) == value;
+  }
+
   LibraryEntryType _entryType(String name, FileSystemEntityType type) {
     if (type == FileSystemEntityType.directory) {
       return LibraryEntryType.directory;
@@ -916,6 +2871,9 @@ final class LocalDirectoryLibraryRepository
   }
 
   int _compareEntries(LibraryEntry left, LibraryEntry right) {
+    if (left.semanticOrder != null && right.semanticOrder != null) {
+      return left.semanticOrder!.compareTo(right.semanticOrder!);
+    }
     if (left.isDirectory != right.isDirectory) {
       return left.isDirectory ? -1 : 1;
     }
@@ -927,6 +2885,20 @@ final class LocalDirectoryLibraryRepository
       final file = File(path);
       if (await file.exists()) {
         await file.delete();
+      }
+    } on FileSystemException catch (_) {
+      return;
+    }
+  }
+
+  Future<void> _deleteDirectorySafely(
+    String path, {
+    bool recursive = false,
+  }) async {
+    try {
+      final directory = Directory(path);
+      if (await directory.exists()) {
+        await directory.delete(recursive: recursive);
       }
     } on FileSystemException catch (_) {
       return;

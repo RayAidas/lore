@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_application/lore_application.dart';
@@ -51,6 +52,7 @@ void main() {
         ),
       ],
     );
+    final novelRepository = _FakeNovelRepository();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -64,6 +66,8 @@ void main() {
           ),
           libraryTreeRepositoryProvider.overrideWithValue(workspaceRepository),
           documentRepositoryProvider.overrideWithValue(workspaceRepository),
+          novelRepositoryProvider.overrideWithValue(novelRepository),
+          contentTreeRepositoryProvider.overrideWithValue(novelRepository),
           workspaceSessionRepositoryProvider.overrideWithValue(
             _MemoryWorkspaceSessionRepository(),
           ),
@@ -83,6 +87,54 @@ void main() {
     expect(find.text('编辑'), findsOneWidget);
     expect(find.text('预览'), findsOneWidget);
     expect(find.text('已保存'), findsOneWidget);
+  });
+
+  testWidgets('creates a novel from the workspace toolbar', (tester) async {
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final workspaceRepository = _FakeWorkspaceRepository();
+    final novelRepository = _FakeNovelRepository();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          libraryAccessGatewayProvider.overrideWithValue(
+            _FakeAccessGateway(restoreAccess: access),
+          ),
+          libraryRepositoryProvider.overrideWithValue(
+            _FakeLibraryRepository(
+              inspection: LibraryInspectionReady(metadata),
+            ),
+          ),
+          libraryTreeRepositoryProvider.overrideWithValue(workspaceRepository),
+          documentRepositoryProvider.overrideWithValue(workspaceRepository),
+          novelRepositoryProvider.overrideWithValue(novelRepository),
+          contentTreeRepositoryProvider.overrideWithValue(novelRepository),
+          workspaceSessionRepositoryProvider.overrideWithValue(
+            _MemoryWorkspaceSessionRepository(),
+          ),
+        ],
+        child: const LoreApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('新建小说'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '长夜行');
+    await tester.tap(find.text('确认'));
+    await tester.pumpAndSettle();
+
+    expect(novelRepository.createdTitles, ['长夜行']);
+    expect(find.text('长夜行'), findsOneWidget);
   });
 
   testWidgets('confirms before initializing an ordinary directory', (
@@ -296,5 +348,153 @@ final class _MemoryWorkspaceSessionRepository
     WorkspaceSessionSnapshot snapshot,
   ) async {
     value = snapshot;
+  }
+}
+
+final class _FakeNovelRepository
+    implements NovelRepository, ContentTreeRepository {
+  final createdTitles = <String>[];
+  final snapshots = <NovelSnapshot>[];
+
+  @override
+  Future<List<NovelSnapshot>> listNovels(LibraryAccess access) async =>
+      snapshots;
+
+  @override
+  Future<NovelSnapshot> loadNovel(
+    LibraryAccess access, {
+    required NovelId novelId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<NovelStructureMutation> createNovel(
+    LibraryAccess access, {
+    required String title,
+  }) async {
+    createdTitles.add(title);
+    final now = DateTime.utc(2026, 7, 17);
+    final snapshot = NovelSnapshot(
+      rootPath: title,
+      metadata: NovelMetadata(
+        schemaVersion: 1,
+        id: const NovelId('22222222-2222-4222-8222-222222222222'),
+        title: title,
+        description: '',
+        coverPath: null,
+        body: const NovelBody(
+          id: ContentId('33333333-3333-4333-8333-333333333333'),
+          relativePath: '正文',
+        ),
+        chapterFormat: ChapterFormat.markdown,
+        numberingMode: NumberingMode.continuous,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      contentTree: const ContentTree(
+        schemaVersion: 1,
+        novelId: NovelId('22222222-2222-4222-8222-222222222222'),
+        revision: 0,
+        nodes: [],
+      ),
+    );
+    snapshots.add(snapshot);
+    return NovelStructureMutation(
+      snapshot: snapshot,
+      entry: LibraryEntry(
+        name: title,
+        relativePath: title,
+        type: LibraryEntryType.directory,
+        semanticKind: LibraryEntrySemanticKind.novel,
+        semanticId: snapshot.metadata.id.value,
+        novelId: snapshot.metadata.id.value,
+      ),
+    );
+  }
+
+  @override
+  Future<NovelStructureMutation> registerExistingNovel(
+    LibraryAccess access, {
+    required String relativePath,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<NovelStructureMutation> renameNovel(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required String newName,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<NovelStructureMutation> renameBody(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required String newName,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<NovelStructureMutation> createVolume(
+    LibraryAccess access, {
+    required NovelId novelId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<NovelStructureMutation> createChapter(
+    LibraryAccess access, {
+    required NovelId novelId,
+    ContentId? volumeId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<NovelStructureMutation> moveChapter(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required ContentId chapterId,
+    ContentId? volumeId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<NovelStructureMutation> renameNode(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required ContentId nodeId,
+    required String newName,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<NovelReconciliationResult> reconcile(
+    LibraryAccess access, {
+    required NovelId novelId,
+  }) async {
+    return NovelReconciliationResult(
+      snapshot: snapshots.firstWhere(
+        (snapshot) => snapshot.metadata.id == novelId,
+      ),
+    );
+  }
+
+  @override
+  Future<NovelStructureMutation> reorderNode(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required ContentId nodeId,
+    required int newIndex,
+  }) {
+    throw UnimplementedError();
   }
 }
