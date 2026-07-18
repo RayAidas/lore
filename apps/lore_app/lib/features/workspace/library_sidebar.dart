@@ -274,6 +274,7 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
         position.dx,
         position.dy,
       ),
+      constraints: const BoxConstraints(minWidth: 184, maxWidth: 224),
       items: _buildMenuItems(entry),
     );
     if (action == null || !mounted) {
@@ -291,42 +292,42 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
       if (canOpen) ...[
         PopupMenuItem(
           value: _ContextMenuAction.open,
-          child: _menuRow(Icons.open_in_new_outlined, '打开'),
+          height: _popupMenuItemHeight,
+          child: _menuLabel('打开'),
         ),
-        const PopupMenuDivider(),
       ],
       if (isPlainDir) ...[
         PopupMenuItem(
           value: _ContextMenuAction.newFolder,
-          child: _menuRow(Icons.create_new_folder_outlined, '新建子文件夹'),
+          height: _popupMenuItemHeight,
+          child: _menuLabel('新建子文件夹'),
         ),
         PopupMenuItem(
           value: _ContextMenuAction.newText,
-          child: _menuRow(Icons.text_snippet_outlined, '新建 TXT'),
+          height: _popupMenuItemHeight,
+          child: _menuLabel('新建 TXT'),
         ),
         PopupMenuItem(
           value: _ContextMenuAction.newMarkdown,
-          child: _menuRow(Icons.description_outlined, '新建 Markdown'),
+          height: _popupMenuItemHeight,
+          child: _menuLabel('新建 Markdown'),
         ),
-        const PopupMenuDivider(),
       ],
       PopupMenuItem(
         value: _ContextMenuAction.rename,
-        child: _menuRow(Icons.edit_outlined, '重命名'),
+        height: _popupMenuItemHeight,
+        child: _menuLabel('重命名'),
       ),
       PopupMenuItem(
         value: _ContextMenuAction.copyPath,
-        child: _menuRow(Icons.content_copy_outlined, '复制路径'),
+        height: _popupMenuItemHeight,
+        child: _menuLabel('复制路径'),
       ),
-      const PopupMenuDivider(),
       PopupMenuItem(
         value: _ContextMenuAction.delete,
         enabled: !isSemantic,
-        child: _menuRow(
-          Icons.delete_outline,
-          '移到回收站',
-          destructive: !isSemantic,
-        ),
+        height: _popupMenuItemHeight,
+        child: _menuLabel('移到回收站', destructive: !isSemantic),
       ),
     ];
   }
@@ -361,23 +362,13 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     }
   }
 
-  Widget _menuRow(IconData icon, String label, {bool destructive = false}) {
+  Widget _menuLabel(String label, {bool destructive = false}) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        Icon(
-          icon,
-          size: 18,
-          color: destructive ? colorScheme.error : colorScheme.onSurfaceVariant,
-        ),
-        const SizedBox(width: 12),
-        Text(
-          label,
-          style: TextStyle(
-            color: destructive ? colorScheme.error : colorScheme.onSurface,
-          ),
-        ),
-      ],
+    return Text(
+      label,
+      style: TextStyle(
+        color: destructive ? colorScheme.error : colorScheme.onSurface,
+      ),
     );
   }
 
@@ -409,24 +400,19 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                     icon: Icons.add_rounded,
                     menuChildren: [
                       _SidebarMenuItem(
-                        icon: Icons.auto_stories_outlined,
                         label: '新建小说',
                         onPressed: () => unawaited(_createNovel()),
                       ),
                       _SidebarMenuItem(
-                        icon: Icons.create_new_folder_outlined,
                         label: '新建文件夹',
                         onPressed: () => unawaited(_createDirectory()),
                       ),
-                      const Divider(height: 9, indent: 10, endIndent: 10),
                       _SidebarMenuItem(
-                        icon: Icons.text_snippet_outlined,
                         label: '新建 TXT',
                         onPressed: () =>
                             unawaited(_createDocument(DocumentFormat.text)),
                       ),
                       _SidebarMenuItem(
-                        icon: Icons.description_outlined,
                         label: '新建 Markdown',
                         onPressed: () =>
                             unawaited(_createDocument(DocumentFormat.markdown)),
@@ -439,13 +425,10 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                       icon: Icons.more_horiz_rounded,
                       menuChildren: [
                         _SidebarMenuItem(
-                          icon: Icons.edit_outlined,
                           label: '重命名',
                           onPressed: () => unawaited(_renameSelected()),
                         ),
-                        const Divider(height: 9, indent: 10, endIndent: 10),
                         _SidebarMenuItem(
-                          icon: Icons.delete_outline,
                           label: '移到回收站',
                           destructive: true,
                           onPressed: () => unawaited(_deleteSelected()),
@@ -547,25 +530,8 @@ final class _SidebarMenuButtonState extends State<_SidebarMenuButton> {
       onOpen: () => setState(() => _isOpen = true),
       onClose: () => setState(() => _isOpen = false),
       style: MenuStyle(
-        backgroundColor: WidgetStatePropertyAll(
-          colorScheme.surfaceContainerLowest,
-        ),
-        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-        shadowColor: WidgetStatePropertyAll(
-          colorScheme.shadow.withValues(alpha: 0.18),
-        ),
-        elevation: const WidgetStatePropertyAll(10),
-        padding: const WidgetStatePropertyAll(
-          EdgeInsets.symmetric(vertical: 6),
-        ),
         fixedSize: const WidgetStatePropertyAll(
           Size.fromWidth(_sidebarMenuWidth),
-        ),
-        shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: colorScheme.outlineVariant),
-          ),
         ),
       ),
       menuChildren: widget.menuChildren,
@@ -631,13 +597,11 @@ final class _SidebarMenuButtonState extends State<_SidebarMenuButton> {
 
 final class _SidebarMenuItem extends StatelessWidget {
   const _SidebarMenuItem({
-    required this.icon,
     required this.label,
     required this.onPressed,
     this.destructive = false,
   });
 
-  final IconData icon;
   final String label;
   final VoidCallback onPressed;
   final bool destructive;
@@ -650,39 +614,19 @@ final class _SidebarMenuItem extends StatelessWidget {
         : colorScheme.onSurface;
     return MenuItemButton(
       onPressed: onPressed,
-      leadingIcon: Container(
-        width: 28,
-        height: 28,
-        decoration: BoxDecoration(
-          color: destructive
-              ? colorScheme.errorContainer.withValues(alpha: 0.55)
-              : colorScheme.surfaceContainer,
-          borderRadius: BorderRadius.circular(7),
-        ),
-        child: Icon(icon, size: 16, color: foregroundColor),
-      ),
       style: ButtonStyle(
         foregroundColor: WidgetStatePropertyAll(foregroundColor),
-        minimumSize: const WidgetStatePropertyAll(Size(192, 42)),
-        padding: const WidgetStatePropertyAll(
-          EdgeInsets.symmetric(horizontal: 10),
-        ),
-        shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
         overlayColor: WidgetStatePropertyAll(
           destructive
               ? colorScheme.error.withValues(alpha: 0.08)
               : colorScheme.onSurface.withValues(alpha: 0.055),
         ),
       ),
-      child: Text(
-        label,
-        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-      ),
+      child: Text(label),
     );
   }
 }
 
 const double _sidebarMenuButtonSize = 36;
-const double _sidebarMenuWidth = 204;
+const double _sidebarMenuWidth = 184;
+const double _popupMenuItemHeight = 34;

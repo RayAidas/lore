@@ -86,11 +86,101 @@ abstract final class LoreTheme {
         minTileHeight: 38,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
       ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: colorScheme.surfaceContainerLowest,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: colorScheme.shadow.withValues(alpha: 0.2),
+        elevation: 12,
+        barrierColor: Colors.black.withValues(
+          alpha: colorScheme.brightness == Brightness.dark ? 0.58 : 0.38,
+        ),
+        insetPadding: const EdgeInsets.all(24),
+        clipBehavior: Clip.antiAlias,
+        constraints: const BoxConstraints(minWidth: 340, maxWidth: 440),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: colorScheme.outlineVariant),
+        ),
+        titleTextStyle: TextStyle(
+          color: colorScheme.onSurface,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.1,
+        ),
+        contentTextStyle: TextStyle(
+          color: colorScheme.onSurfaceVariant,
+          fontSize: 14,
+          height: 1.5,
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+      ),
       popupMenuTheme: PopupMenuThemeData(
         color: colorScheme.surfaceContainerLowest,
         surfaceTintColor: Colors.transparent,
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shadowColor: colorScheme.shadow.withValues(alpha: 0.16),
+        elevation: 6,
+        menuPadding: const EdgeInsets.symmetric(vertical: 5),
+        position: PopupMenuPosition.under,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: colorScheme.outlineVariant),
+        ),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          return TextStyle(
+            color: states.contains(WidgetState.disabled)
+                ? colorScheme.onSurface.withValues(alpha: 0.38)
+                : colorScheme.onSurface,
+            fontSize: 13.5,
+            fontWeight: FontWeight.w500,
+          );
+        }),
+        iconColor: colorScheme.onSurfaceVariant,
+        iconSize: 19,
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(
+            colorScheme.surfaceContainerLowest,
+          ),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          shadowColor: WidgetStatePropertyAll(
+            colorScheme.shadow.withValues(alpha: 0.16),
+          ),
+          elevation: const WidgetStatePropertyAll(6),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(vertical: 5),
+          ),
+          side: WidgetStatePropertyAll(
+            BorderSide(color: colorScheme.outlineVariant),
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+      ),
+      menuButtonTheme: MenuButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size(0, 34)),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 14),
+          ),
+          textStyle: const WidgetStatePropertyAll(
+            TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500),
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          ),
+          overlayColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.pressed)) {
+              return colorScheme.onSurface.withValues(alpha: 0.09);
+            }
+            if (states.contains(WidgetState.hovered) ||
+                states.contains(WidgetState.focused)) {
+              return colorScheme.onSurface.withValues(alpha: 0.055);
+            }
+            return null;
+          }),
+        ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,

@@ -209,8 +209,20 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final dividerCount = tester
+        .widgetList<Divider>(find.byType(Divider))
+        .length;
     await tester.tap(find.byTooltip('新建'));
     await tester.pumpAndSettle();
+    final menuItems = tester
+        .widgetList<MenuItemButton>(find.byType(MenuItemButton))
+        .toList();
+    expect(menuItems, hasLength(4));
+    expect(menuItems.every((item) => item.leadingIcon == null), isTrue);
+    expect(
+      tester.widgetList<Divider>(find.byType(Divider)),
+      hasLength(dividerCount),
+    );
     await tester.tap(find.text('新建小说'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '长夜行');

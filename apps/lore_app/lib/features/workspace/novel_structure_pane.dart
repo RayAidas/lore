@@ -195,6 +195,10 @@ final class NovelStructurePane extends StatelessWidget {
                                 if (node.type == ContentNodeType.chapter)
                                   PopupMenuButton<String>(
                                     tooltip: '移动章节',
+                                    constraints: const BoxConstraints(
+                                      minWidth: 184,
+                                      maxWidth: 280,
+                                    ),
                                     onSelected: (target) => _run(
                                       () => controller.moveChapter(
                                         snapshot.metadata.id,
@@ -207,6 +211,7 @@ final class NovelStructurePane extends StatelessWidget {
                                     itemBuilder: (context) => [
                                       const PopupMenuItem(
                                         value: 'body',
+                                        height: 34,
                                         child: Text('移动到正文根级'),
                                       ),
                                       ...snapshot.contentTree.nodes
@@ -218,6 +223,7 @@ final class NovelStructurePane extends StatelessWidget {
                                           .map(
                                             (volume) => PopupMenuItem(
                                               value: volume.id.value,
+                                              height: 34,
                                               child: Text(
                                                 '移动到 ${p.basename(volume.relativePath)}',
                                               ),
