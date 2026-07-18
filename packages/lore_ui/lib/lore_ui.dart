@@ -16,6 +16,26 @@ abstract final class LoreTheme {
     return _build(colorScheme);
   }
 
+  /// 纸张/护眼主题：暖米黄底，适合长时间写作。
+  ///
+  /// 由于 [MaterialApp.themeMode] 仅支持 system/light/dark 三态，
+  /// 调用方需在 sepia 时把 `theme:` 直接指向本返回值，并把
+  /// `themeMode` 设为 [ThemeMode.light]。
+  static ThemeData sepia() {
+    final colorScheme =
+        ColorScheme.fromSeed(
+          seedColor: const Color(0xFFA87C4C),
+          brightness: Brightness.light,
+        ).copyWith(
+          surface: const Color(0xFFF5EDD9),
+          surfaceContainerLowest: const Color(0xFFFBF4E2),
+          surfaceContainerLow: const Color(0xFFEFE3C7),
+          surfaceContainer: const Color(0xFFE8D9B5),
+          outlineVariant: const Color(0xFFD6C39A),
+        );
+    return _build(colorScheme);
+  }
+
   static ThemeData dark() {
     final colorScheme =
         ColorScheme.fromSeed(
