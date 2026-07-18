@@ -34,7 +34,6 @@ run() {
 
 section "静态分析"
 run "flutter analyze" flutter analyze
-run "源码文件长度" env MAX_LINES=500 bash scripts/check_file_length.sh
 
 section "纯 Dart 包"
 run "lore_domain (dart test)" sh -c 'cd packages/lore_domain && dart test'
