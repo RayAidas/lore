@@ -41,6 +41,7 @@ run "lore_application (dart test)" sh -c 'cd packages/lore_application && dart t
 run "lore_storage (dart test)" sh -c 'cd packages/lore_storage && dart test'
 
 section "Flutter 包"
+run "lore_ui (flutter test)" sh -c 'cd packages/lore_ui && flutter test'
 run "lore_editor (flutter test)" sh -c 'cd packages/lore_editor && flutter test'
 run "lore_platform_adapters (flutter test)" sh -c 'cd packages/lore_platform_adapters && flutter test'
 run "lore_app (flutter test)" sh -c 'cd apps/lore_app && flutter test'

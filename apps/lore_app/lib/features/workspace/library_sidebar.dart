@@ -5,11 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
+import 'package:lore_ui/lore_ui.dart';
 import 'package:path/path.dart' as p;
 
 import '../preferences/preferences_providers.dart';
 import 'library_failure_snackbar.dart';
-import 'name_prompt_dialog.dart';
 import 'workspace_controller.dart';
 import 'workspace_directory_tree.dart';
 
@@ -64,24 +64,14 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
         _showFailure(error.failure);
         return;
       }
-      final register = await showDialog<bool>(
+      final register = await showLoreConfirmDialog(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('同名目录已存在'),
-          content: Text('是否将“${title.trim()}”注册为小说并扫描其中的正文？'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('修改书名'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('注册现有目录'),
-            ),
-          ],
-        ),
+        title: '同名目录已存在',
+        message: '是否将“${title.trim()}”注册为小说并扫描其中的正文？',
+        cancelLabel: '修改书名',
+        confirmLabel: '注册现有目录',
       );
-      if (register == true) {
+      if (register) {
         try {
           await widget.controller.registerExistingNovel(title.trim());
         } on LibraryOperationException catch (registerError) {
@@ -133,28 +123,17 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
       return;
     }
     final isSemantic = entry.semanticKind != null;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showLoreConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除？'),
-        content: Text(
-          isSemantic ? '卷与章节请在小说结构面板中删除。' : '“${entry.name}”将移到回收站，可在回收站恢复。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: isSemantic
-                ? null
-                : () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除？',
+      message: isSemantic
+          ? '卷与章节请在小说结构面板中删除。'
+          : '“${entry.name}”将移到回收站，可在回收站恢复。',
+      confirmLabel: '删除',
+      confirmEnabled: !isSemantic,
+      destructive: true,
     );
-    if (confirmed == true) {
+    if (confirmed) {
       try {
         await widget.controller.deleteSelectedEntry();
       } on LibraryOperationException catch (error) {
@@ -209,14 +188,12 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     String initialValue = '',
     String? suffix,
   }) {
-    return showDialog<String>(
+    return showLoreTextPromptDialog(
       context: context,
-      builder: (context) => NamePromptDialog(
-        title: title,
-        label: label,
-        initialValue: initialValue,
-        suffix: suffix,
-      ),
+      title: title,
+      label: label,
+      initialValue: initialValue,
+      suffixText: suffix,
     );
   }
 
@@ -290,44 +267,23 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     final isSemantic = entry.semanticKind != null;
     return <PopupMenuEntry<_ContextMenuAction>>[
       if (canOpen) ...[
-        PopupMenuItem(
-          value: _ContextMenuAction.open,
-          height: _popupMenuItemHeight,
-          child: _menuLabel('打开'),
-        ),
+        LorePopupMenuItem(value: _ContextMenuAction.open, label: '打开'),
       ],
       if (isPlainDir) ...[
-        PopupMenuItem(
-          value: _ContextMenuAction.newFolder,
-          height: _popupMenuItemHeight,
-          child: _menuLabel('新建子文件夹'),
-        ),
-        PopupMenuItem(
-          value: _ContextMenuAction.newText,
-          height: _popupMenuItemHeight,
-          child: _menuLabel('新建 TXT'),
-        ),
-        PopupMenuItem(
+        LorePopupMenuItem(value: _ContextMenuAction.newFolder, label: '新建子文件夹'),
+        LorePopupMenuItem(value: _ContextMenuAction.newText, label: '新建 TXT'),
+        LorePopupMenuItem(
           value: _ContextMenuAction.newMarkdown,
-          height: _popupMenuItemHeight,
-          child: _menuLabel('新建 Markdown'),
+          label: '新建 Markdown',
         ),
       ],
-      PopupMenuItem(
-        value: _ContextMenuAction.rename,
-        height: _popupMenuItemHeight,
-        child: _menuLabel('重命名'),
-      ),
-      PopupMenuItem(
-        value: _ContextMenuAction.copyPath,
-        height: _popupMenuItemHeight,
-        child: _menuLabel('复制路径'),
-      ),
-      PopupMenuItem(
+      LorePopupMenuItem(value: _ContextMenuAction.rename, label: '重命名'),
+      LorePopupMenuItem(value: _ContextMenuAction.copyPath, label: '复制路径'),
+      LorePopupMenuItem(
         value: _ContextMenuAction.delete,
         enabled: !isSemantic,
-        height: _popupMenuItemHeight,
-        child: _menuLabel('移到回收站', destructive: !isSemantic),
+        label: '移到回收站',
+        destructive: !isSemantic,
       ),
     ];
   }
@@ -362,16 +318,6 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     }
   }
 
-  Widget _menuLabel(String label, {bool destructive = false}) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Text(
-      label,
-      style: TextStyle(
-        color: destructive ? colorScheme.error : colorScheme.onSurface,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -399,20 +345,20 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                     tooltip: '新建',
                     icon: Icons.add_rounded,
                     menuChildren: [
-                      _SidebarMenuItem(
+                      LoreMenuItemButton(
                         label: '新建小说',
                         onPressed: () => unawaited(_createNovel()),
                       ),
-                      _SidebarMenuItem(
+                      LoreMenuItemButton(
                         label: '新建文件夹',
                         onPressed: () => unawaited(_createDirectory()),
                       ),
-                      _SidebarMenuItem(
+                      LoreMenuItemButton(
                         label: '新建 TXT',
                         onPressed: () =>
                             unawaited(_createDocument(DocumentFormat.text)),
                       ),
-                      _SidebarMenuItem(
+                      LoreMenuItemButton(
                         label: '新建 Markdown',
                         onPressed: () =>
                             unawaited(_createDocument(DocumentFormat.markdown)),
@@ -424,11 +370,11 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                       tooltip: '更多操作',
                       icon: Icons.more_horiz_rounded,
                       menuChildren: [
-                        _SidebarMenuItem(
+                        LoreMenuItemButton(
                           label: '重命名',
                           onPressed: () => unawaited(_renameSelected()),
                         ),
-                        _SidebarMenuItem(
+                        LoreMenuItemButton(
                           label: '移到回收站',
                           destructive: true,
                           onPressed: () => unawaited(_deleteSelected()),
@@ -595,38 +541,5 @@ final class _SidebarMenuButtonState extends State<_SidebarMenuButton> {
   }
 }
 
-final class _SidebarMenuItem extends StatelessWidget {
-  const _SidebarMenuItem({
-    required this.label,
-    required this.onPressed,
-    this.destructive = false,
-  });
-
-  final String label;
-  final VoidCallback onPressed;
-  final bool destructive;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final foregroundColor = destructive
-        ? colorScheme.error
-        : colorScheme.onSurface;
-    return MenuItemButton(
-      onPressed: onPressed,
-      style: ButtonStyle(
-        foregroundColor: WidgetStatePropertyAll(foregroundColor),
-        overlayColor: WidgetStatePropertyAll(
-          destructive
-              ? colorScheme.error.withValues(alpha: 0.08)
-              : colorScheme.onSurface.withValues(alpha: 0.055),
-        ),
-      ),
-      child: Text(label),
-    );
-  }
-}
-
 const double _sidebarMenuButtonSize = 36;
 const double _sidebarMenuWidth = 184;
-const double _popupMenuItemHeight = 34;

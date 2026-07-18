@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lore_application/lore_application.dart';
+import 'package:lore_ui/lore_ui.dart';
 
 import 'library_failure_snackbar.dart';
 import 'workspace_controller.dart';
@@ -170,23 +171,13 @@ final class _TrashPageState extends State<TrashPage> {
     }
   }
 
-  Future<bool?> _confirm({required String title, required String message}) {
-    return showDialog<bool>(
+  Future<bool> _confirm({required String title, required String message}) {
+    return showLoreConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('永久删除'),
-          ),
-        ],
-      ),
+      title: title,
+      message: message,
+      confirmLabel: '永久删除',
+      destructive: true,
     );
   }
 

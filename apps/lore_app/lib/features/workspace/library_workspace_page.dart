@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_editor/lore_editor.dart';
+import 'package:lore_ui/lore_ui.dart';
 
 import '../library/library_providers.dart';
 import '../preferences/preferences_providers.dart';
@@ -316,24 +317,14 @@ final class _LibraryWorkspacePageState
     WorkspaceController controller,
     OpenDocument document,
   ) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showLoreConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('重新加载磁盘版本？'),
-        content: const Text('当前未保存的修改将被放弃。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('重新加载'),
-          ),
-        ],
-      ),
+      title: '重新加载磁盘版本？',
+      message: '当前未保存的修改将被放弃。',
+      confirmLabel: '重新加载',
+      destructive: true,
     );
-    if (confirmed == true) {
+    if (confirmed) {
       await controller.reloadConflict(document);
     }
   }

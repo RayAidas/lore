@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_ui/lore_ui.dart';
@@ -10,7 +11,7 @@ void main() {
   };
 
   for (final entry in themes.entries) {
-    test('${entry.key} theme uses the compact menu visual baseline', () {
+    test('${entry.key} theme uses the touch menu visual baseline', () {
       final theme = entry.value;
       final popupShape = theme.popupMenuTheme.shape as RoundedRectangleBorder;
       final menuStyle = theme.menuTheme.style!;
@@ -33,8 +34,10 @@ void main() {
       expect(menuShape, isA<RoundedRectangleBorder>());
       expect(
         menuItemStyle.minimumSize!.resolve(<WidgetState>{}),
-        const Size(0, 34),
+        const Size(0, 48),
       );
+      expect(menuItemStyle.tapTargetSize, MaterialTapTargetSize.padded);
+      expect(menuItemStyle.visualDensity, VisualDensity.standard);
     });
 
     test('${entry.key} theme makes disabled menu labels secondary', () {
@@ -76,4 +79,20 @@ void main() {
       expect(dialogTheme.contentTextStyle?.height, 1.5);
     });
   }
+
+  test('macOS theme uses the compact menu visual baseline', () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final menuItemStyle = LoreTheme.light().menuButtonTheme.style!;
+
+      expect(
+        menuItemStyle.minimumSize!.resolve(<WidgetState>{}),
+        const Size(0, 34),
+      );
+      expect(menuItemStyle.tapTargetSize, MaterialTapTargetSize.shrinkWrap);
+      expect(menuItemStyle.visualDensity, VisualDensity.standard);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
 }

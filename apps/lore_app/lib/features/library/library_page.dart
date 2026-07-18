@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lore_application/lore_application.dart';
+import 'package:lore_ui/lore_ui.dart';
 
 import 'library_providers.dart';
 import '../preferences/settings_page.dart';
@@ -54,28 +55,14 @@ class LibraryPage extends ConsumerWidget {
     if (!context.mounted || next is! LibraryNeedsInitializationState) {
       return;
     }
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showLoreConfirmDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('初始化书库？'),
-          content: Text(
-            '“${next.access.displayPath}”还不是 Lore 书库。初始化只会添加 .lore 元数据，不会修改现有文件。',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('初始化'),
-            ),
-          ],
-        );
-      },
+      title: '初始化书库？',
+      message:
+          '“${next.access.displayPath}”还不是 Lore 书库。初始化只会添加 .lore 元数据，不会修改现有文件。',
+      confirmLabel: '初始化',
     );
-    if (confirmed == true) {
+    if (confirmed) {
       await ref.read(libraryControllerProvider.notifier).initialize(next);
     } else {
       await ref

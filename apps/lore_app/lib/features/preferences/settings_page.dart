@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lore_domain/lore_domain.dart';
+import 'package:lore_ui/lore_ui.dart';
 
 import 'preferences_providers.dart';
 
@@ -138,36 +139,17 @@ class _SettingsBody extends ConsumerWidget {
   }
 
   Future<void> _editDailyGoal(BuildContext context, WidgetRef ref) async {
-    final controller = TextEditingController(
-      text: prefs.dailyWordGoal == 0 ? '' : prefs.dailyWordGoal.toString(),
-    );
-    final value = await showDialog<String>(
+    final value = await showLoreTextPromptDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('每日字数目标'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: '字数',
-            helperText: '留空或填 0 表示不设置目标',
-          ),
-          onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('保存'),
-          ),
-        ],
-      ),
+      title: '每日字数目标',
+      label: '字数',
+      initialValue: prefs.dailyWordGoal == 0
+          ? ''
+          : prefs.dailyWordGoal.toString(),
+      helperText: '留空或填 0 表示不设置目标',
+      keyboardType: TextInputType.number,
+      confirmLabel: '保存',
     );
-    controller.dispose();
     if (value == null) {
       return;
     }

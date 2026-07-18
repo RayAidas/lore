@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
+import 'package:lore_ui/lore_ui.dart';
 import 'package:path/path.dart' as p;
 
 import 'inspector_empty.dart';
-import 'name_prompt_dialog.dart';
 import 'novel_overview_pane.dart';
 import 'workspace_controller.dart';
 
@@ -209,10 +209,9 @@ final class NovelStructurePane extends StatelessWidget {
                                       ),
                                     ),
                                     itemBuilder: (context) => [
-                                      const PopupMenuItem(
+                                      LorePopupMenuItem(
                                         value: 'body',
-                                        height: 34,
-                                        child: Text('移动到正文根级'),
+                                        label: '移动到正文根级',
                                       ),
                                       ...snapshot.contentTree.nodes
                                           .where(
@@ -221,12 +220,10 @@ final class NovelStructurePane extends StatelessWidget {
                                                 ContentNodeType.volume,
                                           )
                                           .map(
-                                            (volume) => PopupMenuItem(
+                                            (volume) => LorePopupMenuItem(
                                               value: volume.id.value,
-                                              height: 34,
-                                              child: Text(
-                                                '移动到 ${p.basename(volume.relativePath)}',
-                                              ),
+                                              label:
+                                                  '移动到 ${p.basename(volume.relativePath)}',
                                             ),
                                           ),
                                     ],
@@ -288,16 +285,14 @@ final class NovelStructurePane extends StatelessWidget {
     final extension = node.type == ContentNodeType.chapter
         ? p.extension(node.relativePath)
         : null;
-    final name = await showDialog<String>(
+    final name = await showLoreTextPromptDialog(
       context: context,
-      builder: (context) => NamePromptDialog(
-        title: node.type == ContentNodeType.volume ? '重命名卷' : '重命名章节',
-        label: '新名称',
-        initialValue: extension == null
-            ? p.basename(node.relativePath)
-            : p.basenameWithoutExtension(node.relativePath),
-        suffix: extension,
-      ),
+      title: node.type == ContentNodeType.volume ? '重命名卷' : '重命名章节',
+      label: '新名称',
+      initialValue: extension == null
+          ? p.basename(node.relativePath)
+          : p.basenameWithoutExtension(node.relativePath),
+      suffixText: extension,
     );
     if (name != null) {
       await _run(
@@ -307,24 +302,14 @@ final class NovelStructurePane extends StatelessWidget {
   }
 
   Future<void> _deleteNode(BuildContext context, ContentNode node) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showLoreConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除？'),
-        content: Text('“${p.basename(node.relativePath)}”将移到回收站，可在回收站恢复。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除？',
+      message: '“${p.basename(node.relativePath)}”将移到回收站，可在回收站恢复。',
+      confirmLabel: '删除',
+      destructive: true,
     );
-    if (confirmed == true) {
+    if (confirmed) {
       await _run(
         () => controller.deleteContentNode(snapshot.metadata.id, node.id),
       );
