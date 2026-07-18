@@ -329,7 +329,7 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 10, 12),
+              padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
               child: Row(
                 children: [
                   Expanded(

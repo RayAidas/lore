@@ -143,7 +143,8 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
         ];
         return widget.relativePath.isEmpty
             ? ListView(
-                padding: const EdgeInsets.fromLTRB(8, 2, 8, 12),
+                padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
+                physics: const ClampingScrollPhysics(),
                 children: children,
               )
             : Column(mainAxisSize: MainAxisSize.min, children: children);
@@ -331,7 +332,7 @@ final class _TreeRow extends StatelessWidget {
             focusColor: colorScheme.primary.withValues(alpha: 0.08),
             splashColor: colorScheme.primary.withValues(alpha: 0.08),
             child: SizedBox(
-              height: 36,
+              height: _treeRowHeight,
               child: Padding(
                 padding: EdgeInsets.only(
                   left: _treeHorizontalPadding + (depth * _treeIndent),
@@ -395,6 +396,7 @@ final class _TreeRow extends StatelessWidget {
 const double _treeHorizontalPadding = 4;
 const double _treeIndent = 17;
 const double _treeDisclosureWidth = 18;
+const double _treeRowHeight = 30;
 
 const _txtExtension = '.txt';
 
