@@ -214,6 +214,21 @@ abstract final class LoreTheme {
         labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         unselectedLabelStyle: const TextStyle(fontSize: 12),
       ),
+      tooltipTheme: TooltipThemeData(
+        // 反色但使用主题主 token（onSurface / surface）：在 light / dark / sepia
+        // 下均自动协调，比默认 inverseSurface 更贴合 Lore 的暖色调。
+        decoration: BoxDecoration(
+          color: colorScheme.onSurface,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        textStyle: TextStyle(
+          color: colorScheme.surface,
+          fontSize: 12,
+          height: 1.2,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
       scrollbarTheme: ScrollbarThemeData(
         thickness: const WidgetStatePropertyAll(5),
         radius: const Radius.circular(8),
