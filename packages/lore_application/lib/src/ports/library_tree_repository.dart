@@ -1,5 +1,6 @@
 import 'package:lore_domain/lore_domain.dart';
 
+import '../library/deletion.dart';
 import '../library/library_access.dart';
 
 abstract interface class LibraryTreeRepository {
@@ -26,5 +27,10 @@ abstract interface class LibraryTreeRepository {
     LibraryAccess access, {
     required String relativePath,
     required String newName,
+  });
+
+  Future<DeletionResult> deleteEntry(
+    LibraryAccess access, {
+    required String relativePath,
   });
 }

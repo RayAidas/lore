@@ -13,7 +13,8 @@ final class LocalDirectoryLibraryRepository
         LibraryTreeRepository,
         DocumentRepository,
         NovelRepository,
-        ContentTreeRepository {
+        ContentTreeRepository,
+        TrashRepository {
   const LocalDirectoryLibraryRepository({
     required this._idGenerator,
     required this._clock,
@@ -27,6 +28,10 @@ final class LocalDirectoryLibraryRepository
   static const _contentManifestFileName = 'content.json';
   static const _bodyDirectoryName = '正文';
   static const _orderStep = 1000;
+  static const _recoveryDirectoryName = 'recovery';
+  static const _trashDirectoryName = 'trash';
+  static const _pendingOperationFileName = 'pending-operation.json';
+  static const _trashManifestFileName = 'index.json';
 
   final IdGenerator _idGenerator;
   final Clock _clock;
@@ -409,6 +414,7 @@ final class LocalDirectoryLibraryRepository
   Future<NovelStructureMutation> createNovel(
     LibraryAccess access, {
     required String title,
+    ChapterFormat chapterFormat = ChapterFormat.markdown,
   }) async {
     final rootPath = await _resolveRoot(access);
     final validTitle = _validateName(title);
@@ -429,7 +435,7 @@ final class LocalDirectoryLibraryRepository
         id: ContentId(_idGenerator.generate()),
         relativePath: _bodyDirectoryName,
       ),
-      chapterFormat: ChapterFormat.markdown,
+      chapterFormat: chapterFormat,
       numberingMode: NumberingMode.continuous,
       createdAt: now,
       updatedAt: now,
@@ -2499,9 +2505,732 @@ final class LocalDirectoryLibraryRepository
   String _pendingPath(String rootPath) => p.join(
     rootPath,
     _metadataDirectoryName,
-    'recovery',
-    'pending-operation.json',
+    _recoveryDirectoryName,
+    _pendingOperationFileName,
   );
+
+  String _trashRoot(String rootPath) =>
+      p.join(rootPath, _metadataDirectoryName, _trashDirectoryName);
+
+  String _trashManifestPath(String rootPath) =>
+      p.join(_trashRoot(rootPath), _trashManifestFileName);
+
+  String _trashTokenRoot(String rootPath, String token) =>
+      p.join(_trashRoot(rootPath), token);
+
+  /// 计算某原相对路径在回收站内的目标路径。
+  /// 绕过 [_isHiddenPath]（它会拒绝 `.lore` 前缀），仅用
+  /// [_isMetadataRelativePath] 防穿越，target 必须落在 `.lore/trash` 内。
+  String _resolveTrashTarget(
+    String rootPath,
+    String token,
+    String originalRelativePath,
+  ) {
+    if (!_isMetadataRelativePath(originalRelativePath)) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.invalidLocation,
+          message: '回收站目标路径非法。',
+        ),
+      );
+    }
+    return p.join(_trashTokenRoot(rootPath, token), originalRelativePath);
+  }
+
+  Future<void> _ensureTrashRoot(String rootPath) async {
+    try {
+      await Directory(_trashRoot(rootPath)).create(recursive: true);
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+  }
+
+  Future<List<TrashItem>> _readTrashManifest(String rootPath) async {
+    final file = File(_trashManifestPath(rootPath));
+    if (!await file.exists()) {
+      return const [];
+    }
+    try {
+      final value = await _readJsonObject(file);
+      final items = value['items'];
+      if (items is! List<Object?>) {
+        return const [];
+      }
+      return items.map(_parseTrashItem).whereType<TrashItem>().toList();
+    } on LibraryOperationException {
+      return const [];
+    }
+  }
+
+  /// 读 manifest 并对账文件系统：扫描 `.lore/trash/` 下未被 manifest 记录的
+  /// token 目录（崩溃在移动后、写清单前留下的孤儿），补录为可恢复条目，
+  /// 使其可见、可恢复或可 purge。
+  Future<List<TrashItem>> _readTrashManifestWithReconcile(
+    String rootPath,
+  ) async {
+    final trashRoot = Directory(_trashRoot(rootPath));
+    if (!await trashRoot.exists()) {
+      return const [];
+    }
+    final manifestItems = List<TrashItem>.from(
+      await _readTrashManifest(rootPath),
+    );
+    final knownTokens = manifestItems.map((item) => item.token).toSet();
+    final subEntities = await trashRoot.list(followLinks: false).toList();
+    var changed = false;
+    for (final entity in subEntities) {
+      final type = await FileSystemEntity.type(entity.path, followLinks: false);
+      if (type != FileSystemEntityType.directory) {
+        continue;
+      }
+      final token = p.basename(entity.path);
+      if (knownTokens.contains(token)) {
+        continue;
+      }
+      manifestItems.add(await _orphanTrashItem(rootPath, token));
+      changed = true;
+    }
+    if (changed) {
+      await _writeTrashManifest(rootPath, manifestItems);
+    }
+    return manifestItems;
+  }
+
+  /// 为孤儿 token 目录生成一个 TrashItem：把目录下第一层条目作为原相对路径，
+  /// 按文件移回（无法可靠推断 novel/volume/chapter 语义，因此标记为 entry）。
+  Future<TrashItem> _orphanTrashItem(String rootPath, String token) async {
+    final tokenRoot = _trashTokenRoot(rootPath, token);
+    var original = '(未知)';
+    await for (final entity in Directory(tokenRoot).list(followLinks: false)) {
+      final name = p.basename(entity.path);
+      if (name.startsWith('.')) {
+        continue;
+      }
+      original = p.relative(entity.path, from: tokenRoot);
+      break;
+    }
+    return TrashItem(
+      token: token,
+      type: TrashItemType.entry,
+      originalRelativePath: original,
+      trashRelativePath: p.relative(tokenRoot, from: rootPath),
+      deletedAt: _clock.nowUtc(),
+      restorable: original != '(未知)',
+    );
+  }
+
+  Future<void> _writeTrashManifest(
+    String rootPath,
+    List<TrashItem> items,
+  ) async {
+    await _ensureTrashRoot(rootPath);
+    final encoded = {
+      'schemaVersion': _schemaVersion,
+      'items': items.map(_trashItemToJson).toList(),
+    };
+    await _writeJsonAtomic(File(_trashManifestPath(rootPath)), encoded);
+  }
+
+  Future<void> _appendTrashManifest(String rootPath, TrashItem item) async {
+    final items = List<TrashItem>.from(await _readTrashManifest(rootPath));
+    items.add(item);
+    await _writeTrashManifest(rootPath, items);
+  }
+
+  Future<void> _removeTrashManifestItem(String rootPath, String token) async {
+    final items = await _readTrashManifest(rootPath);
+    items.removeWhere((item) => item.token == token);
+    await _writeTrashManifest(rootPath, items);
+  }
+
+  TrashItem? _parseTrashItem(Object? value) {
+    if (value is! Map<String, Object?>) {
+      return null;
+    }
+    final token = value['token'];
+    final typeString = value['type'];
+    final original = value['originalRelativePath'];
+    final trash = value['trashRelativePath'];
+    final deletedAt = value['deletedAt'];
+    final restorable = value['restorable'];
+    if (token is! String ||
+        original is! String ||
+        trash is! String ||
+        deletedAt is! String ||
+        restorable is! bool) {
+      return null;
+    }
+    final type = switch (typeString) {
+      'novel' => TrashItemType.novel,
+      'volume' => TrashItemType.volume,
+      'chapter' => TrashItemType.chapter,
+      'entry' => TrashItemType.entry,
+      _ => null,
+    };
+    if (type == null) {
+      return null;
+    }
+    final parsedTime = DateTime.tryParse(deletedAt);
+    if (parsedTime == null) {
+      return null;
+    }
+    final childrenRaw = value['children'];
+    final children = <TrashItemChild>[];
+    if (childrenRaw is List<Object?>) {
+      for (final raw in childrenRaw) {
+        if (raw is! Map<String, Object?>) {
+          continue;
+        }
+        final childNodeId = raw['nodeId'];
+        final childOriginal = raw['originalRelativePath'];
+        final childTrash = raw['trashRelativePath'];
+        if (childNodeId is String &&
+            childOriginal is String &&
+            childTrash is String) {
+          children.add(
+            TrashItemChild(
+              nodeId: childNodeId,
+              originalRelativePath: childOriginal,
+              trashRelativePath: childTrash,
+            ),
+          );
+        }
+      }
+    }
+    return TrashItem(
+      token: token,
+      type: type,
+      originalRelativePath: original,
+      trashRelativePath: trash,
+      novelId: value['novelId'] as String?,
+      nodeId: value['nodeId'] as String?,
+      novelRootPath: value['novelRootPath'] as String?,
+      deletedAt: parsedTime.toUtc(),
+      restorable: restorable,
+      children: children,
+    );
+  }
+
+  Map<String, Object?> _trashItemToJson(TrashItem item) => {
+    'token': item.token,
+    'type': item.type.name,
+    'originalRelativePath': item.originalRelativePath,
+    'trashRelativePath': item.trashRelativePath,
+    'novelId': item.novelId,
+    'nodeId': item.nodeId,
+    'novelRootPath': item.novelRootPath,
+    'deletedAt': item.deletedAt.toUtc().toIso8601String(),
+    'restorable': item.restorable,
+    'children': item.children
+        .map(
+          (child) => {
+            'nodeId': child.nodeId,
+            'originalRelativePath': child.originalRelativePath,
+            'trashRelativePath': child.trashRelativePath,
+          },
+        )
+        .toList(),
+  };
+
+  /// 收集 [nodeId] 及其子树（卷下全部章节）。
+  List<ContentNode> _collectSubtree(ContentTree tree, ContentId nodeId) {
+    final root = tree.nodeById(nodeId);
+    if (root == null) {
+      return const [];
+    }
+    final result = <ContentNode>[root];
+    if (root.type == ContentNodeType.volume) {
+      for (final node in tree.nodes) {
+        if (node.parentId == root.id) {
+          result.add(node);
+        }
+      }
+    }
+    return result;
+  }
+
+  Future<void> _moveIntoTrash(
+    String rootPath,
+    String token,
+    String originalRelativePath,
+  ) async {
+    final source = p.join(rootPath, originalRelativePath);
+    final target = _resolveTrashTarget(rootPath, token, originalRelativePath);
+    await Directory(p.dirname(target)).create(recursive: true);
+    final type = await FileSystemEntity.type(source, followLinks: false);
+    try {
+      if (type == FileSystemEntityType.directory) {
+        await Directory(source).rename(target);
+      } else {
+        await File(source).rename(target);
+      }
+    } on FileSystemException catch (error) {
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+  }
+
+  @override
+  Future<DeletionResult> deleteNode(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required ContentId nodeId,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final snapshot = await _loadNovel(
+      rootPath,
+      await _registrationFor(rootPath, novelId),
+    );
+    final subtree = _collectSubtree(snapshot.contentTree, nodeId);
+    if (subtree.isEmpty) {
+      throw const LibraryOperationException(
+        LibraryFailure(code: LibraryFailureCode.notFound, message: '节点不存在。'),
+      );
+    }
+    final target = subtree.first;
+    final token = _idGenerator.generate();
+    final libraryNodePath = p.join(snapshot.rootPath, target.relativePath);
+
+    await _writePending(
+      rootPath,
+      novelId,
+      snapshot.rootPath,
+      operation: 'trashNode',
+      sourcePath: libraryNodePath,
+      targetPath: p.join(
+        _metadataDirectoryName,
+        _trashDirectoryName,
+        token,
+        target.relativePath,
+      ),
+    );
+    try {
+      await _ensureTrashRoot(rootPath);
+      // 只移根节点：卷目录会连带其下章节，避免逐个移动时子项已随目录移走。
+      await _moveIntoTrash(
+        rootPath,
+        token,
+        p.join(snapshot.rootPath, target.relativePath),
+      );
+      final remainingNodes = snapshot.contentTree.nodes
+          .where((node) => !subtree.any((s) => s.id == node.id))
+          .toList(growable: false);
+      final updatedTree = ContentTree(
+        schemaVersion: snapshot.contentTree.schemaVersion,
+        novelId: snapshot.contentTree.novelId,
+        revision: snapshot.contentTree.revision + 1,
+        nodes: remainingNodes,
+      );
+      await _writeJsonAtomic(
+        File(_contentManifestPath(p.join(rootPath, snapshot.rootPath))),
+        _contentToJson(updatedTree),
+      );
+      final children = subtree
+          .where((node) => node.id != target.id)
+          .map(
+            (node) => TrashItemChild(
+              nodeId: node.id.value,
+              originalRelativePath: p.join(
+                snapshot.rootPath,
+                node.relativePath,
+              ),
+              trashRelativePath: _resolveTrashTarget(
+                rootPath,
+                token,
+                p.join(snapshot.rootPath, node.relativePath),
+              ).substring(rootPath.length + 1),
+            ),
+          )
+          .toList();
+      await _appendTrashManifest(
+        rootPath,
+        TrashItem(
+          token: token,
+          type: target.type == ContentNodeType.volume
+              ? TrashItemType.volume
+              : TrashItemType.chapter,
+          originalRelativePath: libraryNodePath,
+          trashRelativePath: _resolveTrashTarget(
+            rootPath,
+            token,
+            libraryNodePath,
+          ).substring(rootPath.length + 1),
+          novelId: novelId.value,
+          nodeId: target.id.value,
+          novelRootPath: snapshot.rootPath,
+          deletedAt: _clock.nowUtc(),
+          restorable: true,
+          children: children,
+        ),
+      );
+      await _clearPending(rootPath);
+    } on LibraryOperationException {
+      await _clearPending(rootPath);
+      rethrow;
+    } on FileSystemException catch (error) {
+      await _clearPending(rootPath);
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+
+    final fresh = await _loadNovel(
+      rootPath,
+      await _registrationFor(rootPath, novelId),
+    );
+    return DeletionResult(
+      snapshot: fresh,
+      trashToken: token,
+      removedNodeIds: subtree.map((node) => node.id).toList(),
+      pathChanges: [
+        PathChange(
+          oldPath: libraryNodePath,
+          newPath: p.join(
+            _metadataDirectoryName,
+            _trashDirectoryName,
+            token,
+            target.relativePath,
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<DeletionResult> deleteNovel(
+    LibraryAccess access, {
+    required NovelId novelId,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final registration = await _registrationFor(rootPath, novelId);
+    final token = _idGenerator.generate();
+
+    await _writePending(
+      rootPath,
+      novelId,
+      registration.relativePath,
+      operation: 'trashNovel',
+      sourcePath: registration.relativePath,
+      targetPath: p.join(
+        _metadataDirectoryName,
+        _trashDirectoryName,
+        token,
+        registration.relativePath,
+      ),
+    );
+    try {
+      await _ensureTrashRoot(rootPath);
+      await _moveIntoTrash(rootPath, token, registration.relativePath);
+      await _removeNovelRegistration(rootPath, novelId);
+      await _appendTrashManifest(
+        rootPath,
+        TrashItem(
+          token: token,
+          type: TrashItemType.novel,
+          originalRelativePath: registration.relativePath,
+          trashRelativePath: _resolveTrashTarget(
+            rootPath,
+            token,
+            registration.relativePath,
+          ).substring(rootPath.length + 1),
+          novelId: novelId.value,
+          novelRootPath: registration.relativePath,
+          deletedAt: _clock.nowUtc(),
+          restorable: true,
+        ),
+      );
+      await _clearPending(rootPath);
+    } on LibraryOperationException {
+      await _clearPending(rootPath);
+      rethrow;
+    } on FileSystemException catch (error) {
+      await _clearPending(rootPath);
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+
+    return DeletionResult(
+      trashToken: token,
+      removedNodeIds: const [],
+      pathChanges: [
+        PathChange(
+          oldPath: registration.relativePath,
+          newPath: p.join(
+            _metadataDirectoryName,
+            _trashDirectoryName,
+            token,
+            registration.relativePath,
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<DeletionResult> deleteEntry(
+    LibraryAccess access, {
+    required String relativePath,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final entityPath = await _resolveExistingEntity(rootPath, relativePath);
+    final normalized = p.relative(entityPath, from: rootPath);
+    final token = _idGenerator.generate();
+
+    await _writePending(
+      rootPath,
+      const NovelId('00000000-0000-4000-8000-000000000000'),
+      '',
+      operation: 'trashEntry',
+      sourcePath: normalized,
+      targetPath: p.join(
+        _metadataDirectoryName,
+        _trashDirectoryName,
+        token,
+        normalized,
+      ),
+    );
+    try {
+      await _ensureTrashRoot(rootPath);
+      await _moveIntoTrash(rootPath, token, normalized);
+      await _appendTrashManifest(
+        rootPath,
+        TrashItem(
+          token: token,
+          type: TrashItemType.entry,
+          originalRelativePath: normalized,
+          trashRelativePath: _resolveTrashTarget(
+            rootPath,
+            token,
+            normalized,
+          ).substring(rootPath.length + 1),
+          deletedAt: _clock.nowUtc(),
+          restorable: true,
+        ),
+      );
+      await _clearPending(rootPath);
+    } on LibraryOperationException {
+      await _clearPending(rootPath);
+      rethrow;
+    } on FileSystemException catch (error) {
+      await _clearPending(rootPath);
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+
+    return DeletionResult(
+      trashToken: token,
+      removedNodeIds: const [],
+      pathChanges: [
+        PathChange(
+          oldPath: normalized,
+          newPath: p.join(
+            _metadataDirectoryName,
+            _trashDirectoryName,
+            token,
+            normalized,
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<List<TrashItem>> listItems(LibraryAccess access) async {
+    final rootPath = await _resolveRoot(access);
+    return _readTrashManifestWithReconcile(rootPath);
+  }
+
+  @override
+  Future<TrashItem> restore(
+    LibraryAccess access, {
+    required String trashToken,
+    RestoreConflictStrategy strategy = RestoreConflictStrategy.rename,
+  }) async {
+    final rootPath = await _resolveRoot(access);
+    final items = await _readTrashManifest(rootPath);
+    final index = items.indexWhere((item) => item.token == trashToken);
+    if (index < 0) {
+      throw const LibraryOperationException(
+        LibraryFailure(code: LibraryFailureCode.notFound, message: '回收站条目不存在。'),
+      );
+    }
+    final item = items[index];
+    final novelId = item.novelId == null ? null : NovelId(item.novelId!);
+
+    await _writePending(
+      rootPath,
+      novelId ?? const NovelId('00000000-0000-4000-8000-000000000000'),
+      item.novelRootPath ?? '',
+      operation: 'restoreItem',
+      sourcePath: item.trashRelativePath,
+      targetPath: item.originalRelativePath,
+    );
+    try {
+      await _restoreItemFiles(rootPath, item, strategy);
+      await _removeTrashManifestItem(rootPath, trashToken);
+      await _deleteDirectorySafely(
+        _trashTokenRoot(rootPath, trashToken),
+        recursive: true,
+      );
+      // 重建内容树节点身份：让 reconcile 重新发现移回的文件。
+      if (novelId != null && item.novelRootPath != null) {
+        await _reconcileAfterRestore(rootPath, novelId, item.novelRootPath!);
+      }
+      // 恢复整本小说时，把它重新登记回书库 manifest（deleteNovel 已移除登记）。
+      if (item.type == TrashItemType.novel &&
+          novelId != null &&
+          item.novelRootPath != null) {
+        await _registerNovel(rootPath, novelId, item.novelRootPath!);
+      }
+      await _clearPending(rootPath);
+    } on LibraryOperationException {
+      await _clearPending(rootPath);
+      rethrow;
+    } on FileSystemException catch (error) {
+      await _clearPending(rootPath);
+      throw LibraryOperationException(_fileSystemFailure(error));
+    }
+    return item;
+  }
+
+  Future<List<String>> _restoreItemFiles(
+    String rootPath,
+    TrashItem item,
+    RestoreConflictStrategy strategy,
+  ) async {
+    final restored = <String>[];
+    final novelId = item.novelId == null ? null : NovelId(item.novelId!);
+
+    Future<String> resolveTarget(String original) async {
+      final candidate = p.join(rootPath, original);
+      if (!await FileSystemEntity.type(
+        candidate,
+        followLinks: false,
+      ).then((t) => t == FileSystemEntityType.notFound)) {
+        switch (strategy) {
+          case RestoreConflictStrategy.skip:
+            return candidate;
+          case RestoreConflictStrategy.overwrite:
+            await _deletePathSafelyRecursive(candidate);
+            return candidate;
+          case RestoreConflictStrategy.rename:
+            return _nextAvailablePath(rootPath, original);
+        }
+      }
+      return candidate;
+    }
+
+    Future<void> moveOne(String trashRelative, String original) async {
+      final source = p.join(rootPath, trashRelative);
+      final target = await resolveTarget(original);
+      await Directory(p.dirname(target)).create(recursive: true);
+      final type = await FileSystemEntity.type(source, followLinks: false);
+      if (type == FileSystemEntityType.directory) {
+        await Directory(source).rename(target);
+      } else if (type == FileSystemEntityType.file) {
+        await File(source).rename(target);
+      }
+      restored.add(target);
+    }
+
+    // 卷：先移卷目录（含章节），子项随目录一起恢复；章节单删则逐个移回。
+    if (item.type == TrashItemType.volume) {
+      await moveOne(item.trashRelativePath, item.originalRelativePath);
+    } else {
+      await moveOne(item.trashRelativePath, item.originalRelativePath);
+      for (final child in item.children) {
+        await moveOne(child.trashRelativePath, child.originalRelativePath);
+      }
+    }
+    // novel 删除时整目录已移走，恢复移回整目录即可；entry 同理。
+    if (novelId != null) {
+      // no-op: novel/entry handled by single move above
+    }
+    return restored;
+  }
+
+  Future<void> _reconcileAfterRestore(
+    String rootPath,
+    NovelId novelId,
+    String novelRootPath,
+  ) async {
+    try {
+      final novelRoot = p.join(rootPath, novelRootPath);
+      final contentFile = File(_contentManifestPath(novelRoot));
+      if (!await contentFile.exists()) {
+        return;
+      }
+      final snapshot = await _loadNovel(
+        rootPath,
+        NovelRegistration(id: novelId, relativePath: novelRootPath),
+      );
+      final scanned = await _scanContentTree(
+        novelRoot,
+        snapshot.metadata,
+        snapshot.contentTree.nodes,
+      );
+      await _writeJsonAtomic(contentFile, _contentToJson(scanned));
+    } on LibraryOperationException {
+      // 恢复后协调失败不阻断恢复本身；watcher 会再次触发 reconcile。
+    }
+  }
+
+  String _nextAvailablePath(String rootPath, String original) {
+    var counter = 1;
+    final dir = p.dirname(original);
+    final base = p.basenameWithoutExtension(original);
+    final ext = p.extension(original);
+    while (true) {
+      final candidate = p.join(rootPath, dir, '$base (恢复 $counter)$ext');
+      // 同步检查存在性：restore 是异步上下文，此处用阻塞占位路径生成，
+      // 真正的冲突由调用前的 FileSystemEntity.type 判断；此处仅生成名字。
+      final placeholder = File(candidate);
+      if (!placeholder.existsSync()) {
+        return candidate;
+      }
+      counter += 1;
+    }
+  }
+
+  Future<void> _deletePathSafelyRecursive(String path) async {
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type == FileSystemEntityType.directory) {
+      await _deleteDirectorySafely(path, recursive: true);
+    } else if (type == FileSystemEntityType.file) {
+      await _deleteFileSafely(path);
+    }
+  }
+
+  @override
+  Future<void> purge(LibraryAccess access, {required String trashToken}) async {
+    final rootPath = await _resolveRoot(access);
+    await _removeTrashManifestItem(rootPath, trashToken);
+    await _deleteDirectorySafely(
+      _trashTokenRoot(rootPath, trashToken),
+      recursive: true,
+    );
+  }
+
+  @override
+  Future<void> empty(LibraryAccess access) async {
+    final rootPath = await _resolveRoot(access);
+    await _deleteDirectorySafely(_trashRoot(rootPath), recursive: true);
+  }
+
+  Future<void> _removeNovelRegistration(
+    String rootPath,
+    NovelId novelId,
+  ) async {
+    final file = File(_manifestPath(rootPath));
+    final manifest = await _readJsonObject(file);
+    final registrations = _parseNovelRegistrations(manifest['novels']);
+    manifest['novels'] = registrations
+        .where((registration) => registration.id != novelId)
+        .map(
+          (registration) => {
+            'id': registration.id.value,
+            'path': registration.relativePath,
+          },
+        )
+        .toList();
+    manifest['updatedAt'] = _clock.nowUtc().toIso8601String();
+    await _writeJsonAtomic(file, manifest);
+  }
 
   Future<void> _writePending(
     String rootPath,
@@ -2547,10 +3276,17 @@ final class LocalDirectoryLibraryRepository
     final operation = pending['operation'];
     final sourcePath = pending['sourcePath'];
     final targetPath = pending['targetPath'];
+    // trash/restore 操作的 novelPath 可能为空（删除/恢复普通文件、恢复孤儿），
+    // 它们的崩溃恢复不依赖小说 manifest：直接 clearPending，让 watcher、
+    // trash 目录对账（listItems）与下次 reconcile 把状态收敛到一致。
+    final isTrashOperation = operation == 'trashNode' ||
+        operation == 'trashNovel' ||
+        operation == 'trashEntry' ||
+        operation == 'restoreItem';
     if (novelIdValue is! String ||
         !_isUuid(novelIdValue) ||
         novelPath is! String ||
-        !_isMetadataRelativePath(novelPath) ||
+        (!isTrashOperation && !_isMetadataRelativePath(novelPath)) ||
         operation is! String ||
         (sourcePath != null && sourcePath is! String) ||
         (sourcePath != null &&
@@ -2564,6 +3300,10 @@ final class LocalDirectoryLibraryRepository
           message: '结构操作恢复记录已损坏。',
         ),
       );
+    }
+    if (isTrashOperation) {
+      await _clearPending(rootPath);
+      return;
     }
     final novelRoot = p.join(rootPath, novelPath);
     if (!await Directory(novelRoot).exists()) {

@@ -1,5 +1,6 @@
 import 'package:lore_domain/lore_domain.dart';
 
+import 'deletion.dart';
 import 'library_bootstrap.dart';
 import '../ports/content_tree_repository.dart';
 import '../ports/novel_repository.dart';
@@ -75,8 +76,13 @@ final class NovelStructureService {
   Future<NovelStructureMutation> createNovel(
     LibrarySession session, {
     required String title,
+    ChapterFormat chapterFormat = ChapterFormat.markdown,
   }) {
-    return novelRepository.createNovel(session.access, title: title);
+    return novelRepository.createNovel(
+      session.access,
+      title: title,
+      chapterFormat: chapterFormat,
+    );
   }
 
   Future<NovelStructureMutation> registerExistingNovel(
@@ -172,6 +178,25 @@ final class NovelStructureService {
       nodeId: nodeId,
       newIndex: newIndex,
     );
+  }
+
+  Future<DeletionResult> deleteNode(
+    LibrarySession session, {
+    required NovelId novelId,
+    required ContentId nodeId,
+  }) {
+    return contentTreeRepository.deleteNode(
+      session.access,
+      novelId: novelId,
+      nodeId: nodeId,
+    );
+  }
+
+  Future<DeletionResult> deleteNovel(
+    LibrarySession session, {
+    required NovelId novelId,
+  }) {
+    return novelRepository.deleteNovel(session.access, novelId: novelId);
   }
 
   Future<NovelReconciliationResult> reconcile(

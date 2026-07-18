@@ -1,5 +1,6 @@
 import 'package:lore_domain/lore_domain.dart';
 
+import '../library/deletion.dart';
 import '../library/library_access.dart';
 import '../library/novel_structure.dart';
 
@@ -14,6 +15,7 @@ abstract interface class NovelRepository {
   Future<NovelStructureMutation> createNovel(
     LibraryAccess access, {
     required String title,
+    ChapterFormat chapterFormat = ChapterFormat.markdown,
   });
 
   Future<NovelStructureMutation> registerExistingNovel(
@@ -31,5 +33,10 @@ abstract interface class NovelRepository {
     LibraryAccess access, {
     required NovelId novelId,
     required String newName,
+  });
+
+  Future<DeletionResult> deleteNovel(
+    LibraryAccess access, {
+    required NovelId novelId,
   });
 }

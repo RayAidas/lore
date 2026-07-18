@@ -1,6 +1,7 @@
 import 'package:lore_domain/lore_domain.dart';
 
 import '../library/library_access.dart';
+import '../library/deletion.dart';
 import '../library/novel_structure.dart';
 
 abstract interface class ContentTreeRepository {
@@ -34,6 +35,12 @@ abstract interface class ContentTreeRepository {
     required NovelId novelId,
     required ContentId nodeId,
     required int newIndex,
+  });
+
+  Future<DeletionResult> deleteNode(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required ContentId nodeId,
   });
 
   Future<NovelReconciliationResult> reconcile(

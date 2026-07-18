@@ -3,6 +3,7 @@ import 'package:lore_domain/lore_domain.dart';
 import '../ports/document_repository.dart';
 import '../ports/library_tree_repository.dart';
 import '../ports/workspace_session_repository.dart';
+import 'deletion.dart';
 import 'library_bootstrap.dart';
 import 'workspace_session.dart';
 
@@ -64,6 +65,16 @@ final class LibraryWorkspaceService {
       session.access,
       relativePath: relativePath,
       newName: newName,
+    );
+  }
+
+  Future<DeletionResult> deleteEntry(
+    LibrarySession session, {
+    required String relativePath,
+  }) {
+    return treeRepository.deleteEntry(
+      session.access,
+      relativePath: relativePath,
     );
   }
 
