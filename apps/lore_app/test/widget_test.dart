@@ -4,12 +4,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_storage/lore_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:lore_app/app/lore_app.dart';
 import 'package:lore_app/features/library/library_providers.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
 
 void main() {
+  setUp(() {
+    // appPreferencesProvider 通过 SharedPreferences 加载；测试中必须 mock，
+    // 否则 getInstance() 走平台 channel 会挂起，让 LoreApp 永久停在 loading。
+    SharedPreferences.setMockInitialValues({});
+  });
+
   test('activating a document tab clears structural selection', () async {
     const access = LibraryAccess(
       token: '/tmp/library',

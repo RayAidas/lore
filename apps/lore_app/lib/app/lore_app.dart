@@ -62,7 +62,8 @@ class _Splash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    // 无动画占位：避免 pumpAndSettle 在 loading 期持续等待 CircularProgressIndicator。
+    return const Scaffold(body: Center(child: Text('Lore')));
   }
 }
 

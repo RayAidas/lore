@@ -17,8 +17,10 @@ final class SharedPreferencesAppPreferencesRepository
   static const _key = 'lore.app.preferences';
   static const _schemaVersion = 1;
 
+  // sync: true 让 save 时的 add 同步派发给监听者，避免异步广播在测试/快速
+  // 连续写入下丢失事件（偏好仅在本进程内变更，同步派发安全）。
   final StreamController<AppPreferences> _controller =
-      StreamController<AppPreferences>.broadcast();
+      StreamController<AppPreferences>.broadcast(sync: true);
 
   @override
   Future<AppPreferences?> load() async {
