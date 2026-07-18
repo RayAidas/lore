@@ -291,6 +291,29 @@ void main() {
 
     expect(find.text('文件夹为空'), findsNothing);
   });
+
+  testWidgets('clamps scrolling to avoid overscroll bounce', (tester) async {
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '卷一',
+          relativePath: '卷一',
+          type: LibraryEntryType.directory,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+
+    // 根目录树渲染为唯一的 ListView；其 physics 应为 ClampingScrollPhysics，
+    // 避免在 macOS 上到边界出现弹性过滚。
+    expect(find.byType(ListView), findsOneWidget);
+    final listView = tester.widget<ListView>(find.byType(ListView));
+    expect(listView.physics, isA<ClampingScrollPhysics>());
+  });
 }
 
 WorkspaceController _controller(
