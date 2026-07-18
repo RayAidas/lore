@@ -5,6 +5,7 @@ import '../ports/library_tree_repository.dart';
 import '../ports/workspace_session_repository.dart';
 import 'deletion.dart';
 import 'library_bootstrap.dart';
+import 'library_mutation_coordinator.dart';
 import 'workspace_session.dart';
 
 final class LibraryWorkspaceService {
@@ -12,11 +13,13 @@ final class LibraryWorkspaceService {
     required this.treeRepository,
     required this.documentRepository,
     required this.sessionRepository,
+    this.mutationCoordinator,
   });
 
   final LibraryTreeRepository treeRepository;
   final DocumentRepository documentRepository;
   final WorkspaceSessionRepository sessionRepository;
+  final LibraryMutationCoordinator? mutationCoordinator;
 
   Future<List<LibraryEntry>> listChildren(
     LibrarySession session, {
@@ -33,10 +36,13 @@ final class LibraryWorkspaceService {
     required String parentPath,
     required String name,
   }) {
-    return treeRepository.createDirectory(
-      session.access,
-      parentPath: parentPath,
-      name: name,
+    return _mutate(
+      session,
+      () => treeRepository.createDirectory(
+        session.access,
+        parentPath: parentPath,
+        name: name,
+      ),
     );
   }
 
@@ -47,12 +53,15 @@ final class LibraryWorkspaceService {
     required DocumentFormat format,
     String initialText = '',
   }) {
-    return treeRepository.createDocument(
-      session.access,
-      parentPath: parentPath,
-      name: name,
-      format: format,
-      initialText: initialText,
+    return _mutate(
+      session,
+      () => treeRepository.createDocument(
+        session.access,
+        parentPath: parentPath,
+        name: name,
+        format: format,
+        initialText: initialText,
+      ),
     );
   }
 
@@ -61,10 +70,13 @@ final class LibraryWorkspaceService {
     required String relativePath,
     required String newName,
   }) {
-    return treeRepository.renameEntry(
-      session.access,
-      relativePath: relativePath,
-      newName: newName,
+    return _mutate(
+      session,
+      () => treeRepository.renameEntry(
+        session.access,
+        relativePath: relativePath,
+        newName: newName,
+      ),
     );
   }
 
@@ -72,9 +84,12 @@ final class LibraryWorkspaceService {
     LibrarySession session, {
     required String relativePath,
   }) {
-    return treeRepository.deleteEntry(
-      session.access,
-      relativePath: relativePath,
+    return _mutate(
+      session,
+      () => treeRepository.deleteEntry(
+        session.access,
+        relativePath: relativePath,
+      ),
     );
   }
 
@@ -110,5 +125,12 @@ final class LibraryWorkspaceService {
     WorkspaceSessionSnapshot snapshot,
   ) {
     return sessionRepository.save(session.metadata.id, snapshot);
+  }
+
+  Future<T> _mutate<T>(LibrarySession session, Future<T> Function() operation) {
+    final coordinator = mutationCoordinator;
+    return coordinator == null
+        ? operation()
+        : coordinator.run(session.metadata.id, operation);
   }
 }

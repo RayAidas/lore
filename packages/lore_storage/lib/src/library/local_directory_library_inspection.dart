@@ -11,6 +11,7 @@ import 'internal/library_paths.dart';
 import 'internal/library_storage_io.dart';
 import 'internal/novel_manifest_codec.dart';
 import 'internal/pending_operation_journal.dart';
+import 'internal/schema_migrator.dart';
 
 /// [LibraryRepository] 端口适配器：书库自检、初始化与根级目录列举。
 ///
@@ -26,6 +27,7 @@ final class LocalDirectoryLibraryInspection implements LibraryRepository {
     required this.novels,
     required this.entries,
     required this.pending,
+    required this.migrator,
   });
 
   final IdGenerator idGenerator;
@@ -36,6 +38,7 @@ final class LocalDirectoryLibraryInspection implements LibraryRepository {
   final NovelManifestCodec novels;
   final LibraryEntryUtils entries;
   final PendingOperationJournal pending;
+  final LibrarySchemaMigrator migrator;
 
   @override
   Future<LibraryInspection> inspect(LibraryAccess access) async {
@@ -78,6 +81,8 @@ final class LocalDirectoryLibraryInspection implements LibraryRepository {
         );
       }
 
+      await migrator.migrateIfNeeded(rootPath);
+
       var value = jsonDecode(await manifest.readAsString());
       if (value is! Map<String, Object?>) {
         return entries.corrupt('书库元数据不是有效的 JSON 对象。');
@@ -97,9 +102,10 @@ final class LocalDirectoryLibraryInspection implements LibraryRepository {
       }
 
       final libraryId = value['libraryId'];
+      final revision = value['revision'];
       final createdAt = value['createdAt'];
       final updatedAt = value['updatedAt'];
-      if (libraryId is! String || !io.isUuid(libraryId)) {
+      if (libraryId is! String || !io.isUuid(libraryId) || revision is! int) {
         return entries.corrupt('书库 ID 无效。');
       }
       if (createdAt is! String || updatedAt is! String) {
@@ -128,6 +134,7 @@ final class LocalDirectoryLibraryInspection implements LibraryRepository {
       return LibraryInspectionReady(
         LibraryMetadata(
           schemaVersion: schemaVersion,
+          revision: revision,
           id: LibraryId(libraryId),
           createdAt: created.toUtc(),
           updatedAt: updated.toUtc(),
@@ -177,6 +184,7 @@ final class LocalDirectoryLibraryInspection implements LibraryRepository {
       final now = clock.nowUtc();
       final metadata = LibraryMetadata(
         schemaVersion: LibraryPaths.schemaVersion,
+        revision: 0,
         id: LibraryId(idGenerator.generate()),
         createdAt: now,
         updatedAt: now,

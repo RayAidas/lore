@@ -92,6 +92,7 @@ final class LocalDirectoryNovelRepository implements NovelRepository {
     final now = clock.nowUtc();
     final metadata = NovelMetadata(
       schemaVersion: LibraryPaths.schemaVersion,
+      revision: 0,
       id: NovelId(idGenerator.generate()),
       title: validTitle,
       description: '',
@@ -208,6 +209,7 @@ final class LocalDirectoryNovelRepository implements NovelRepository {
       final now = clock.nowUtc();
       metadata = NovelMetadata(
         schemaVersion: LibraryPaths.schemaVersion,
+        revision: 0,
         id: NovelId(idGenerator.generate()),
         title: p.basename(novelRoot),
         description: '',
@@ -323,6 +325,7 @@ final class LocalDirectoryNovelRepository implements NovelRepository {
     );
     final metadata = NovelMetadata(
       schemaVersion: snapshot.metadata.schemaVersion,
+      revision: snapshot.metadata.revision + 1,
       id: snapshot.metadata.id,
       title: validName,
       description: snapshot.metadata.description,
@@ -401,6 +404,7 @@ final class LocalDirectoryNovelRepository implements NovelRepository {
     );
     final metadata = NovelMetadata(
       schemaVersion: snapshot.metadata.schemaVersion,
+      revision: snapshot.metadata.revision + 1,
       id: snapshot.metadata.id,
       title: snapshot.metadata.title,
       description: snapshot.metadata.description,

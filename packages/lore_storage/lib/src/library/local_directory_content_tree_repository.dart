@@ -335,9 +335,15 @@ final class LocalDirectoryContentTreeRepository
         LibraryFailure(code: LibraryFailureCode.notFound, message: '内容不存在。'),
       );
     }
-    final siblings = snapshot.contentTree.childrenOf(node.parentId).toList();
-    final oldIndex = siblings.indexWhere((item) => item.id == nodeId);
-    if (oldIndex < 0 || newIndex < 0 || newIndex >= siblings.length) {
+    List<ContentNode> nodes;
+    try {
+      nodes = ContentTreeRules.reorder(
+        snapshot.contentTree,
+        nodeId: nodeId,
+        newIndex: newIndex,
+        orderStep: LibraryPaths.orderStep,
+      );
+    } on FormatException {
       throw const LibraryOperationException(
         LibraryFailure(
           code: LibraryFailureCode.invalidLocation,
@@ -345,19 +351,6 @@ final class LocalDirectoryContentTreeRepository
         ),
       );
     }
-    final moved = siblings.removeAt(oldIndex);
-    siblings.insert(newIndex, moved);
-    final orders = <ContentId, int>{
-      for (var index = 0; index < siblings.length; index += 1)
-        siblings[index].id: (index + 1) * LibraryPaths.orderStep,
-    };
-    final nodes = snapshot.contentTree.nodes
-        .map(
-          (item) => orders[item.id] == null
-              ? item
-              : item.copyWith(order: orders[item.id]),
-        )
-        .toList(growable: false);
     await pending.writePending(
       rootPath,
       novelId,
@@ -571,6 +564,7 @@ final class LocalDirectoryContentTreeRepository
     final now = clock.nowUtc();
     final metadata = NovelMetadata(
       schemaVersion: snapshot.metadata.schemaVersion,
+      revision: snapshot.metadata.revision + 1,
       id: snapshot.metadata.id,
       title: snapshot.metadata.title,
       description: snapshot.metadata.description,

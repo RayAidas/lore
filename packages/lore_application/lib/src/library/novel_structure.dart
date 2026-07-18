@@ -2,6 +2,7 @@ import 'package:lore_domain/lore_domain.dart';
 
 import 'deletion.dart';
 import 'library_bootstrap.dart';
+import 'library_mutation_coordinator.dart';
 import '../ports/content_tree_repository.dart';
 import '../ports/novel_repository.dart';
 
@@ -57,10 +58,12 @@ final class NovelStructureService {
   const NovelStructureService({
     required this.novelRepository,
     required this.contentTreeRepository,
+    this.mutationCoordinator,
   });
 
   final NovelRepository novelRepository;
   final ContentTreeRepository contentTreeRepository;
+  final LibraryMutationCoordinator? mutationCoordinator;
 
   Future<List<NovelSnapshot>> listNovels(LibrarySession session) {
     return novelRepository.listNovels(session.access);
@@ -78,10 +81,13 @@ final class NovelStructureService {
     required String title,
     ChapterFormat chapterFormat = ChapterFormat.markdown,
   }) {
-    return novelRepository.createNovel(
-      session.access,
-      title: title,
-      chapterFormat: chapterFormat,
+    return _mutate(
+      session,
+      () => novelRepository.createNovel(
+        session.access,
+        title: title,
+        chapterFormat: chapterFormat,
+      ),
     );
   }
 
@@ -89,9 +95,12 @@ final class NovelStructureService {
     LibrarySession session, {
     required String relativePath,
   }) {
-    return novelRepository.registerExistingNovel(
-      session.access,
-      relativePath: relativePath,
+    return _mutate(
+      session,
+      () => novelRepository.registerExistingNovel(
+        session.access,
+        relativePath: relativePath,
+      ),
     );
   }
 
@@ -99,7 +108,11 @@ final class NovelStructureService {
     LibrarySession session, {
     required NovelId novelId,
   }) {
-    return contentTreeRepository.createVolume(session.access, novelId: novelId);
+    return _mutate(
+      session,
+      () =>
+          contentTreeRepository.createVolume(session.access, novelId: novelId),
+    );
   }
 
   Future<NovelStructureMutation> renameNovel(
@@ -107,10 +120,13 @@ final class NovelStructureService {
     required NovelId novelId,
     required String newName,
   }) {
-    return novelRepository.renameNovel(
-      session.access,
-      novelId: novelId,
-      newName: newName,
+    return _mutate(
+      session,
+      () => novelRepository.renameNovel(
+        session.access,
+        novelId: novelId,
+        newName: newName,
+      ),
     );
   }
 
@@ -119,10 +135,13 @@ final class NovelStructureService {
     required NovelId novelId,
     required String newName,
   }) {
-    return novelRepository.renameBody(
-      session.access,
-      novelId: novelId,
-      newName: newName,
+    return _mutate(
+      session,
+      () => novelRepository.renameBody(
+        session.access,
+        novelId: novelId,
+        newName: newName,
+      ),
     );
   }
 
@@ -131,10 +150,13 @@ final class NovelStructureService {
     required NovelId novelId,
     ContentId? volumeId,
   }) {
-    return contentTreeRepository.createChapter(
-      session.access,
-      novelId: novelId,
-      volumeId: volumeId,
+    return _mutate(
+      session,
+      () => contentTreeRepository.createChapter(
+        session.access,
+        novelId: novelId,
+        volumeId: volumeId,
+      ),
     );
   }
 
@@ -144,11 +166,14 @@ final class NovelStructureService {
     required ContentId nodeId,
     required String newName,
   }) {
-    return contentTreeRepository.renameNode(
-      session.access,
-      novelId: novelId,
-      nodeId: nodeId,
-      newName: newName,
+    return _mutate(
+      session,
+      () => contentTreeRepository.renameNode(
+        session.access,
+        novelId: novelId,
+        nodeId: nodeId,
+        newName: newName,
+      ),
     );
   }
 
@@ -158,11 +183,14 @@ final class NovelStructureService {
     required ContentId chapterId,
     ContentId? volumeId,
   }) {
-    return contentTreeRepository.moveChapter(
-      session.access,
-      novelId: novelId,
-      chapterId: chapterId,
-      volumeId: volumeId,
+    return _mutate(
+      session,
+      () => contentTreeRepository.moveChapter(
+        session.access,
+        novelId: novelId,
+        chapterId: chapterId,
+        volumeId: volumeId,
+      ),
     );
   }
 
@@ -172,11 +200,14 @@ final class NovelStructureService {
     required ContentId nodeId,
     required int newIndex,
   }) {
-    return contentTreeRepository.reorderNode(
-      session.access,
-      novelId: novelId,
-      nodeId: nodeId,
-      newIndex: newIndex,
+    return _mutate(
+      session,
+      () => contentTreeRepository.reorderNode(
+        session.access,
+        novelId: novelId,
+        nodeId: nodeId,
+        newIndex: newIndex,
+      ),
     );
   }
 
@@ -185,10 +216,13 @@ final class NovelStructureService {
     required NovelId novelId,
     required ContentId nodeId,
   }) {
-    return contentTreeRepository.deleteNode(
-      session.access,
-      novelId: novelId,
-      nodeId: nodeId,
+    return _mutate(
+      session,
+      () => contentTreeRepository.deleteNode(
+        session.access,
+        novelId: novelId,
+        nodeId: nodeId,
+      ),
     );
   }
 
@@ -196,13 +230,26 @@ final class NovelStructureService {
     LibrarySession session, {
     required NovelId novelId,
   }) {
-    return novelRepository.deleteNovel(session.access, novelId: novelId);
+    return _mutate(
+      session,
+      () => novelRepository.deleteNovel(session.access, novelId: novelId),
+    );
   }
 
   Future<NovelReconciliationResult> reconcile(
     LibrarySession session, {
     required NovelId novelId,
   }) {
-    return contentTreeRepository.reconcile(session.access, novelId: novelId);
+    return _mutate(
+      session,
+      () => contentTreeRepository.reconcile(session.access, novelId: novelId),
+    );
+  }
+
+  Future<T> _mutate<T>(LibrarySession session, Future<T> Function() operation) {
+    final coordinator = mutationCoordinator;
+    return coordinator == null
+        ? operation()
+        : coordinator.run(session.metadata.id, operation);
   }
 }

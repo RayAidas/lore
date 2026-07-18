@@ -35,6 +35,7 @@ final class NovelBody {
 final class NovelMetadata {
   const NovelMetadata({
     required this.schemaVersion,
+    this.revision = 0,
     required this.id,
     required this.title,
     required this.description,
@@ -47,6 +48,7 @@ final class NovelMetadata {
   });
 
   final int schemaVersion;
+  final int revision;
   final NovelId id;
   final String title;
   final String description;

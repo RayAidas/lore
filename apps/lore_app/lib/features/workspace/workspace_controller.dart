@@ -50,6 +50,7 @@ final class WorkspaceController extends ChangeNotifier {
   int _treeRevision = 0;
   LibraryFailure? _workspaceFailure;
   bool _disposed = false;
+  Future<void>? _foregroundReconciliation;
 
   List<WorkspaceTab> get tabs => _tabsStore.tabs;
 
@@ -119,6 +120,26 @@ final class WorkspaceController extends ChangeNotifier {
     _notify();
     unawaited(_reconcileLoadedNovels());
     await _tabsStore.activateInitialTab();
+  }
+
+  /// Rescans state after returning from the background.
+  ///
+  /// SAF providers do not expose a reliable recursive watch stream, so this
+  /// also provides the consistency path for external Android file changes.
+  Future<void> reconcileAfterForeground() {
+    return _foregroundReconciliation ??= _performForegroundReconciliation()
+        .whenComplete(() => _foregroundReconciliation = null);
+  }
+
+  Future<void> _performForegroundReconciliation() async {
+    if (!_tabsStore.initialized || _disposed) {
+      return;
+    }
+    await _loadNovelStructures();
+    await _reconcileLoadedNovels();
+    await _tabsStore.reconcileOpenDocuments();
+    _treeRevision += 1;
+    _notify();
   }
 
   void selectPath(String relativePath) {

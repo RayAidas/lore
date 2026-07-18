@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_application/lore_application.dart';
-import 'package:lore_storage/lore_storage.dart';
+import 'package:lore_platform_adapters/lore_platform_adapters.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

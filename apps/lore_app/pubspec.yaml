@@ -18,6 +18,8 @@ dependencies:
     path: ../../packages/lore_domain
   lore_editor:
     path: ../../packages/lore_editor
+  lore_platform_adapters:
+    path: ../../packages/lore_platform_adapters
   lore_storage:
     path: ../../packages/lore_storage
   lore_ui:

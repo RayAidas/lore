@@ -7,6 +7,7 @@ import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_editor/lore_editor.dart';
 
 import '../preferences/preferences_providers.dart';
+import '../library/library_providers.dart';
 import 'library_failure_snackbar.dart';
 import 'local_markdown_image.dart';
 import 'open_document_extensions.dart';
@@ -17,14 +18,14 @@ final class DocumentPane extends ConsumerWidget {
   const DocumentPane({
     required this.controller,
     required this.document,
-    required this.libraryRoot,
+    required this.session,
     required this.onReloadConflict,
     super.key,
   });
 
   final WorkspaceController controller;
   final OpenDocument document;
-  final String libraryRoot;
+  final LibrarySession session;
   final VoidCallback onReloadConflict;
 
   @override
@@ -139,7 +140,8 @@ final class DocumentPane extends ConsumerWidget {
                 ? LoreMarkdownPreview(
                     data: document.editorController.text,
                     imageBuilder: (uri, width, height) => LocalMarkdownImage(
-                      libraryRoot: libraryRoot,
+                      session: session,
+                      assetService: ref.watch(libraryAssetServiceProvider),
                       documentPath: document.relativePath,
                       uri: uri,
                       width: width,

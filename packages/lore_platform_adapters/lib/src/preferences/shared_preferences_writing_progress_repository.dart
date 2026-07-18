@@ -5,7 +5,7 @@ import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 基于 [SharedPreferences] 的写作进度持久化。
+/// 基于 [SharedPreferences] 的设备本地写作进度持久化。
 ///
 /// 每部小说一个 key（`lore.writing.progress.<novelId>`），值为 JSON：
 /// `{"schemaVersion":1,"counts":{"<yyyy-MM-dd>":<int>}}`。日期键统一 UTC，

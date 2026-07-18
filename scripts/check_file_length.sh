@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 检测 Lore 源码文件是否过长：超过阈值的文件直接列出并报错退出。
-# 无状态、不生成任何文件，也不接入 test.sh —— 需要时手动跑一次看看债务。
+# 无状态、不生成任何文件，由 test.sh 作为源码复杂度的增量门禁运行。
 # 用法:
-#   bash scripts/check_file_length.sh                # 默认阈值 1000 行
+#   bash scripts/check_file_length.sh                # 默认阈值 500 行
 #   MAX_LINES=800 bash scripts/check_file_length.sh  # 临时调整阈值
 #
 # 仅扫描 apps/ 与 packages/ 下的源文件（仓库根的 .dart 不计入）。
@@ -12,7 +12,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-MAX_LINES="${MAX_LINES:-1000}"
+MAX_LINES="${MAX_LINES:-500}"
 # MAX_LINES 必须是正整数，否则下方 [ "$count" -gt "$MAX_LINES" ] 会因非数值报错并静默丢文件。
 [[ "$MAX_LINES" =~ ^[0-9]+$ ]] || { echo "✗ MAX_LINES 必须是正整数：${MAX_LINES}" >&2; exit 2; }
 
@@ -20,8 +20,13 @@ MAX_LINES="${MAX_LINES:-1000}"
 # 每行一个路径，必须以 apps/ 或 packages/ 开头、与 find 输出完全一致
 # （无前导 ./、非绝对路径）；含空格的路径用双引号包起来。
 WHITELIST=(
-  # 示例（按需增删，删去行首 # 即生效）：
-  # "apps/lore_app/lib/features/some/big_but_legitimate.dart"
+  # 已登记债务：后续按职责继续拆分，不允许新增白名单。
+  "apps/lore_app/lib/features/workspace/workspace_controller.dart"
+  "apps/lore_app/lib/features/workspace/workspace_tabs_store.dart"
+  "packages/lore_storage/lib/src/library/internal/novel_manifest_codec.dart"
+  "packages/lore_storage/lib/src/library/local_directory_content_tree_repository.dart"
+  "packages/lore_storage/lib/src/library/local_directory_novel_repository.dart"
+  "packages/lore_storage/lib/src/storage/storage_backed_library_repository.dart"
 )
 
 # 该文件是否在白名单中。兼容 bash 3.2：空数组在 set -u 下须先判长度再展开。

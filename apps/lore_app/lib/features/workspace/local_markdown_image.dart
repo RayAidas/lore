@@ -1,13 +1,14 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
+import 'package:lore_application/lore_application.dart';
 
 /// 解析 Markdown 中相对图片引用：相对文档目录拼接到书库根，符号链接安全。
 /// 越界或不存在时显示占位图标。
 final class LocalMarkdownImage extends StatelessWidget {
   const LocalMarkdownImage({
-    required this.libraryRoot,
+    required this.session,
+    required this.assetService,
     required this.documentPath,
     required this.uri,
     required this.width,
@@ -15,7 +16,8 @@ final class LocalMarkdownImage extends StatelessWidget {
     super.key,
   });
 
-  final String libraryRoot;
+  final LibrarySession session;
+  final LibraryAssetService assetService;
   final String documentPath;
   final Uri uri;
   final double? width;
@@ -23,48 +25,28 @@ final class LocalMarkdownImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (uri.hasScheme || uri.path.isEmpty || p.isAbsolute(uri.path)) {
+    if (uri.hasScheme || uri.path.isEmpty || uri.path.startsWith('/')) {
       return _placeholder();
     }
-    return FutureBuilder<String?>(
-      future: _resolvePath(),
+    return FutureBuilder<Uint8List?>(
+      future: assetService.readRelative(
+        session,
+        documentPath: documentPath,
+        relativeReference: uri.path,
+      ),
       builder: (context, snapshot) {
-        final path = snapshot.data;
-        if (snapshot.connectionState != ConnectionState.done || path == null) {
+        final bytes = snapshot.data;
+        if (snapshot.connectionState != ConnectionState.done || bytes == null) {
           return _placeholder();
         }
-        return Image.file(
-          File(path),
+        return Image.memory(
+          bytes,
           width: width,
           height: height,
           errorBuilder: (context, error, stackTrace) => _placeholder(),
         );
       },
     );
-  }
-
-  Future<String?> _resolvePath() async {
-    try {
-      final root = p.normalize(
-        await Directory(libraryRoot).resolveSymbolicLinks(),
-      );
-      final candidate = p.normalize(
-        p.join(root, p.dirname(documentPath), uri.path),
-      );
-      if (!p.isWithin(root, candidate)) {
-        return null;
-      }
-      final type = await FileSystemEntity.type(candidate, followLinks: false);
-      if (type != FileSystemEntityType.file) {
-        return null;
-      }
-      final resolved = p.normalize(
-        await File(candidate).resolveSymbolicLinks(),
-      );
-      return p.isWithin(root, resolved) ? resolved : null;
-    } on FileSystemException {
-      return null;
-    }
   }
 
   Widget _placeholder() {

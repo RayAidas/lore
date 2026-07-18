@@ -1,7 +1,9 @@
 export 'src/library/library_access.dart';
+export 'src/library/library_asset_service.dart';
 export 'src/library/library_bootstrap.dart';
 export 'src/library/library_failure.dart';
 export 'src/library/library_inspection.dart';
+export 'src/library/library_mutation_coordinator.dart';
 export 'src/library/library_workspace.dart';
 export 'src/library/deletion.dart';
 export 'src/library/novel_overview.dart';
@@ -15,6 +17,7 @@ export 'src/ports/id_generator.dart';
 export 'src/ports/library_access_gateway.dart';
 export 'src/ports/library_file_operations_gateway.dart';
 export 'src/ports/library_repository.dart';
+export 'src/ports/library_storage.dart';
 export 'src/ports/library_tree_repository.dart';
 export 'src/ports/novel_repository.dart';
 export 'src/ports/trash_repository.dart';

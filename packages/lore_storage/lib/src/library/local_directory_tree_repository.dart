@@ -59,8 +59,10 @@ final class LocalDirectoryTreeRepository implements LibraryTreeRepository {
           ),
         );
       }
-      final directoryPath =
-          await resolver.resolveChildPath(rootPath, relativePath);
+      final directoryPath = await resolver.resolveChildPath(
+        rootPath,
+        relativePath,
+      );
       final directory = Directory(directoryPath);
       if (!await directory.exists()) {
         throw const LibraryOperationException(

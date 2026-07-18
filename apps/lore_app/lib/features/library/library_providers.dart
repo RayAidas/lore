@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
+import 'package:lore_platform_adapters/lore_platform_adapters.dart';
 import 'package:lore_storage/lore_storage.dart';
 
 import '../workspace/workspace_controller.dart';
@@ -15,9 +16,16 @@ final clockProvider = Provider<Clock>((ref) {
   return const SystemClock();
 });
 
+final libraryMutationCoordinatorProvider = Provider<LibraryMutationCoordinator>(
+  (ref) => LibraryMutationCoordinator(),
+);
+
 final libraryAccessGatewayProvider = Provider<LibraryAccessGateway>((ref) {
   if (Platform.isMacOS) {
     return MacOsLibraryAccessGateway();
+  }
+  if (Platform.isAndroid) {
+    return AndroidSafLibraryAccessGateway();
   }
   return const UnsupportedLibraryAccessGateway();
 });
@@ -33,23 +41,62 @@ final localDirectoryLibraryRepositoryProvider =
       );
     });
 
+final libraryStorageFactoryProvider = Provider<LibraryStorageFactory>((ref) {
+  if (Platform.isAndroid) {
+    return AndroidSafStorageFactory();
+  }
+  return LocalDirectoryStorageFactory(
+    fileOperationsGateway: Platform.isMacOS
+        ? MacOsLibraryFileOperationsGateway()
+        : null,
+  );
+});
+
+final libraryAssetServiceProvider = Provider<LibraryAssetService>((ref) {
+  return LibraryAssetService(ref.watch(libraryStorageFactoryProvider));
+});
+
+final storageBackedLibraryRepositoryProvider =
+    Provider<StorageBackedLibraryRepository>((ref) {
+      return StorageBackedLibraryRepository(
+        storageFactory: ref.watch(libraryStorageFactoryProvider),
+        idGenerator: ref.watch(idGeneratorProvider),
+        clock: ref.watch(clockProvider),
+      );
+    });
+
 final libraryRepositoryProvider = Provider<LibraryRepository>((ref) {
+  if (Platform.isAndroid) {
+    return ref.watch(storageBackedLibraryRepositoryProvider);
+  }
   return ref.watch(localDirectoryLibraryRepositoryProvider);
 });
 
 final libraryTreeRepositoryProvider = Provider<LibraryTreeRepository>((ref) {
+  if (Platform.isAndroid) {
+    return ref.watch(storageBackedLibraryRepositoryProvider);
+  }
   return ref.watch(localDirectoryLibraryRepositoryProvider);
 });
 
 final documentRepositoryProvider = Provider<DocumentRepository>((ref) {
+  if (Platform.isAndroid) {
+    return ref.watch(storageBackedLibraryRepositoryProvider);
+  }
   return ref.watch(localDirectoryLibraryRepositoryProvider);
 });
 
 final novelRepositoryProvider = Provider<NovelRepository>((ref) {
+  if (Platform.isAndroid) {
+    return ref.watch(storageBackedLibraryRepositoryProvider);
+  }
   return ref.watch(localDirectoryLibraryRepositoryProvider);
 });
 
 final contentTreeRepositoryProvider = Provider<ContentTreeRepository>((ref) {
+  if (Platform.isAndroid) {
+    return ref.watch(storageBackedLibraryRepositoryProvider);
+  }
   return ref.watch(localDirectoryLibraryRepositoryProvider);
 });
 
@@ -57,6 +104,7 @@ final novelStructureServiceProvider = Provider<NovelStructureService>((ref) {
   return NovelStructureService(
     novelRepository: ref.watch(novelRepositoryProvider),
     contentTreeRepository: ref.watch(contentTreeRepositoryProvider),
+    mutationCoordinator: ref.watch(libraryMutationCoordinatorProvider),
   );
 });
 
@@ -76,6 +124,9 @@ final novelOverviewServiceProvider = Provider<NovelOverviewService>((ref) {
 });
 
 final trashRepositoryProvider = Provider<TrashRepository>((ref) {
+  if (Platform.isAndroid) {
+    return ref.watch(storageBackedLibraryRepositoryProvider);
+  }
   return ref.watch(localDirectoryLibraryRepositoryProvider);
 });
 
@@ -90,6 +141,7 @@ final libraryWorkspaceServiceProvider = Provider<LibraryWorkspaceService>((
     treeRepository: ref.watch(libraryTreeRepositoryProvider),
     documentRepository: ref.watch(documentRepositoryProvider),
     sessionRepository: ref.watch(workspaceSessionRepositoryProvider),
+    mutationCoordinator: ref.watch(libraryMutationCoordinatorProvider),
   );
 });
 

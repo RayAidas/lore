@@ -4,6 +4,7 @@ import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Device-local workspace session persistence.
 final class SharedPreferencesWorkspaceSessionRepository
     implements WorkspaceSessionRepository {
   const SharedPreferencesWorkspaceSessionRepository();

@@ -1,11 +1,11 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
-import 'package:path/path.dart' as p;
 
+import '../library/library_providers.dart';
 import '../preferences/preferences_providers.dart';
 import 'workspace_controller.dart';
 
@@ -77,7 +77,8 @@ final class _NovelOverviewPageState extends ConsumerState<NovelOverviewPage> {
             final overview = snapshot.data!;
             return _OverviewContent(
               overview: overview,
-              libraryRoot: widget.controller.session.access.token,
+              session: widget.controller.session,
+              assetService: ref.watch(libraryAssetServiceProvider),
             );
           },
         );
@@ -87,10 +88,15 @@ final class _NovelOverviewPageState extends ConsumerState<NovelOverviewPage> {
 }
 
 final class _OverviewContent extends StatelessWidget {
-  const _OverviewContent({required this.overview, required this.libraryRoot});
+  const _OverviewContent({
+    required this.overview,
+    required this.session,
+    required this.assetService,
+  });
 
   final NovelOverview overview;
-  final String libraryRoot;
+  final LibrarySession session;
+  final LibraryAssetService assetService;
 
   @override
   Widget build(BuildContext context) {
@@ -108,7 +114,8 @@ final class _OverviewContent extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _Cover(
-                    libraryRoot: libraryRoot,
+                    session: session,
+                    assetService: assetService,
                     novelRoot: overview.rootPath,
                     coverPath: metadata.coverPath,
                   ),
@@ -164,12 +171,14 @@ final class _OverviewContent extends StatelessWidget {
 
 final class _Cover extends StatelessWidget {
   const _Cover({
-    required this.libraryRoot,
+    required this.session,
+    required this.assetService,
     required this.novelRoot,
     required this.coverPath,
   });
 
-  final String libraryRoot;
+  final LibrarySession session;
+  final LibraryAssetService assetService;
   final String novelRoot;
   final String? coverPath;
 
@@ -190,12 +199,15 @@ final class _Cover extends StatelessWidget {
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
               )
-            : FutureBuilder<String?>(
-                future: _resolvePath(),
+            : FutureBuilder<Uint8List?>(
+                future: assetService.read(
+                  session,
+                  LogicalPath.parse('$novelRoot/$coverPath'),
+                ),
                 builder: (context, snapshot) {
-                  final path = snapshot.data;
+                  final bytes = snapshot.data;
                   if (snapshot.connectionState != ConnectionState.done ||
-                      path == null) {
+                      bytes == null) {
                     return Container(
                       color: theme.colorScheme.surfaceContainer,
                       child: Icon(
@@ -205,8 +217,8 @@ final class _Cover extends StatelessWidget {
                       ),
                     );
                   }
-                  return Image.file(
-                    File(path),
+                  return Image.memory(
+                    bytes,
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stack) => Container(
                       color: theme.colorScheme.surfaceContainer,
@@ -221,28 +233,6 @@ final class _Cover extends StatelessWidget {
               ),
       ),
     );
-  }
-
-  Future<String?> _resolvePath() async {
-    try {
-      final root = p.normalize(
-        await Directory(libraryRoot).resolveSymbolicLinks(),
-      );
-      final candidate = p.normalize(p.join(root, novelRoot, coverPath!));
-      if (!p.isWithin(root, candidate)) {
-        return null;
-      }
-      final type = await FileSystemEntity.type(candidate, followLinks: false);
-      if (type != FileSystemEntityType.file) {
-        return null;
-      }
-      final resolved = p.normalize(
-        await File(candidate).resolveSymbolicLinks(),
-      );
-      return p.isWithin(root, resolved) ? resolved : null;
-    } on FileSystemException {
-      return null;
-    }
   }
 }
 

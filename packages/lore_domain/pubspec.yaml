@@ -7,3 +7,5 @@ environment:
 
 resolution: workspace
 
+dev_dependencies:
+  test: ^1.26.3

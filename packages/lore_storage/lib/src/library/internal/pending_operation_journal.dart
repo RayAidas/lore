@@ -132,6 +132,7 @@ final class PendingOperationJournal {
         metadata.title != p.basename(targetPath)) {
       metadata = NovelMetadata(
         schemaVersion: metadata.schemaVersion,
+        revision: metadata.revision + 1,
         id: metadata.id,
         title: p.basename(targetPath),
         description: metadata.description,
@@ -158,6 +159,7 @@ final class PendingOperationJournal {
           await Directory(p.join(rootPath, targetPath)).exists()) {
         metadata = NovelMetadata(
           schemaVersion: metadata.schemaVersion,
+          revision: metadata.revision + 1,
           id: metadata.id,
           title: metadata.title,
           description: metadata.description,

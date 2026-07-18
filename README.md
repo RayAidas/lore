@@ -19,10 +19,11 @@ P0 阶段（`feat/p0-features` 分支）已打通核心写作闭环，并补齐�
 - 查找替换：Cmd+F / Cmd+G / Cmd+Shift+G / Cmd+H，区分大小写、正则、`$1`-`$9` 捕获组
 - 小说概览页：总字数、章节数、卷数、今日字数、目标进度、卷摘要、封面
 - 删除与回收站：移入 `.lore/trash/`、清单、崩溃恢复、孤儿对账、恢复冲突策略、永久删除二次确认
+- Android SAF：目录授权持久化、扫描、创建、编辑、重命名、移动、回收站与冲突保存；回到前台后自动重扫
 
 **规划中**（详见 [路线图](docs/designs/quality-and-roadmap.md)）
 
-全文搜索、模板系统、导入导出、阅读模式（章 / 卷 / 整书连续）、沉浸写作（打字机 / 专注）、历史版本、Android SAF 适配、AI Agent。
+全文搜索、模板系统、导入导出、阅读模式（章 / 卷 / 整书连续）、沉浸写作（打字机 / 专注）、历史版本、AI Agent。
 
 ## 仓库结构
 
@@ -31,6 +32,7 @@ apps/lore_app/             Flutter 应用（平台、providers、功能 UI）
 packages/lore_domain/      领域模型与规则（无依赖）
 packages/lore_application/ 用例、服务与仓储端口
 packages/lore_storage/     本地文件系统持久化与恢复逻辑
+packages/lore_platform_adapters/ Flutter 平台桥接与设备本地偏好存储
 packages/lore_editor/      文本编辑、查找替换、Markdown 预览
 packages/lore_ui/          主题与通用展示样式
 contracts/                 未来客户端与服务端共享契约

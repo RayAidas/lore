@@ -8,7 +8,8 @@ import 'package:path/path.dart' as p;
 final class LibraryPaths {
   const LibraryPaths();
 
-  static const schemaVersion = 1;
+  static const legacySchemaVersion = 1;
+  static const schemaVersion = 2;
   static const metadataDirectoryName = '.lore';
   static const manifestFileName = 'library.json';
   static const novelManifestFileName = 'novel.json';
@@ -16,6 +17,8 @@ final class LibraryPaths {
   static const bodyDirectoryName = '正文';
   static const orderStep = 1000;
   static const recoveryDirectoryName = 'recovery';
+  static const migrationsDirectoryName = 'migrations';
+  static const migrationJournalFileName = 'migration-v1-v2.json';
   static const trashDirectoryName = 'trash';
   static const pendingOperationFileName = 'pending-operation.json';
   static const trashManifestFileName = 'index.json';
@@ -34,6 +37,20 @@ final class LibraryPaths {
     metadataDirectoryName,
     recoveryDirectoryName,
     pendingOperationFileName,
+  );
+
+  String migrationsRoot(String rootPath) => p.join(
+    rootPath,
+    metadataDirectoryName,
+    recoveryDirectoryName,
+    migrationsDirectoryName,
+  );
+
+  String migrationJournalPath(String rootPath) => p.join(
+    rootPath,
+    metadataDirectoryName,
+    recoveryDirectoryName,
+    migrationJournalFileName,
   );
 
   String trashRoot(String rootPath) =>

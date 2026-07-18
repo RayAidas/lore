@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_storage/lore_storage.dart';
 import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
 
 void main() {
   late Directory root;
@@ -37,14 +37,16 @@ void main() {
 
     final metadata = await repository.initialize(access);
 
-    expect(metadata.schemaVersion, 1);
+    expect(metadata.schemaVersion, 2);
+    expect(metadata.revision, 0);
     expect(metadata.id.value, '11111111-1111-4111-8111-111111111111');
     expect(await existing.readAsString(), '保留内容');
     final manifest = File(p.join(root.path, '.lore', 'library.json'));
     expect(await manifest.exists(), isTrue);
     final json =
         jsonDecode(await manifest.readAsString()) as Map<String, Object?>;
-    expect(json['schemaVersion'], 1);
+    expect(json['schemaVersion'], 2);
+    expect(json['revision'], 0);
     expect(json['novels'], isEmpty);
     expect(json['templates'], isEmpty);
     expect(
@@ -64,6 +66,37 @@ void main() {
     expect(inspection, isA<LibraryInspectionReady>());
     final ready = inspection as LibraryInspectionReady;
     expect(ready.metadata.id, initialized.id);
+  });
+
+  test('migrates a v1 library to v2 without touching content files', () async {
+    final metadataDirectory = Directory(p.join(root.path, '.lore'));
+    await metadataDirectory.create();
+    final content = File(p.join(root.path, '灵感.txt'));
+    await content.writeAsString('必须保留');
+    final manifest = File(p.join(metadataDirectory.path, 'library.json'));
+    await manifest.writeAsString(
+      jsonEncode({
+        'schemaVersion': 1,
+        'libraryId': '11111111-1111-4111-8111-111111111111',
+        'createdAt': '2026-07-17T08:30:00.000Z',
+        'updatedAt': '2026-07-17T08:30:00.000Z',
+        'novels': <Object?>[],
+        'templates': <Object?>[],
+      }),
+    );
+
+    final inspection = await repository.inspect(access);
+
+    expect(inspection, isA<LibraryInspectionReady>());
+    final migrated = jsonDecode(await manifest.readAsString());
+    expect(migrated['schemaVersion'], 2);
+    expect(migrated['revision'], 0);
+    expect(await content.readAsString(), '必须保留');
+    final backups = Directory(
+      p.join(root.path, '.lore', 'recovery', 'migrations'),
+    );
+    expect(await backups.exists(), isTrue);
+    expect(await backups.list().isEmpty, isFalse);
   });
 
   test('never overwrites corrupt metadata', () async {

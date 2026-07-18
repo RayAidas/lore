@@ -64,6 +64,10 @@ final class _LibraryWorkspacePageState
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_controller.reconcileAfterForeground());
+      return;
+    }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
@@ -267,7 +271,7 @@ final class _LibraryWorkspacePageState
               ? DocumentPane(
                   controller: controller,
                   document: activeDocument,
-                  libraryRoot: widget.session.access.token,
+                  session: widget.session,
                   onReloadConflict: () =>
                       _reloadConflict(controller, activeDocument),
                 )

@@ -5,7 +5,7 @@ import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 基于 [SharedPreferences] 的应用偏好持久化适配器。
+/// 基于 [SharedPreferences] 的设备本地应用偏好持久化适配器。
 ///
 /// 命名约定与 [SharedPreferencesWorkspaceSessionRepository] 一致：
 /// 单一 JSON 字符串 key（`lore.app.preferences`），内嵌 `schemaVersion`，

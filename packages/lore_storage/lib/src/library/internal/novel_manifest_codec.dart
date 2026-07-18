@@ -58,6 +58,7 @@ final class NovelManifestCodec {
     final createdAt = value['createdAt'];
     final updatedAt = value['updatedAt'];
     if (value['schemaVersion'] != LibraryPaths.schemaVersion ||
+        value['revision'] is! int ||
         novelId is! String ||
         !io.isUuid(novelId) ||
         value['title'] is! String ||
@@ -101,6 +102,7 @@ final class NovelManifestCodec {
     }
     return NovelMetadata(
       schemaVersion: LibraryPaths.schemaVersion,
+      revision: value['revision']! as int,
       id: NovelId(novelId),
       title: value['title']! as String,
       description: value['description']! as String,
@@ -189,6 +191,7 @@ final class NovelManifestCodec {
 
   Map<String, Object?> novelToJson(NovelMetadata metadata) => {
     'schemaVersion': metadata.schemaVersion,
+    'revision': metadata.revision,
     'novelId': metadata.id.value,
     'title': metadata.title,
     'description': metadata.description,
@@ -222,6 +225,7 @@ final class NovelManifestCodec {
   Map<String, Object?> toJson(LibraryMetadata metadata) {
     return {
       'schemaVersion': metadata.schemaVersion,
+      'revision': metadata.revision,
       'libraryId': metadata.id.value,
       'createdAt': metadata.createdAt.toUtc().toIso8601String(),
       'updatedAt': metadata.updatedAt.toUtc().toIso8601String(),
@@ -280,6 +284,7 @@ final class NovelManifestCodec {
         .map((item) => {'id': item.id.value, 'path': item.relativePath})
         .toList(growable: false);
     manifest['updatedAt'] = clock.nowUtc().toIso8601String();
+    manifest['revision'] = (manifest['revision'] as int? ?? 0) + 1;
     await io.writeJsonAtomic(file, manifest);
   }
 
@@ -313,6 +318,7 @@ final class NovelManifestCodec {
         .map((item) => {'id': item.id.value, 'path': item.relativePath})
         .toList(growable: false);
     manifest['updatedAt'] = clock.nowUtc().toIso8601String();
+    manifest['revision'] = (manifest['revision'] as int? ?? 0) + 1;
     await io.writeJsonAtomic(file, manifest);
   }
 
@@ -330,6 +336,7 @@ final class NovelManifestCodec {
         )
         .toList();
     manifest['updatedAt'] = clock.nowUtc().toIso8601String();
+    manifest['revision'] = (manifest['revision'] as int? ?? 0) + 1;
     await io.writeJsonAtomic(file, manifest);
   }
 

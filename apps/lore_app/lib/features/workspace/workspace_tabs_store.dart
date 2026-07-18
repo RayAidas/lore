@@ -503,6 +503,16 @@ final class WorkspaceTabsStore {
     }
   }
 
+  /// Rechecks open documents for backends that cannot provide change streams.
+  Future<void> reconcileOpenDocuments() async {
+    for (final document in List<OpenDocument>.of(documents)) {
+      if (_disposed) {
+        return;
+      }
+      await _inspectExternalChange(document);
+    }
+  }
+
   Future<void> _inspectExternalChange(OpenDocument document) async {
     try {
       final diskSnapshot = await service.readDocument(

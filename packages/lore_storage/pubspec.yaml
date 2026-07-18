@@ -9,19 +9,12 @@ resolution: workspace
 
 dependencies:
   crypto: ^3.0.7
-  flutter:
-    sdk: flutter
   lore_application:
     path: ../lore_application
   lore_domain:
     path: ../lore_domain
   path: ^1.9.1
-  shared_preferences: ^2.5.3
   uuid: ^4.5.2
 
 dev_dependencies:
-  flutter_test:
-    sdk: flutter
   test: ^1.25.0
-
-flutter:

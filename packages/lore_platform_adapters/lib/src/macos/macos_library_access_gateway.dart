@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:lore_application/lore_application.dart';
 
+/// macOS security-scoped bookmark access adapter.
 final class MacOsLibraryAccessGateway implements LibraryAccessGateway {
   MacOsLibraryAccessGateway({MethodChannel? channel})
     : _channel = channel ?? const MethodChannel(_channelName);

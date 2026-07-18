@@ -10,6 +10,6 @@ workspace:
   - packages/lore_domain
   - packages/lore_application
   - packages/lore_storage
+  - packages/lore_platform_adapters
   - packages/lore_editor
   - packages/lore_ui
-

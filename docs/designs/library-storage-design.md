@@ -93,7 +93,8 @@
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "revision": 0,
   "libraryId": "7ad6726f-e74f-462d-8584-5bd2e95cd8b5",
   "createdAt": "2026-07-17T10:00:00Z",
   "updatedAt": "2026-07-17T10:00:00Z",
@@ -122,7 +123,8 @@
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "revision": 0,
   "novelId": "16573e71-837e-427b-b62b-4764eb228d75",
   "title": "长夜行",
   "description": "",
@@ -154,7 +156,7 @@
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "novelId": "16573e71-837e-427b-b62b-4764eb228d75",
   "revision": 12,
   "nodes": [

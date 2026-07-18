@@ -1,5 +1,6 @@
 import 'package:lore_application/lore_application.dart';
 
+/// Fallback used by platforms without a registered library adapter.
 final class UnsupportedLibraryAccessGateway implements LibraryAccessGateway {
   const UnsupportedLibraryAccessGateway();
 

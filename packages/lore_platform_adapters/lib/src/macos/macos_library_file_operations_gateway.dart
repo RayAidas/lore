@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:lore_application/lore_application.dart';
 
+/// macOS coordinated file mutation adapter.
 final class MacOsLibraryFileOperationsGateway
     implements LibraryFileOperationsGateway {
   MacOsLibraryFileOperationsGateway({MethodChannel? channel})

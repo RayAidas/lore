@@ -80,6 +80,33 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets('foreground reconciliation reloads unwatched disk changes', (
+    tester,
+  ) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+    );
+    addTearDown(repository.dispose);
+
+    await controller.initialize();
+    await controller.openPath('章节.txt');
+    repository.diskText = '前台恢复后的外部修改';
+    repository.revision = 2;
+
+    await controller.reconcileAfterForeground();
+    await tester.pump();
+
+    expect(controller.activeDocument!.editorController.text, '前台恢复后的外部修改');
+    expect(controller.activeDocument!.saveStatus, DocumentSaveStatus.clean);
+    controller.dispose();
+  });
+
   testWidgets('restores open tabs and clamps the saved selection', (
     tester,
   ) async {
@@ -235,7 +262,9 @@ void main() {
     );
   }
 
-  testWidgets('renaming the selected document follows the open tab', (tester) async {
+  testWidgets('renaming the selected document follows the open tab', (
+    tester,
+  ) async {
     final repository = _MemoryWorkspaceRepository();
     final controller = buildController(repository);
     addTearDown(repository.dispose);
@@ -252,25 +281,28 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('deleting the selected entry clears selection and bumps tree revision', (
+  testWidgets(
+    'deleting the selected entry clears selection and bumps tree revision',
+    (tester) async {
+      final repository = _MemoryWorkspaceRepository();
+      final controller = buildController(repository);
+      addTearDown(repository.dispose);
+      await controller.initialize();
+      controller.selectPath('笔记.txt');
+      final initialRevision = controller.treeRevision;
+
+      await controller.deleteSelectedEntry();
+
+      expect(controller.selectedPath, isNull);
+      expect(controller.selectedEntry, isNull);
+      expect(controller.treeRevision, initialRevision + 1);
+      controller.dispose();
+    },
+  );
+
+  testWidgets('deleting a directory closes the tabs beneath it', (
     tester,
   ) async {
-    final repository = _MemoryWorkspaceRepository();
-    final controller = buildController(repository);
-    addTearDown(repository.dispose);
-    await controller.initialize();
-    controller.selectPath('笔记.txt');
-    final initialRevision = controller.treeRevision;
-
-    await controller.deleteSelectedEntry();
-
-    expect(controller.selectedPath, isNull);
-    expect(controller.selectedEntry, isNull);
-    expect(controller.treeRevision, initialRevision + 1);
-    controller.dispose();
-  });
-
-  testWidgets('deleting a directory closes the tabs beneath it', (tester) async {
     final repository = _MemoryWorkspaceRepository();
     final controller = buildController(repository);
     addTearDown(repository.dispose);

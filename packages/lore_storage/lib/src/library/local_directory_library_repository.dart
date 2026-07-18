@@ -9,6 +9,7 @@ import 'internal/library_paths.dart';
 import 'internal/library_storage_io.dart';
 import 'internal/novel_manifest_codec.dart';
 import 'internal/pending_operation_journal.dart';
+import 'internal/schema_migrator.dart';
 import 'internal/trash_internals.dart';
 import 'local_directory_content_tree_repository.dart';
 import 'local_directory_document_repository.dart';
@@ -57,6 +58,11 @@ final class LocalDirectoryLibraryRepository
       scanner: scanner,
       clock: clock,
     );
+    final migrator = LibrarySchemaMigrator(
+      paths: paths,
+      io: io,
+      idGenerator: idGenerator,
+    );
     final trash = TrashInternals(paths: paths, io: io, clock: clock);
     final codec = const DocumentCodec();
 
@@ -69,6 +75,7 @@ final class LocalDirectoryLibraryRepository
       novels: novels,
       entries: entries,
       pending: pending,
+      migrator: migrator,
     );
     _tree = LocalDirectoryTreeRepository(
       idGenerator: idGenerator,
