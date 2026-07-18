@@ -1,0 +1,412 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lore_application/lore_application.dart';
+import 'package:lore_domain/lore_domain.dart';
+import 'package:path/path.dart' as p;
+
+import '../preferences/preferences_providers.dart';
+import 'library_failure_snackbar.dart';
+import 'name_prompt_dialog.dart';
+import 'workspace_controller.dart';
+import 'workspace_directory_tree.dart';
+
+/// 工作区左侧栏：标题、新建/重命名/删除、目录树、书库路径与切换。
+///
+/// 自带新建/重命名/删除等交互逻辑（弹窗、失败提示），这些逻辑需要各自的
+/// `context`/`ref`/`mounted`，因此侧栏作为 [ConsumerStatefulWidget] 独立持有。
+final class LibrarySidebar extends ConsumerStatefulWidget {
+  const LibrarySidebar({
+    required this.controller,
+    required this.displayPath,
+    required this.onSelectLibrary,
+    this.drawerContext,
+    super.key,
+  });
+
+  final WorkspaceController controller;
+  final String displayPath;
+  final VoidCallback onSelectLibrary;
+  final BuildContext? drawerContext;
+
+  @override
+  ConsumerState<LibrarySidebar> createState() => _LibrarySidebarState();
+}
+
+final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
+  Future<void> _createNovel() async {
+    final title = await _promptName(title: '新建小说', label: '书名');
+    if (title == null) {
+      return;
+    }
+    final prefs =
+        ref.read(appPreferencesProvider).value ?? AppPreferences.defaults();
+    try {
+      await widget.controller.createNovel(
+        title,
+        chapterFormat: prefs.defaultChapterFormat,
+      );
+    } on LibraryOperationException catch (error) {
+      if (error.failure.code != LibraryFailureCode.alreadyExists || !mounted) {
+        _showFailure(error.failure);
+        return;
+      }
+      final register = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('同名目录已存在'),
+          content: Text('是否将“${title.trim()}”注册为小说并扫描其中的正文？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('修改书名'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('注册现有目录'),
+            ),
+          ],
+        ),
+      );
+      if (register == true) {
+        try {
+          await widget.controller.registerExistingNovel(title.trim());
+        } on LibraryOperationException catch (registerError) {
+          _showFailure(registerError.failure);
+        }
+      }
+    }
+  }
+
+  Future<void> _createDirectory() async {
+    final name = await _promptName(title: '新建文件夹', label: '文件夹名称');
+    if (name == null) {
+      return;
+    }
+    try {
+      await widget.controller.createDirectory(
+        parentPath: _creationParentPath(),
+        name: name,
+      );
+    } on LibraryOperationException catch (error) {
+      _showFailure(error.failure);
+    }
+  }
+
+  Future<void> _createDocument(DocumentFormat format) async {
+    final extension = format == DocumentFormat.text ? '.txt' : '.md';
+    final name = await _promptName(
+      title: format == DocumentFormat.text ? '新建 TXT 文件' : '新建 Markdown 文件',
+      label: '文件名称',
+      suffix: extension,
+    );
+    if (name == null) {
+      return;
+    }
+    try {
+      await widget.controller.createDocument(
+        parentPath: _creationParentPath(),
+        name: name,
+        format: format,
+      );
+    } on LibraryOperationException catch (error) {
+      _showFailure(error.failure);
+    }
+  }
+
+  Future<void> _deleteSelected() async {
+    final entry = widget.controller.selectedEntry;
+    if (entry == null) {
+      return;
+    }
+    final isSemantic = entry.semanticKind != null;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除？'),
+        content: Text(
+          isSemantic ? '卷与章节请在小说结构面板中删除。' : '“${entry.name}”将移到回收站，可在回收站恢复。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: isSemantic
+                ? null
+                : () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      try {
+        await widget.controller.deleteSelectedEntry();
+      } on LibraryOperationException catch (error) {
+        _showFailure(error.failure);
+      }
+    }
+  }
+
+  Future<void> _renameSelected() async {
+    final entry = widget.controller.selectedEntry;
+    if (entry == null) {
+      return;
+    }
+    final isDocument =
+        !entry.isDirectory && entry.type != LibraryEntryType.otherFile;
+    final initial = isDocument
+        ? p.basenameWithoutExtension(entry.name)
+        : entry.name;
+    final name = await _promptName(
+      title: '重命名',
+      label: '新名称',
+      initialValue: initial,
+      suffix: isDocument ? p.extension(entry.name) : null,
+    );
+    if (name == null) {
+      return;
+    }
+    try {
+      final novelId = entry.novelId == null ? null : NovelId(entry.novelId!);
+      await switch (entry.semanticKind) {
+        LibraryEntrySemanticKind.novel when novelId != null =>
+          widget.controller.renameNovel(novelId, name),
+        LibraryEntrySemanticKind.body when novelId != null =>
+          widget.controller.renameBody(novelId, name),
+        LibraryEntrySemanticKind.volume || LibraryEntrySemanticKind.chapter
+            when novelId != null && entry.semanticId != null =>
+          widget.controller.renameContentNode(
+            novelId,
+            ContentId(entry.semanticId!),
+            name,
+          ),
+        _ => widget.controller.renameSelected(name),
+      };
+    } on LibraryOperationException catch (error) {
+      _showFailure(error.failure);
+    }
+  }
+
+  Future<String?> _promptName({
+    required String title,
+    required String label,
+    String initialValue = '',
+    String? suffix,
+  }) {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => NamePromptDialog(
+        title: title,
+        label: label,
+        initialValue: initialValue,
+        suffix: suffix,
+      ),
+    );
+  }
+
+  Future<void> _openPath(String relativePath) async {
+    try {
+      await widget.controller.openPath(relativePath);
+    } on LibraryOperationException catch (error) {
+      _showFailure(error.failure);
+    }
+  }
+
+  Future<void> _selectLibrary() async {
+    if (await widget.controller.flushAll()) {
+      widget.onSelectLibrary();
+    } else if (mounted) {
+      _showFailure(
+        const LibraryFailure(
+          code: LibraryFailureCode.externalModification,
+          message: '请先处理未保存文档或外部修改冲突。',
+        ),
+      );
+    }
+  }
+
+  String _creationParentPath() {
+    final entry = widget.controller.selectedEntry;
+    if (entry == null) {
+      return '';
+    }
+    if (entry.isDirectory) {
+      return entry.relativePath;
+    }
+    final parent = p.dirname(entry.relativePath);
+    return parent == '.' ? '' : parent;
+  }
+
+  void _showFailure(LibraryFailure failure) {
+    if (!mounted) {
+      return;
+    }
+    showLibraryFailure(context, failure);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final controller = widget.controller;
+    return Material(
+      color: colorScheme.surfaceContainerLowest,
+      child: SafeArea(
+        top: widget.drawerContext != null,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 10, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '书库',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  PopupMenuButton<_CreateEntryAction>(
+                    tooltip: '新建',
+                    icon: const Icon(Icons.add, size: 20),
+                    onSelected: (action) {
+                      switch (action) {
+                        case _CreateEntryAction.novel:
+                          unawaited(_createNovel());
+                        case _CreateEntryAction.directory:
+                          unawaited(_createDirectory());
+                        case _CreateEntryAction.text:
+                          unawaited(_createDocument(DocumentFormat.text));
+                        case _CreateEntryAction.markdown:
+                          unawaited(_createDocument(DocumentFormat.markdown));
+                      }
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(
+                        value: _CreateEntryAction.novel,
+                        child: _MenuItem(
+                          icon: Icons.auto_stories_outlined,
+                          label: '新建小说',
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: _CreateEntryAction.directory,
+                        child: _MenuItem(
+                          icon: Icons.create_new_folder_outlined,
+                          label: '新建文件夹',
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: _CreateEntryAction.text,
+                        child: _MenuItem(
+                          icon: Icons.notes_outlined,
+                          label: '新建 TXT',
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: _CreateEntryAction.markdown,
+                        child: _MenuItem(
+                          icon: Icons.description_outlined,
+                          label: '新建 Markdown',
+                        ),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: '重命名',
+                    onPressed: controller.selectedEntry == null
+                        ? null
+                        : () => unawaited(_renameSelected()),
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: '删除',
+                    onPressed: controller.selectedEntry == null
+                        ? null
+                        : () => unawaited(_deleteSelected()),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: controller.initialized
+                  ? WorkspaceDirectory(
+                      controller: controller,
+                      relativePath: '',
+                      selectedPath: controller.selectedPath,
+                      reloadToken: controller.treeRevision,
+                      onSelected: (entry) {
+                        controller.selectEntry(entry);
+                        if (!entry.isDirectory &&
+                            entry.type != LibraryEntryType.otherFile) {
+                          unawaited(_openPath(entry.relativePath));
+                          if (widget.drawerContext != null) {
+                            Navigator.of(widget.drawerContext!).pop();
+                          }
+                        }
+                      },
+                    )
+                  : const Center(child: CircularProgressIndicator()),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.folder_open_outlined,
+                    size: 16,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Tooltip(
+                      message: widget.displayPath,
+                      child: Text(
+                        widget.displayPath,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: '重新选择书库',
+                    onPressed: () => unawaited(_selectLibrary()),
+                    icon: const Icon(Icons.settings_outlined, size: 18),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _CreateEntryAction { novel, directory, text, markdown }
+
+final class _MenuItem extends StatelessWidget {
+  const _MenuItem({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [Icon(icon, size: 18), const SizedBox(width: 12), Text(label)],
+    );
+  }
+}

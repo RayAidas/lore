@@ -885,8 +885,7 @@ final class WorkspaceController extends ChangeNotifier {
     if (_selectedPath != null) {
       final selectedRemoved = removedPaths.any(
         (removed) =>
-            _selectedPath == removed ||
-            p.isWithin(removed, _selectedPath!),
+            _selectedPath == removed || p.isWithin(removed, _selectedPath!),
       );
       if (selectedRemoved) {
         _selectedEntry = null;

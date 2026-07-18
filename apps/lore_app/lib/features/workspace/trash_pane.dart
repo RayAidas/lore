@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lore_application/lore_application.dart';
 
+import 'library_failure_snackbar.dart';
 import 'workspace_controller.dart';
 
 /// 回收站页面：列出条目，支持恢复、永久删除与清空。
@@ -193,8 +194,6 @@ final class _TrashPageState extends State<TrashPage> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(failure.message)));
+    showLibraryFailure(context, failure);
   }
 }
