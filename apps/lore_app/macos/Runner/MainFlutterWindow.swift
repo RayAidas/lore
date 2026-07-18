@@ -4,7 +4,7 @@ import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
   private var libraryAccessController: LibraryAccessController?
-  private var restoredFullscreenState = false
+  private var restoringFullscreenState = false
 
   private static let minimumSize = NSSize(width: 960, height: 600)
   private static let preferredSize = NSSize(width: 1200, height: 800)
@@ -18,7 +18,9 @@ class MainFlutterWindow: NSWindow {
     // default) also forces the freshly-installed content view to relayout —
     // same role as the stock template's `setFrame(self.frame, display: true)`.
     applySavedFrameOrDefault()
+    delegate = self
     registerFullscreenObservers()
+    prepareFullscreenRestore()
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     libraryAccessController = LibraryAccessController(
@@ -75,23 +77,18 @@ class MainFlutterWindow: NSWindow {
 
   /// Persists the window's fullscreen state so it survives across launches.
   /// `frameAutosaveName` only stores the frame, not fullscreen, so we record
-  /// the flag ourselves and re-enter fullscreen once the window is on screen.
+  /// the flag ourselves and restore it before the window first appears.
   private func registerFullscreenObservers() {
     let center = NotificationCenter.default
     center.addObserver(
       self,
-      selector: #selector(persistFullscreenState),
+      selector: #selector(handleDidEnterFullscreen),
       name: NSWindow.didEnterFullScreenNotification,
       object: self)
     center.addObserver(
       self,
       selector: #selector(persistFullscreenState),
       name: NSWindow.didExitFullScreenNotification,
-      object: self)
-    center.addObserver(
-      self,
-      selector: #selector(restoreFullscreenStateIfPending),
-      name: NSWindow.didBecomeKeyNotification,
       object: self)
     center.addObserver(
       self,
@@ -104,17 +101,38 @@ class MainFlutterWindow: NSWindow {
     UserDefaults.standard.set(styleMask.contains(.fullScreen), forKey: Self.fullscreenKey)
   }
 
-  /// Re-enters fullscreen once, after the window is actually visible — calling
-  /// `toggleFullScreen` earlier (in awakeFromNib) fails because the window
-  /// isn't on screen yet.
+  /// Keeps the normal window hidden while AppKit performs the required native
+  /// fullscreen transition, then reveals it only after the fullscreen layout
+  /// is ready.
+  private func prepareFullscreenRestore() {
+    guard UserDefaults.standard.bool(forKey: Self.fullscreenKey) else { return }
+    restoringFullscreenState = true
+    alphaValue = 0
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(restoreFullscreenStateIfPending),
+      name: NSWindow.didBecomeKeyNotification,
+      object: self)
+  }
+
   @objc private func restoreFullscreenStateIfPending() {
-    guard !restoredFullscreenState else { return }
-    restoredFullscreenState = true
+    guard restoringFullscreenState else { return }
     NotificationCenter.default.removeObserver(
       self, name: NSWindow.didBecomeKeyNotification, object: self)
-    if UserDefaults.standard.bool(forKey: Self.fullscreenKey) {
-      toggleFullScreen(nil)
-    }
+    toggleFullScreen(nil)
+  }
+
+  @objc private func handleDidEnterFullscreen() {
+    persistFullscreenState()
+    finishFullscreenRestore()
+  }
+
+  private func finishFullscreenRestore() {
+    guard restoringFullscreenState else { return }
+    restoringFullscreenState = false
+    alphaValue = 1
+    NotificationCenter.default.removeObserver(
+      self, name: NSWindow.didBecomeKeyNotification, object: self)
   }
 
   /// Snapshots the fullscreen state when the window is about to close and
@@ -130,6 +148,13 @@ class MainFlutterWindow: NSWindow {
 
   deinit {
     NotificationCenter.default.removeObserver(self)
+  }
+}
+
+extension MainFlutterWindow: NSWindowDelegate {
+  func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+    UserDefaults.standard.set(false, forKey: Self.fullscreenKey)
+    finishFullscreenRestore()
   }
 }
 
