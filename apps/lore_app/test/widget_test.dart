@@ -214,11 +214,23 @@ void main() {
         .length;
     await tester.tap(find.byTooltip('新建'));
     await tester.pumpAndSettle();
+    final newButton = find.ancestor(
+      of: find.byIcon(Icons.add_rounded),
+      matching: find.byType(IconButton),
+    );
     final menuItems = tester
         .widgetList<MenuItemButton>(find.byType(MenuItemButton))
         .toList();
     expect(menuItems, hasLength(4));
     expect(menuItems.every((item) => item.leadingIcon == null), isTrue);
+    expect(
+      tester.getTopLeft(find.byType(MenuItemButton).first).dx,
+      closeTo(tester.getTopLeft(newButton).dx, 1),
+    );
+    expect(
+      tester.getTopLeft(find.byType(MenuItemButton).first).dy,
+      greaterThan(tester.getBottomLeft(newButton).dy),
+    );
     expect(
       tester.widgetList<Divider>(find.byType(Divider)),
       hasLength(dividerCount),

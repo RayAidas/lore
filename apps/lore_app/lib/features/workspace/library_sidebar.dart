@@ -469,13 +469,11 @@ final class _SidebarMenuButtonState extends State<_SidebarMenuButton> {
     final colorScheme = Theme.of(context).colorScheme;
     return MenuAnchor(
       animated: true,
-      alignmentOffset: const Offset(
-        _sidebarMenuButtonSize - _sidebarMenuWidth,
-        6,
-      ),
+      alignmentOffset: const Offset(0, 6),
       onOpen: () => setState(() => _isOpen = true),
       onClose: () => setState(() => _isOpen = false),
       style: MenuStyle(
+        alignment: AlignmentDirectional.bottomStart,
         fixedSize: const WidgetStatePropertyAll(
           Size.fromWidth(_sidebarMenuWidth),
         ),
