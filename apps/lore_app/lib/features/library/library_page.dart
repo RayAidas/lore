@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lore_application/lore_application.dart';
 
 import 'library_providers.dart';
+import '../preferences/settings_page.dart';
 import '../workspace/library_workspace_page.dart';
 
 class LibraryPage extends ConsumerWidget {
@@ -101,7 +102,20 @@ class _SelectionPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Lore')),
+      appBar: AppBar(
+        title: const Text('Lore'),
+        actions: [
+          IconButton(
+            tooltip: '设置',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (context) => const SettingsPage(),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),

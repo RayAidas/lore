@@ -60,6 +60,25 @@ final novelStructureServiceProvider = Provider<NovelStructureService>((ref) {
   );
 });
 
+final writingProgressRepositoryProvider = Provider<WritingProgressRepository>((
+  ref,
+) {
+  return SharedPreferencesWritingProgressRepository();
+});
+
+final novelOverviewServiceProvider = Provider<NovelOverviewService>((ref) {
+  return NovelOverviewService(
+    novelRepository: ref.watch(novelRepositoryProvider),
+    documentRepository: ref.watch(documentRepositoryProvider),
+    clock: ref.watch(clockProvider),
+    writingProgressRepository: ref.watch(writingProgressRepositoryProvider),
+  );
+});
+
+final trashRepositoryProvider = Provider<TrashRepository>((ref) {
+  return ref.watch(localDirectoryLibraryRepositoryProvider);
+});
+
 final workspaceSessionRepositoryProvider = Provider<WorkspaceSessionRepository>(
   (ref) => const SharedPreferencesWorkspaceSessionRepository(),
 );
@@ -80,6 +99,9 @@ final workspaceControllerProvider = Provider.autoDispose
         session: session,
         service: ref.watch(libraryWorkspaceServiceProvider),
         novelStructureService: ref.watch(novelStructureServiceProvider),
+        novelOverviewService: ref.watch(novelOverviewServiceProvider),
+        writingProgressRepository: ref.watch(writingProgressRepositoryProvider),
+        trashRepository: ref.watch(trashRepositoryProvider),
       );
       ref.onDispose(controller.dispose);
       return controller;

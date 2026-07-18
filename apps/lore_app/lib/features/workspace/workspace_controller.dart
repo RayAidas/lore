@@ -76,6 +76,9 @@ final class WorkspaceController extends ChangeNotifier {
     required this.session,
     required this.service,
     this.novelStructureService,
+    this.novelOverviewService,
+    this.writingProgressRepository,
+    this.trashRepository,
   });
 
   static const _autoSaveDelay = Duration(milliseconds: 800);
@@ -87,6 +90,9 @@ final class WorkspaceController extends ChangeNotifier {
   final LibrarySession session;
   final LibraryWorkspaceService service;
   final NovelStructureService? novelStructureService;
+  final NovelOverviewService? novelOverviewService;
+  final WritingProgressRepository? writingProgressRepository;
+  final TrashRepository? trashRepository;
   final List<WorkspaceTab> _tabs = [];
   final Map<String, Timer> _externalChangeTimers = {};
   final Map<String, Timer> _structureChangeTimers = {};
@@ -172,6 +178,15 @@ final class WorkspaceController extends ChangeNotifier {
     _changeSubscription = service
         .watchDocuments(session)
         .listen(_handleDocumentChange, onError: (_) {});
+    // 清理 90 天前的写作进度记录，避免 SharedPreferences 无限增长。
+    final progress = writingProgressRepository;
+    if (progress != null) {
+      unawaited(
+        progress.pruneBefore(
+          DateTime.now().toUtc().subtract(const Duration(days: 90)),
+        ),
+      );
+    }
     await _loadNovelStructures();
     _initialized = true;
     _notify();
@@ -203,9 +218,16 @@ final class WorkspaceController extends ChangeNotifier {
     return service.listChildren(session, relativePath: relativePath);
   }
 
-  Future<NovelStructureMutation> createNovel(String title) async {
+  Future<NovelStructureMutation> createNovel(
+    String title, {
+    ChapterFormat? chapterFormat,
+  }) async {
     final structureService = _requireNovelStructureService();
-    final mutation = await structureService.createNovel(session, title: title);
+    final mutation = await structureService.createNovel(
+      session,
+      title: title,
+      chapterFormat: chapterFormat ?? ChapterFormat.markdown,
+    );
     _replaceNovel(mutation.snapshot);
     _selectedEntry = mutation.entry;
     _selectedPath = mutation.entry.relativePath;
@@ -711,9 +733,18 @@ final class WorkspaceController extends ChangeNotifier {
         return;
       }
       final next = _characterCount(document.editorController.text);
-      if (document.characterCount != next) {
-        document.characterCount = next;
-        document.notifyChanged();
+      final delta = next - document.characterCount;
+      if (delta == 0) {
+        return;
+      }
+      document.characterCount = next;
+      document.notifyChanged();
+      final progress = writingProgressRepository;
+      if (progress != null) {
+        final novelId = _novelIdForPath(document.relativePath);
+        if (novelId != null) {
+          unawaited(progress.addDelta(novelId, DateTime.now().toUtc(), delta));
+        }
       }
     });
   }
@@ -803,6 +834,188 @@ final class WorkspaceController extends ChangeNotifier {
       return;
     }
     document.saveStatus = DocumentSaveStatus.error;
+  }
+
+  Future<DeletionResult> deleteContentNode(
+    NovelId novelId,
+    ContentId nodeId,
+  ) async {
+    final structureService = _requireNovelStructureService();
+    final result = await structureService.deleteNode(
+      session,
+      novelId: novelId,
+      nodeId: nodeId,
+    );
+    _applyDeletionResult(result);
+    return result;
+  }
+
+  Future<DeletionResult> deleteNovel(NovelId novelId) async {
+    final structureService = _requireNovelStructureService();
+    final result = await structureService.deleteNovel(
+      session,
+      novelId: novelId,
+    );
+    _novels.removeWhere((novel) => novel.metadata.id == novelId);
+    _applyDeletionResult(result);
+    _notify();
+    return result;
+  }
+
+  Future<DeletionResult> deleteSelectedEntry() async {
+    final sourcePath = _selectedPath;
+    if (sourcePath == null || sourcePath.isEmpty) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.notFound,
+          message: '请先选择要删除的文件或文件夹。',
+        ),
+      );
+    }
+    final result = await service.deleteEntry(session, relativePath: sourcePath);
+    _applyDeletionResult(result);
+    return result;
+  }
+
+  void _applyDeletionResult(DeletionResult result) {
+    if (result.snapshot != null) {
+      _replaceNovel(result.snapshot!);
+    }
+    final removedPaths = result.pathChanges.map((change) => change.oldPath);
+    if (_selectedPath != null) {
+      final selectedRemoved = removedPaths.any(
+        (removed) =>
+            _selectedPath == removed ||
+            p.isWithin(removed, _selectedPath!),
+      );
+      if (selectedRemoved) {
+        _selectedEntry = null;
+        _selectedPath = null;
+      }
+    }
+    final hasOpenTabsBeneathRemoved = _tabs.any((tab) {
+      for (final removed in removedPaths) {
+        if (tab.relativePath == removed ||
+            p.isWithin(removed, tab.relativePath)) {
+          return true;
+        }
+      }
+      return false;
+    });
+    if (hasOpenTabsBeneathRemoved) {
+      _tabs.removeWhere((tab) {
+        for (final removed in removedPaths) {
+          if (tab.relativePath == removed ||
+              p.isWithin(removed, tab.relativePath)) {
+            tab.dispose();
+            return true;
+          }
+        }
+        return false;
+      });
+      if (_activePath != null) {
+        final stillOpen = _tabForPath(_activePath) != null;
+        if (!stillOpen) {
+          _activePath = _tabs.firstOrNull?.relativePath;
+          _selectedPath = _activePath;
+        }
+      }
+    }
+    _treeRevision += 1;
+    _scheduleSessionSave();
+    _notify();
+  }
+
+  Future<List<TrashItem>> listTrashItems() async {
+    final trash = trashRepository;
+    if (trash == null) {
+      return const [];
+    }
+    return trash.listItems(session.access);
+  }
+
+  Future<TrashItem> restoreTrashItem(
+    String token, {
+    RestoreConflictStrategy strategy = RestoreConflictStrategy.rename,
+  }) async {
+    final trash = trashRepository;
+    if (trash == null) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.platformUnsupported,
+          message: '回收站不可用。',
+        ),
+      );
+    }
+    final item = await trash.restore(
+      session.access,
+      trashToken: token,
+      strategy: strategy,
+    );
+    // storage 已在恢复后重扫内容树并写盘；这里只刷新内存快照与树版本，
+    // 不再重复 reconcile（避免与 storage 的 _reconcileAfterRestore 重复 scan）。
+    final structureService = novelStructureService;
+    if (item.novelId != null && structureService != null) {
+      try {
+        final fresh = await structureService.loadNovel(
+          session,
+          novelId: NovelId(item.novelId!),
+        );
+        _replaceNovel(fresh);
+      } on LibraryOperationException {
+        // 小说可能已不在注册表，忽略；由 _loadNovelStructures 收敛。
+      }
+    }
+    _treeRevision += 1;
+    unawaited(_loadNovelStructures());
+    _notify();
+    return item;
+  }
+
+  Future<void> purgeTrashItem(String token) async {
+    final trash = trashRepository;
+    if (trash == null) {
+      return;
+    }
+    await trash.purge(session.access, trashToken: token);
+  }
+
+  Future<void> emptyTrash() async {
+    final trash = trashRepository;
+    if (trash == null) {
+      return;
+    }
+    await trash.empty(session.access);
+  }
+
+  Future<NovelOverview> loadNovelOverview(
+    NovelId novelId, {
+    int dailyWordGoal = 0,
+  }) async {
+    final overviewService = novelOverviewService;
+    if (overviewService == null) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.platformUnsupported,
+          message: '当前工作区未启用小说概览。',
+        ),
+      );
+    }
+    return overviewService.computeOverview(
+      session,
+      novelId: novelId,
+      dailyWordGoal: dailyWordGoal,
+    );
+  }
+
+  NovelId? _novelIdForPath(String relativePath) {
+    for (final novel in _novels) {
+      if (relativePath == novel.rootPath ||
+          p.isWithin(novel.rootPath, relativePath)) {
+        return novel.metadata.id;
+      }
+    }
+    return null;
   }
 
   Future<void> _loadNovelStructures() async {

@@ -10,6 +10,10 @@ import 'package:lore_editor/lore_editor.dart';
 import 'package:path/path.dart' as p;
 
 import '../library/library_providers.dart';
+import '../preferences/preferences_providers.dart';
+import '../preferences/settings_page.dart';
+import 'novel_overview_pane.dart';
+import 'trash_pane.dart';
 import 'workspace_controller.dart';
 
 final class LibraryWorkspacePage extends ConsumerStatefulWidget {
@@ -31,6 +35,8 @@ final class _LibraryWorkspacePageState
     extends ConsumerState<LibraryWorkspacePage>
     with WidgetsBindingObserver {
   bool _showInspector = true;
+  FindReplaceController? _findController;
+  bool _findReplaceMode = false;
 
   WorkspaceController get _controller {
     return ref.read(workspaceControllerProvider(widget.session));
@@ -62,6 +68,7 @@ final class _LibraryWorkspacePageState
 
   @override
   void dispose() {
+    _findController?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -87,6 +94,22 @@ final class _LibraryWorkspacePageState
                   if (document != null) {
                     unawaited(_closeDocument(controller, document));
                   }
+                },
+                const SingleActivator(LogicalKeyboardKey.keyF, meta: true): () {
+                  _openFindReplace(controller, replace: false);
+                },
+                const SingleActivator(LogicalKeyboardKey.keyH, meta: true): () {
+                  _openFindReplace(controller, replace: true);
+                },
+                const SingleActivator(LogicalKeyboardKey.keyG, meta: true): () {
+                  _findController?.next();
+                },
+                const SingleActivator(
+                  LogicalKeyboardKey.keyG,
+                  meta: true,
+                  shift: true,
+                ): () {
+                  _findController?.previous();
                 },
               },
               child: Focus(
@@ -129,6 +152,21 @@ final class _LibraryWorkspacePageState
                                 : Icons.view_sidebar_outlined,
                           ),
                         ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (context) =>
+                                TrashPage(controller: controller),
+                          ),
+                        ),
+                        tooltip: '回收站',
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                      IconButton(
+                        onPressed: () => _openSettings(context),
+                        tooltip: '设置',
+                        icon: const Icon(Icons.settings_outlined),
+                      ),
                       IconButton(
                         onPressed: () => unawaited(_selectLibrary(controller)),
                         tooltip: '重新选择书库',
@@ -267,6 +305,14 @@ final class _LibraryWorkspacePageState
                         : () => unawaited(_renameSelected(controller)),
                     icon: const Icon(Icons.edit_outlined, size: 18),
                   ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: '删除',
+                    onPressed: controller.selectedEntry == null
+                        ? null
+                        : () => unawaited(_deleteSelected(controller)),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                  ),
                 ],
               ),
             ),
@@ -377,6 +423,13 @@ final class _LibraryWorkspacePageState
                   ),
                 ),
         ),
+        if (_findController != null && activeDocument != null)
+          FindReplaceOverlay(
+            findController: _findController!,
+            editorController: activeDocument.editorController,
+            initialShowReplace: _findReplaceMode,
+            onClose: _closeFindReplace,
+          ),
       ],
     );
   }
@@ -398,8 +451,13 @@ final class _LibraryWorkspacePageState
     if (title == null) {
       return;
     }
+    final prefs =
+        ref.read(appPreferencesProvider).value ?? AppPreferences.defaults();
     try {
-      await controller.createNovel(title);
+      await controller.createNovel(
+        title,
+        chapterFormat: prefs.defaultChapterFormat,
+      );
     } on LibraryOperationException catch (error) {
       if (error.failure.code != LibraryFailureCode.alreadyExists || !mounted) {
         _showFailure(error.failure);
@@ -468,6 +526,42 @@ final class _LibraryWorkspacePageState
       );
     } on LibraryOperationException catch (error) {
       _showFailure(error.failure);
+    }
+  }
+
+  Future<void> _deleteSelected(WorkspaceController controller) async {
+    final entry = controller.selectedEntry;
+    if (entry == null) {
+      return;
+    }
+    final isSemantic = entry.semanticKind != null;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除？'),
+        content: Text(
+          isSemantic ? '卷与章节请在小说结构面板中删除。' : '“${entry.name}”将移到回收站，可在回收站恢复。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: isSemantic
+                ? null
+                : () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      try {
+        await controller.deleteSelectedEntry();
+      } on LibraryOperationException catch (error) {
+        _showFailure(error.failure);
+      }
     }
   }
 
@@ -579,6 +673,38 @@ final class _LibraryWorkspacePageState
     if (confirmed == true) {
       await controller.reloadConflict(document);
     }
+  }
+
+  void _openSettings(BuildContext context) {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (context) => const SettingsPage()));
+  }
+
+  void _openFindReplace(
+    WorkspaceController controller, {
+    required bool replace,
+  }) {
+    final document = controller.activeDocument;
+    if (document == null) {
+      return;
+    }
+    final prefs =
+        ref.read(appPreferencesProvider).value ?? AppPreferences.defaults();
+    setState(() {
+      _findReplaceMode = replace;
+      _findController = FindReplaceController()
+        ..setCaseSensitive(prefs.findMatchCase)
+        ..setUseRegex(prefs.findUseRegex)
+        ..recompute(document.editorController.text);
+    });
+  }
+
+  void _closeFindReplace() {
+    setState(() {
+      _findController?.dispose();
+      _findController = null;
+    });
   }
 
   Future<void> _selectLibrary(WorkspaceController controller) async {
@@ -807,6 +933,21 @@ final class _NovelStructurePane extends StatelessWidget {
                     ],
                   ),
                 ),
+                IconButton(
+                  tooltip: '小说概览',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (context) => Scaffold(
+                        appBar: AppBar(title: const Text('小说概览')),
+                        body: NovelOverviewPage(
+                          controller: controller,
+                          novelId: snapshot.metadata.id,
+                        ),
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.dashboard_outlined),
+                ),
                 if (!isVolume)
                   FilledButton.tonalIcon(
                     style: const ButtonStyle(
@@ -948,6 +1089,14 @@ final class _NovelStructurePane extends StatelessWidget {
                                     size: 18,
                                   ),
                                 ),
+                                IconButton(
+                                  tooltip: '删除',
+                                  onPressed: () => _deleteNode(context, node),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 18,
+                                  ),
+                                ),
                                 const Icon(Icons.drag_handle, size: 19),
                               ],
                             ),
@@ -999,6 +1148,31 @@ final class _NovelStructurePane extends StatelessWidget {
     if (name != null) {
       await _run(
         () => controller.renameContentNode(snapshot.metadata.id, node.id, name),
+      );
+    }
+  }
+
+  Future<void> _deleteNode(BuildContext context, ContentNode node) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除？'),
+        content: Text('“${p.basename(node.relativePath)}”将移到回收站，可在回收站恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _run(
+        () => controller.deleteContentNode(snapshot.metadata.id, node.id),
       );
     }
   }
@@ -1448,7 +1622,7 @@ final class _DocumentTabs extends StatelessWidget {
   }
 }
 
-final class _DocumentPane extends StatelessWidget {
+final class _DocumentPane extends ConsumerWidget {
   const _DocumentPane({
     required this.controller,
     required this.document,
@@ -1462,15 +1636,22 @@ final class _DocumentPane extends StatelessWidget {
   final VoidCallback onReloadConflict;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return ListenableBuilder(
       listenable: document,
-      builder: (context, _) => _buildContent(context),
+      builder: (context, _) => _buildContent(context, ref),
     );
   }
 
-  Widget _buildContent(BuildContext context) {
+  Widget _buildContent(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
+    final prefs =
+        ref.watch(appPreferencesProvider).value ?? AppPreferences.defaults();
+    final editorStyle = const EditorStyle.defaults().copyWith(
+      lineHeight: prefs.editorLineHeight,
+      fontSize: prefs.editorFontSize,
+      contentWidth: prefs.editorContentWidth,
+    );
     return Column(
       children: [
         Container(
@@ -1579,6 +1760,7 @@ final class _DocumentPane extends StatelessWidget {
                     key: ValueKey(document.relativePath),
                     controller: document.editorController,
                     scrollController: document.scrollController,
+                    style: editorStyle,
                     autofocus: true,
                   ),
           ),

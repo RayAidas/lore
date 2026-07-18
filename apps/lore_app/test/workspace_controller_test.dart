@@ -331,6 +331,14 @@ final class _MemoryWorkspaceRepository
   Stream<DocumentChange> watchDocuments(LibraryAccess access) {
     return changes.stream;
   }
+
+  @override
+  Future<DeletionResult> deleteEntry(
+    LibraryAccess access, {
+    required String relativePath,
+  }) {
+    throw UnimplementedError();
+  }
 }
 
 final class _MemorySessionRepository implements WorkspaceSessionRepository {

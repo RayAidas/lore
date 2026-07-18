@@ -410,6 +410,14 @@ final class _FakeWorkspaceRepository
   Stream<DocumentChange> watchDocuments(LibraryAccess access) {
     return const Stream.empty();
   }
+
+  @override
+  Future<DeletionResult> deleteEntry(
+    LibraryAccess access, {
+    required String relativePath,
+  }) {
+    throw UnimplementedError();
+  }
 }
 
 final class _MemoryWorkspaceSessionRepository
@@ -449,6 +457,7 @@ final class _FakeNovelRepository
   Future<NovelStructureMutation> createNovel(
     LibraryAccess access, {
     required String title,
+    ChapterFormat chapterFormat = ChapterFormat.markdown,
   }) async {
     createdTitles.add(title);
     final now = DateTime.utc(2026, 7, 17);
@@ -571,6 +580,23 @@ final class _FakeNovelRepository
     required NovelId novelId,
     required ContentId nodeId,
     required int newIndex,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<DeletionResult> deleteNode(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required ContentId nodeId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<DeletionResult> deleteNovel(
+    LibraryAccess access, {
+    required NovelId novelId,
   }) {
     throw UnimplementedError();
   }
