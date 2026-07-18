@@ -4,18 +4,132 @@ import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
   private var libraryAccessController: LibraryAccessController?
+  private var restoredFullscreenState = false
+
+  private static let minimumSize = NSSize(width: 960, height: 600)
+  private static let preferredSize = NSSize(width: 1200, height: 800)
+  private static let windowFrameAutosaveName = "dev.lore.app.mainWindow"
+  private static let fullscreenKey = "dev.lore.app.mainWindowFullscreen"
 
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
-    let windowFrame = self.frame
     self.contentViewController = flutterViewController
-    self.setFrame(windowFrame, display: true)
+    // applySavedFrameOrDefault's setFrame (from autosave or the centered
+    // default) also forces the freshly-installed content view to relayout —
+    // same role as the stock template's `setFrame(self.frame, display: true)`.
+    applySavedFrameOrDefault()
+    registerFullscreenObservers()
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     libraryAccessController = LibraryAccessController(
       binaryMessenger: flutterViewController.engine.binaryMessenger)
 
     super.awakeFromNib()
+  }
+
+  /// Restores the window to its last-used frame when one is saved, otherwise
+  /// sizes and centers it for first launch. `minSize` is enforced every launch
+  /// so a previously-saved frame still respects the workspace's lower bound.
+  /// `setFrameAutosaveName` lets AppKit persist the frame across launches —
+  /// the `frameAutosaveName` property is read-only in Swift, so the method
+  /// form is required (it returns false if the name is already claimed).
+  private func applySavedFrameOrDefault() {
+    minSize = Self.minimumSize
+    if setFrameAutosaveName(Self.windowFrameAutosaveName),
+       setFrameUsingName(Self.windowFrameAutosaveName) {
+      return
+    }
+    configureInitialFrame()
+  }
+
+  /// First-launch default: a comfortable writing size centered on the main
+  /// screen. The size is clamped to the visible area and the configured
+  /// minimum is lowered when necessary for a cramped display, so the launch
+  /// window never violates `minSize` or drifts off-screen.
+  private func configureInitialFrame() {
+    // `visibleFrame` already excludes the menu bar and Dock; fall back to the
+    // xib-provided frame if the screen is somehow unavailable at launch.
+    let visibleFrame = NSScreen.main?.visibleFrame ?? frame
+    let minimumWidth = min(Self.minimumSize.width, visibleFrame.width)
+    let minimumHeight = min(Self.minimumSize.height, visibleFrame.height)
+    minSize = NSSize(width: minimumWidth, height: minimumHeight)
+
+    // Clamp to the visible area while respecting the adjusted minimum.
+    let width = max(
+      minimumWidth,
+      min(Self.preferredSize.width, visibleFrame.width))
+    let height = max(
+      minimumHeight,
+      min(Self.preferredSize.height, visibleFrame.height))
+
+    // Center within the visible frame, then keep the full rect on-screen.
+    let originX = max(
+      visibleFrame.minX,
+      min(visibleFrame.minX + (visibleFrame.width - width) / 2, visibleFrame.maxX - width))
+    let originY = max(
+      visibleFrame.minY,
+      min(visibleFrame.minY + (visibleFrame.height - height) / 2, visibleFrame.maxY - height))
+
+    setFrame(NSRect(x: originX, y: originY, width: width, height: height), display: true)
+  }
+
+  /// Persists the window's fullscreen state so it survives across launches.
+  /// `frameAutosaveName` only stores the frame, not fullscreen, so we record
+  /// the flag ourselves and re-enter fullscreen once the window is on screen.
+  private func registerFullscreenObservers() {
+    let center = NotificationCenter.default
+    center.addObserver(
+      self,
+      selector: #selector(persistFullscreenState),
+      name: NSWindow.didEnterFullScreenNotification,
+      object: self)
+    center.addObserver(
+      self,
+      selector: #selector(persistFullscreenState),
+      name: NSWindow.didExitFullScreenNotification,
+      object: self)
+    center.addObserver(
+      self,
+      selector: #selector(restoreFullscreenStateIfPending),
+      name: NSWindow.didBecomeKeyNotification,
+      object: self)
+    center.addObserver(
+      self,
+      selector: #selector(snapshotFullscreenOnClose),
+      name: NSWindow.willCloseNotification,
+      object: self)
+  }
+
+  @objc private func persistFullscreenState() {
+    UserDefaults.standard.set(styleMask.contains(.fullScreen), forKey: Self.fullscreenKey)
+  }
+
+  /// Re-enters fullscreen once, after the window is actually visible — calling
+  /// `toggleFullScreen` earlier (in awakeFromNib) fails because the window
+  /// isn't on screen yet.
+  @objc private func restoreFullscreenStateIfPending() {
+    guard !restoredFullscreenState else { return }
+    restoredFullscreenState = true
+    NotificationCenter.default.removeObserver(
+      self, name: NSWindow.didBecomeKeyNotification, object: self)
+    if UserDefaults.standard.bool(forKey: Self.fullscreenKey) {
+      toggleFullScreen(nil)
+    }
+  }
+
+  /// Snapshots the fullscreen state when the window is about to close and
+  /// stops listening to further transitions. macOS can exit fullscreen as part
+  /// of tearing a fullscreen window down, so unsubscribing here keeps that
+  /// teardown from overwriting the state the user actually ended in.
+  @objc private func snapshotFullscreenOnClose() {
+    persistFullscreenState()
+    let center = NotificationCenter.default
+    center.removeObserver(self, name: NSWindow.didEnterFullScreenNotification, object: self)
+    center.removeObserver(self, name: NSWindow.didExitFullScreenNotification, object: self)
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
   }
 }
 
