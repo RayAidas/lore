@@ -187,4 +187,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(await result, isNull);
   });
+
+  testWidgets('actions lay out side by side, not stacked', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LoreTheme.light(),
+        home: const Scaffold(
+          body: LoreConfirmDialog(
+            title: '删除？',
+            message: '将移到回收站。',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final confirm = tester.getRect(find.byType(FilledButton));
+    final cancel = tester.getRect(find.byType(TextButton));
+
+    // 横排：两按钮垂直中心在同一行，取消按钮在确认按钮左侧。
+    // 若 minimumSize 误用 Size.fromHeight 导致按钮无限宽，会退化为上下纵排。
+    expect(confirm.center.dy, closeTo(cancel.center.dy, 1));
+    expect(cancel.right, lessThanOrEqualTo(confirm.left));
+  });
 }
