@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
   final metadata = LibraryMetadata(
@@ -219,6 +220,89 @@ void main() {
     expect(repository.readPaths, ['一.txt', '二.txt']);
     controller.dispose();
   });
+
+  // ---- Phase 2 行为锁定：selection / rename / delete / treeRevision ----
+  // 这些测试在抽取 WorkspaceTabsStore 前锁定跨切面行为，确保重构不破坏联动。
+
+  WorkspaceController buildController(_MemoryWorkspaceRepository repository) {
+    return WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+    );
+  }
+
+  testWidgets('renaming the selected document follows the open tab', (tester) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = buildController(repository);
+    addTearDown(repository.dispose);
+    await controller.initialize();
+    await controller.openPath('章节.txt');
+    final initialRevision = controller.treeRevision;
+
+    await controller.renameSelected('新名.txt');
+
+    expect(controller.activeDocument!.relativePath, '新名.txt');
+    expect(controller.selectedPath, '新名.txt');
+    expect(controller.selectedEntry!.name, '新名.txt');
+    expect(controller.treeRevision, initialRevision + 1);
+    controller.dispose();
+  });
+
+  testWidgets('deleting the selected entry clears selection and bumps tree revision', (
+    tester,
+  ) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = buildController(repository);
+    addTearDown(repository.dispose);
+    await controller.initialize();
+    controller.selectPath('笔记.txt');
+    final initialRevision = controller.treeRevision;
+
+    await controller.deleteSelectedEntry();
+
+    expect(controller.selectedPath, isNull);
+    expect(controller.selectedEntry, isNull);
+    expect(controller.treeRevision, initialRevision + 1);
+    controller.dispose();
+  });
+
+  testWidgets('deleting a directory closes the tabs beneath it', (tester) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = buildController(repository);
+    addTearDown(repository.dispose);
+    await controller.initialize();
+    await controller.openPath('卷一/章.txt');
+    controller.selectPath('卷一');
+
+    await controller.deleteSelectedEntry();
+
+    expect(controller.tabs, isEmpty);
+    expect(controller.activePath, isNull);
+    controller.dispose();
+  });
+
+  testWidgets('creating a document selects and opens it', (tester) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = buildController(repository);
+    addTearDown(repository.dispose);
+    await controller.initialize();
+    final initialRevision = controller.treeRevision;
+
+    await controller.createDocument(
+      parentPath: '',
+      name: '新文',
+      format: DocumentFormat.text,
+    );
+
+    expect(controller.selectedPath, '新文.txt');
+    expect(controller.activeDocument!.relativePath, '新文.txt');
+    expect(controller.treeRevision, initialRevision + 1);
+    controller.dispose();
+  });
 }
 
 final class _MemoryWorkspaceRepository
@@ -238,8 +322,13 @@ final class _MemoryWorkspaceRepository
     LibraryAccess access, {
     required String parentPath,
     required String name,
-  }) {
-    throw UnimplementedError();
+  }) async {
+    final relativePath = parentPath.isEmpty ? name : '$parentPath/$name';
+    return LibraryEntry(
+      name: name,
+      relativePath: relativePath,
+      type: LibraryEntryType.directory,
+    );
   }
 
   @override
@@ -299,8 +388,13 @@ final class _MemoryWorkspaceRepository
     LibraryAccess access, {
     required String relativePath,
     required String newName,
-  }) {
-    throw UnimplementedError();
+  }) async {
+    final dir = p.dirname(relativePath);
+    final newPath = dir == '.' ? newName : '$dir/$newName';
+    final type = p.extension(relativePath).toLowerCase() == '.txt'
+        ? LibraryEntryType.textFile
+        : LibraryEntryType.markdownFile;
+    return LibraryEntry(name: newName, relativePath: newPath, type: type);
   }
 
   @override
@@ -336,8 +430,12 @@ final class _MemoryWorkspaceRepository
   Future<DeletionResult> deleteEntry(
     LibraryAccess access, {
     required String relativePath,
-  }) {
-    throw UnimplementedError();
+  }) async {
+    return DeletionResult(
+      trashToken: 'trash-$relativePath',
+      removedNodeIds: const [],
+      pathChanges: [PathChange(oldPath: relativePath, newPath: '')],
+    );
   }
 }
 

@@ -1,0 +1,76 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:lore_application/lore_application.dart';
+import 'package:lore_domain/lore_domain.dart';
+import 'package:lore_editor/lore_editor.dart';
+import 'package:path/path.dart' as p;
+
+/// 文档保存状态机所处的阶段。
+enum DocumentSaveStatus { clean, dirty, saving, conflict, error }
+
+/// 工作区标签的基类：已打开的文档或待加载的占位。
+sealed class WorkspaceTab extends ChangeNotifier {
+  String get relativePath;
+
+  String get name => p.basename(relativePath);
+
+  bool get hasUnsavedChanges;
+}
+
+/// 会话恢复时尚未加载的文档占位；激活时才真正读取磁盘。
+final class DeferredDocument extends WorkspaceTab {
+  DeferredDocument({required this.state, required this.format});
+
+  WorkspaceDocumentState state;
+  final DocumentFormat format;
+
+  @override
+  String get relativePath => state.relativePath;
+
+  @override
+  bool get hasUnsavedChanges => false;
+}
+
+/// 已打开的文档：持有编辑器控制器、快照、保存/冲突状态等。
+final class OpenDocument extends WorkspaceTab {
+  OpenDocument({
+    required this.snapshot,
+    required this.editorController,
+    required this.scrollController,
+  });
+
+  DocumentSnapshot snapshot;
+  final LoreTextController editorController;
+  final ScrollController scrollController;
+  DocumentSaveStatus saveStatus = DocumentSaveStatus.clean;
+  DocumentSnapshot? conflictSnapshot;
+  LibraryFailure? failure;
+  bool sourceMissing = false;
+  bool showPreview = false;
+  Timer? saveTimer;
+  Timer? statisticsTimer;
+  Future<bool>? saveFuture;
+  int characterCount = 0;
+
+  @override
+  String get relativePath => snapshot.ref.relativePath;
+
+  DocumentFormat get format => snapshot.ref.format;
+
+  bool get isMarkdown => format == DocumentFormat.markdown;
+
+  @override
+  bool get hasUnsavedChanges => editorController.hasUnsavedChanges;
+
+  void notifyChanged() => notifyListeners();
+
+  @override
+  void dispose() {
+    saveTimer?.cancel();
+    statisticsTimer?.cancel();
+    editorController.dispose();
+    scrollController.dispose();
+    super.dispose();
+  }
+}
