@@ -162,7 +162,7 @@ final class _OutlinePanel extends StatelessWidget {
     }
     if (!current.isMarkdown) {
       return const InspectorEmpty(
-        icon: Icons.notes_outlined,
+        icon: Icons.text_snippet_outlined,
         message: 'TXT 文档暂不生成大纲',
       );
     }

@@ -25,7 +25,7 @@ final class AppPreferences {
   factory AppPreferences.defaults() => const AppPreferences(
     schemaVersion: schemaVersionCurrent,
     themeMode: AppThemeMode.system,
-    defaultChapterFormat: ChapterFormat.markdown,
+    defaultChapterFormat: ChapterFormat.text,
     editorLineHeight: 1.95,
     editorFontSize: 17,
     editorContentWidth: 900,

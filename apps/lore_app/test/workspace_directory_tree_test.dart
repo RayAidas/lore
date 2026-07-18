@@ -211,6 +211,55 @@ void main() {
     );
     semantics.dispose();
   });
+
+  testWidgets('hides .txt extension for text files in the tree', (tester) async {
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '笔记.txt',
+          relativePath: '笔记.txt',
+          type: LibraryEntryType.textFile,
+        ),
+        LibraryEntry(
+          name: '资料.md',
+          relativePath: '资料.md',
+          type: LibraryEntryType.markdownFile,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('笔记'), findsOneWidget);
+    expect(find.text('笔记.txt'), findsNothing);
+    expect(find.text('资料.md'), findsOneWidget);
+  });
+
+  testWidgets('hides .txt extension for chapter text files', (tester) async {
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '第1章.txt',
+          relativePath: '第1章.txt',
+          type: LibraryEntryType.textFile,
+          semanticKind: LibraryEntrySemanticKind.chapter,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('第1章'), findsOneWidget);
+    expect(find.text('第1章.txt'), findsNothing);
+  });
 }
 
 WorkspaceController _controller(

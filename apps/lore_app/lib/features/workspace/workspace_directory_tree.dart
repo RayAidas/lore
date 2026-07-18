@@ -279,6 +279,7 @@ final class _TreeRow extends StatelessWidget {
     final rowColor = selected
         ? colorScheme.primaryContainer.withValues(alpha: 0.52)
         : Colors.transparent;
+    final displayName = _treeDisplayName(entry);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
       child: Semantics(
@@ -329,10 +330,10 @@ final class _TreeRow extends StatelessWidget {
                     const SizedBox(width: 9),
                     Expanded(
                       child: Tooltip(
-                        message: entry.name,
+                        message: displayName,
                         waitDuration: const Duration(milliseconds: 700),
                         child: Text(
-                          entry.name,
+                          displayName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodyMedium
@@ -361,3 +362,17 @@ final class _TreeRow extends StatelessWidget {
 const double _treeHorizontalPadding = 4;
 const double _treeIndent = 17;
 const double _treeDisclosureWidth = 18;
+
+const _txtExtension = '.txt';
+
+/// 目录树展示名：文本文件隐藏 `.txt` 后缀（大小写不敏感，与存储层分类一致），
+/// 其余条目保留原文件名；纯 `.txt` 这类会剥离为空的名字则原样返回。
+String _treeDisplayName(LibraryEntry entry) {
+  final name = entry.name;
+  if (entry.type == LibraryEntryType.textFile &&
+      name.length > _txtExtension.length &&
+      name.toLowerCase().endsWith(_txtExtension)) {
+    return name.substring(0, name.length - _txtExtension.length);
+  }
+  return name;
+}

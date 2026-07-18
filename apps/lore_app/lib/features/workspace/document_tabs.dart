@@ -74,7 +74,7 @@ final class DocumentTabs extends StatelessWidget {
                             Icon(
                               p.extension(tab.name).toLowerCase() == '.md'
                                   ? Icons.description_outlined
-                                  : Icons.notes_outlined,
+                                  : Icons.text_snippet_outlined,
                               size: 16,
                               color: active
                                   ? colorScheme.primary

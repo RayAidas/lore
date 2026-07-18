@@ -287,7 +287,7 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                       ),
                       const Divider(height: 9, indent: 10, endIndent: 10),
                       _SidebarMenuItem(
-                        icon: Icons.notes_outlined,
+                        icon: Icons.text_snippet_outlined,
                         label: '新建 TXT',
                         onPressed: () =>
                             unawaited(_createDocument(DocumentFormat.text)),

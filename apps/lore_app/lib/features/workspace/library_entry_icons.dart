@@ -16,7 +16,7 @@ extension LibraryEntryIcons on LibraryEntry {
     }
     return switch (type) {
       LibraryEntryType.directory => Icons.folder_outlined,
-      LibraryEntryType.textFile => Icons.notes_outlined,
+      LibraryEntryType.textFile => Icons.text_snippet_outlined,
       LibraryEntryType.markdownFile => Icons.description_outlined,
       LibraryEntryType.otherFile => Icons.insert_drive_file_outlined,
     };
