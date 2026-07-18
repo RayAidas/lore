@@ -195,30 +195,32 @@ void main() {
     expect(items.single.type, TrashItemType.entry);
   });
 
-  test('recoverPending tolerates trashEntry pending with empty novelPath',
-  () async {
-    // 模拟 trashEntry 崩溃：残留 pending-operation.json，novelPath 为空。
-    final pendingFile = File(
-      p.join(root.path, '.lore', 'recovery', 'pending-operation.json'),
-    );
-    await pendingFile.parent.create(recursive: true);
-    await pendingFile.writeAsString(
-      jsonEncode({
-        'schemaVersion': 1,
-        'novelId': '00000000-0000-4000-8000-000000000000',
-        'novelPath': '',
-        'operation': 'trashEntry',
-        'sourcePath': null,
-        'targetPath': null,
-        'startedAt': '2026-07-17T08:30:00Z',
-      }),
-    );
+  test(
+    'recoverPending tolerates trashEntry pending with empty novelPath',
+    () async {
+      // 模拟 trashEntry 崩溃：残留 pending-operation.json，novelPath 为空。
+      final pendingFile = File(
+        p.join(root.path, '.lore', 'recovery', 'pending-operation.json'),
+      );
+      await pendingFile.parent.create(recursive: true);
+      await pendingFile.writeAsString(
+        jsonEncode({
+          'schemaVersion': 1,
+          'novelId': '00000000-0000-4000-8000-000000000000',
+          'novelPath': '',
+          'operation': 'trashEntry',
+          'sourcePath': null,
+          'targetPath': null,
+          'startedAt': '2026-07-17T08:30:00Z',
+        }),
+      );
 
-    // inspect 触发 _recoverPending，不应抛 metadataCorrupt。
-    final inspection = await repository.inspect(access);
-    expect(inspection, isA<LibraryInspectionReady>());
-    expect(await pendingFile.exists(), isFalse);
-  });
+      // inspect 触发 _recoverPending，不应抛 metadataCorrupt。
+      final inspection = await repository.inspect(access);
+      expect(inspection, isA<LibraryInspectionReady>());
+      expect(await pendingFile.exists(), isFalse);
+    },
+  );
 
   test('restore re-registers deleted novel in library manifest', () async {
     final novel = await repository.createNovel(access, title: 'TestNovel');
