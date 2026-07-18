@@ -261,6 +261,9 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
   }
 
   Future<void> _handleContextMenu(LibraryEntry entry, Offset position) async {
+    if (!mounted) {
+      return;
+    }
     // 路径 A：先选中目标，复用基于 selectedEntry 的重命名/删除/新建逻辑。
     widget.controller.selectEntry(entry);
     final action = await showMenu<_ContextMenuAction>(

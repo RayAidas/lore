@@ -1,4 +1,4 @@
-import 'dart:ui' show PointerDeviceKind;
+import 'dart:ui' show PointerDeviceKind, SemanticsAction;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart' show kSecondaryMouseButton;
@@ -172,6 +172,51 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(selected, isEmpty);
+  });
+
+  testWidgets('row exposes long-press semantics only when context menu wired', (
+    tester,
+  ) async {
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '笔记.txt',
+          relativePath: '笔记.txt',
+          type: LibraryEntryType.textFile,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+    final semantics = tester.ensureSemantics();
+
+    // 无上下文菜单回调：InkWell 不注册 long-press，行不应暴露该语义动作。
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+    await tester.pump();
+    expect(
+      tester
+          .getSemantics(find.text('笔记'))
+          .getSemanticsData()
+          .hasAction(SemanticsAction.longPress),
+      isFalse,
+    );
+
+    // 注入上下文菜单回调：InkWell 注册 long-press，行应暴露该语义动作，
+    // 让无障碍用户可触发菜单。
+    await tester.pumpWidget(
+      _tree(controller, reloadToken: 0, onContextMenu: (_, _) {}),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(
+      tester
+          .getSemantics(find.text('笔记'))
+          .getSemanticsData()
+          .hasAction(SemanticsAction.longPress),
+      isTrue,
+    );
+    semantics.dispose();
   });
 }
 
