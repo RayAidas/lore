@@ -30,17 +30,6 @@ final libraryAccessGatewayProvider = Provider<LibraryAccessGateway>((ref) {
   return const UnsupportedLibraryAccessGateway();
 });
 
-final localDirectoryLibraryRepositoryProvider =
-    Provider<LocalDirectoryLibraryRepository>((ref) {
-      return LocalDirectoryLibraryRepository(
-        idGenerator: ref.watch(idGeneratorProvider),
-        clock: ref.watch(clockProvider),
-        fileOperationsGateway: Platform.isMacOS
-            ? MacOsLibraryFileOperationsGateway()
-            : null,
-      );
-    });
-
 final libraryStorageFactoryProvider = Provider<LibraryStorageFactory>((ref) {
   if (Platform.isAndroid) {
     return AndroidSafStorageFactory();
@@ -66,38 +55,23 @@ final storageBackedLibraryRepositoryProvider =
     });
 
 final libraryRepositoryProvider = Provider<LibraryRepository>((ref) {
-  if (Platform.isAndroid) {
-    return ref.watch(storageBackedLibraryRepositoryProvider);
-  }
-  return ref.watch(localDirectoryLibraryRepositoryProvider);
+  return ref.watch(storageBackedLibraryRepositoryProvider);
 });
 
 final libraryTreeRepositoryProvider = Provider<LibraryTreeRepository>((ref) {
-  if (Platform.isAndroid) {
-    return ref.watch(storageBackedLibraryRepositoryProvider);
-  }
-  return ref.watch(localDirectoryLibraryRepositoryProvider);
+  return ref.watch(storageBackedLibraryRepositoryProvider);
 });
 
 final documentRepositoryProvider = Provider<DocumentRepository>((ref) {
-  if (Platform.isAndroid) {
-    return ref.watch(storageBackedLibraryRepositoryProvider);
-  }
-  return ref.watch(localDirectoryLibraryRepositoryProvider);
+  return ref.watch(storageBackedLibraryRepositoryProvider);
 });
 
 final novelRepositoryProvider = Provider<NovelRepository>((ref) {
-  if (Platform.isAndroid) {
-    return ref.watch(storageBackedLibraryRepositoryProvider);
-  }
-  return ref.watch(localDirectoryLibraryRepositoryProvider);
+  return ref.watch(storageBackedLibraryRepositoryProvider);
 });
 
 final contentTreeRepositoryProvider = Provider<ContentTreeRepository>((ref) {
-  if (Platform.isAndroid) {
-    return ref.watch(storageBackedLibraryRepositoryProvider);
-  }
-  return ref.watch(localDirectoryLibraryRepositoryProvider);
+  return ref.watch(storageBackedLibraryRepositoryProvider);
 });
 
 final novelStructureServiceProvider = Provider<NovelStructureService>((ref) {
@@ -124,10 +98,7 @@ final novelOverviewServiceProvider = Provider<NovelOverviewService>((ref) {
 });
 
 final trashRepositoryProvider = Provider<TrashRepository>((ref) {
-  if (Platform.isAndroid) {
-    return ref.watch(storageBackedLibraryRepositoryProvider);
-  }
-  return ref.watch(localDirectoryLibraryRepositoryProvider);
+  return ref.watch(storageBackedLibraryRepositoryProvider);
 });
 
 final workspaceSessionRepositoryProvider = Provider<WorkspaceSessionRepository>(

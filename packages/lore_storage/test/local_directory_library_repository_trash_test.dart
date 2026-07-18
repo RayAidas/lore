@@ -3,15 +3,13 @@ import 'dart:io';
 
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
-import 'package:lore_storage/src/library/local_directory_library_repository.dart';
+import 'package:lore_storage/lore_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-/// 直接 import src 实现，避开 lore_storage barrel 引入的 flutter 依赖，
-/// 使本测试能在 `dart test` 下运行（真实文件系统，不触发 platform channel）。
 void main() {
   late Directory root;
-  late LocalDirectoryLibraryRepository repository;
+  late StorageBackedLibraryRepository repository;
   late LibraryAccess access;
 
   setUp(() async {
@@ -21,7 +19,8 @@ void main() {
       displayPath: root.path,
       isPending: false,
     );
-    repository = LocalDirectoryLibraryRepository(
+    repository = StorageBackedLibraryRepository(
+      storageFactory: const LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -107,6 +106,93 @@ void main() {
           .length,
       1,
     );
+  });
+
+  test('restores legacy chapter trash records into the content tree', () async {
+    final novel = await repository.createNovel(access, title: 'TestNovel');
+    final novelId = novel.snapshot.metadata.id;
+    final chapter = await repository.createChapter(access, novelId: novelId);
+    final chapterNodeId = ContentId(chapter.entry.semanticId!);
+    final deletion = await repository.deleteNode(
+      access,
+      novelId: novelId,
+      nodeId: chapterNodeId,
+    );
+    final manifestFile = File(
+      p.join(root.path, '.lore', 'trash', 'index.json'),
+    );
+    final manifest =
+        jsonDecode(await manifestFile.readAsString()) as Map<String, Object?>;
+    final item =
+        (manifest['items']! as List<Object?>).single as Map<String, Object?>;
+    item['originalRelativePath'] = item.remove('originalPath');
+    item['trashRelativePath'] = item.remove('trashPath');
+    item['children'] = <Object?>[];
+    item.remove('nodes');
+    item.remove('pending');
+    await manifestFile.writeAsString(jsonEncode(manifest));
+
+    await repository.restore(access, trashToken: deletion.trashToken);
+
+    final restored = await repository.loadNovel(access, novelId: novelId);
+    expect(restored.contentTree.nodes, hasLength(1));
+    expect(restored.contentTree.nodes.single.id, chapterNodeId);
+  });
+
+  test('restores legacy volume children with stable identities', () async {
+    final novel = await repository.createNovel(access, title: 'TestNovel');
+    final novelId = novel.snapshot.metadata.id;
+    final volume = await repository.createVolume(access, novelId: novelId);
+    final volumeNodeId = ContentId(volume.entry.semanticId!);
+    final chapter = await repository.createChapter(
+      access,
+      novelId: novelId,
+      volumeId: volumeNodeId,
+    );
+    final chapterNodeId = ContentId(chapter.entry.semanticId!);
+    final deletion = await repository.deleteNode(
+      access,
+      novelId: novelId,
+      nodeId: volumeNodeId,
+    );
+    final manifestFile = File(
+      p.join(root.path, '.lore', 'trash', 'index.json'),
+    );
+    final manifest =
+        jsonDecode(await manifestFile.readAsString()) as Map<String, Object?>;
+    final item =
+        (manifest['items']! as List<Object?>).single as Map<String, Object?>;
+    final originalPath = item.remove('originalPath')! as String;
+    final trashPath = item.remove('trashPath')! as String;
+    final nodes = item.remove('nodes')! as List<Object?>;
+    item['originalRelativePath'] = originalPath;
+    item['trashRelativePath'] = trashPath;
+    item['children'] = nodes
+        .cast<Map<String, Object?>>()
+        .where((node) => node['id'] != volumeNodeId.value)
+        .map((node) {
+          final relativePath = node['path']! as String;
+          return {
+            'nodeId': node['id'],
+            'originalRelativePath': p.join('TestNovel', relativePath),
+            'trashRelativePath': p.join(
+              '.lore',
+              'trash',
+              deletion.trashToken,
+              'TestNovel',
+              relativePath,
+            ),
+          };
+        })
+        .toList();
+    item.remove('pending');
+    await manifestFile.writeAsString(jsonEncode(manifest));
+
+    await repository.restore(access, trashToken: deletion.trashToken);
+
+    final restored = await repository.loadNovel(access, novelId: novelId);
+    expect(restored.contentTree.nodeById(volumeNodeId), isNotNull);
+    expect(restored.contentTree.nodeById(chapterNodeId), isNotNull);
   });
 
   test(

@@ -1,4 +1,3 @@
-export 'src/library/local_directory_library_repository.dart';
 export 'src/platform/system_clock.dart';
 export 'src/platform/uuid_id_generator.dart';
 export 'src/storage/local_directory_storage.dart';

@@ -9,7 +9,7 @@ import 'package:test/test.dart';
 
 void main() {
   late Directory root;
-  late LocalDirectoryLibraryRepository repository;
+  late StorageBackedLibraryRepository repository;
   late LibraryAccess access;
 
   setUp(() async {
@@ -19,7 +19,8 @@ void main() {
       displayPath: root.path,
       isPending: false,
     );
-    repository = LocalDirectoryLibraryRepository(
+    repository = StorageBackedLibraryRepository(
+      storageFactory: const LocalDirectoryStorageFactory(),
       idGenerator: _SequenceIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -121,7 +122,8 @@ void main() {
   test('never overwrites metadata created during initialization', () async {
     final manifest = File(p.join(root.path, '.lore', 'library.json'));
     const externalContent = 'externally created metadata';
-    repository = LocalDirectoryLibraryRepository(
+    repository = StorageBackedLibraryRepository(
+      storageFactory: const LocalDirectoryStorageFactory(),
       idGenerator: _CreatingIdGenerator(manifest, externalContent),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -388,7 +390,8 @@ void main() {
   });
 
   test('creates a registered novel with body metadata', () async {
-    repository = LocalDirectoryLibraryRepository(
+    repository = StorageBackedLibraryRepository(
+      storageFactory: const LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -412,7 +415,8 @@ void main() {
   });
 
   test('registers and scans an existing novel directory', () async {
-    repository = LocalDirectoryLibraryRepository(
+    repository = StorageBackedLibraryRepository(
+      storageFactory: const LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -448,7 +452,8 @@ void main() {
   });
 
   test('creates, moves and reorders chapters with stable identities', () async {
-    repository = LocalDirectoryLibraryRepository(
+    repository = StorageBackedLibraryRepository(
+      storageFactory: const LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -496,7 +501,8 @@ void main() {
   });
 
   test('renames novel and body while preserving chapter identity', () async {
-    repository = LocalDirectoryLibraryRepository(
+    repository = StorageBackedLibraryRepository(
+      storageFactory: const LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -539,7 +545,8 @@ void main() {
   test(
     'recovers an interrupted body rename without changing chapter ids',
     () async {
-      repository = LocalDirectoryLibraryRepository(
+      repository = StorageBackedLibraryRepository(
+        storageFactory: const LocalDirectoryStorageFactory(),
         idGenerator: _IncrementingIdGenerator(),
         clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
       );
@@ -584,7 +591,8 @@ void main() {
   );
 
   test('rejects novel metadata paths outside the novel directory', () async {
-    repository = LocalDirectoryLibraryRepository(
+    repository = StorageBackedLibraryRepository(
+      storageFactory: const LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -610,8 +618,69 @@ void main() {
     expect(await Directory(p.join(root.parent.path, '书库外')).exists(), isFalse);
   });
 
+  test(
+    'listNovels reports corrupt novel metadata instead of hiding it',
+    () async {
+      repository = StorageBackedLibraryRepository(
+        storageFactory: const LocalDirectoryStorageFactory(),
+        idGenerator: _IncrementingIdGenerator(),
+        clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
+      );
+      await repository.initialize(access);
+      await repository.createNovel(access, title: '损坏测试');
+      final novelFile = File(p.join(root.path, '损坏测试', '.lore', 'novel.json'));
+      final metadata =
+          jsonDecode(await novelFile.readAsString()) as Map<String, Object?>;
+      metadata['chapterFormat'] = 'unknown';
+      await novelFile.writeAsString(jsonEncode(metadata));
+
+      await expectLater(
+        repository.listNovels(access),
+        throwsA(
+          isA<LibraryOperationException>().having(
+            (error) => error.failure.code,
+            'code',
+            LibraryFailureCode.metadataCorrupt,
+          ),
+        ),
+      );
+    },
+  );
+
+  test('rejects unknown content node roles as corrupt metadata', () async {
+    repository = StorageBackedLibraryRepository(
+      storageFactory: const LocalDirectoryStorageFactory(),
+      idGenerator: _IncrementingIdGenerator(),
+      clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
+    );
+    await repository.initialize(access);
+    final novel = await repository.createNovel(access, title: '角色测试');
+    await repository.createChapter(access, novelId: novel.snapshot.metadata.id);
+    final contentFile = File(
+      p.join(root.path, '角色测试', '.lore', 'content.json'),
+    );
+    final content =
+        jsonDecode(await contentFile.readAsString()) as Map<String, Object?>;
+    final node =
+        (content['nodes']! as List<Object?>).single as Map<String, Object?>;
+    node['role'] = 'unknown';
+    await contentFile.writeAsString(jsonEncode(content));
+
+    await expectLater(
+      repository.loadNovel(access, novelId: novel.snapshot.metadata.id),
+      throwsA(
+        isA<LibraryOperationException>().having(
+          (error) => error.failure.code,
+          'code',
+          LibraryFailureCode.metadataCorrupt,
+        ),
+      ),
+    );
+  });
+
   test('does not commit a pending rename before the file moved', () async {
-    repository = LocalDirectoryLibraryRepository(
+    repository = StorageBackedLibraryRepository(
+      storageFactory: const LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -658,7 +727,8 @@ void main() {
   });
 
   test('preserves volume and chapter ids after an external rename', () async {
-    repository = LocalDirectoryLibraryRepository(
+    repository = StorageBackedLibraryRepository(
+      storageFactory: const LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );

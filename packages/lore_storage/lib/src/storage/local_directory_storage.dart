@@ -63,6 +63,10 @@ final class LocalDirectoryStorageSession implements LibraryStorageSession {
     }
     final result = <StorageEntry>[];
     await for (final entity in Directory(path).list(followLinks: false)) {
+      if (await FileSystemEntity.type(entity.path, followLinks: false) ==
+          FileSystemEntityType.link) {
+        continue;
+      }
       final relative = LogicalPath.parse(
         p.relative(entity.path, from: rootPath),
       );
@@ -168,6 +172,51 @@ final class LocalDirectoryStorageSession implements LibraryStorageSession {
 
   @override
   Future<void> move(LogicalPath source, LogicalPath target) async {
+    final changesOnlyCase =
+        !capabilities.caseSensitive &&
+        source.parent == target.parent &&
+        source.name.toLowerCase() == target.name.toLowerCase() &&
+        source.name != target.name;
+    if (changesOnlyCase) {
+      final sourcePath = await _resolve(source, mustExist: true);
+      final targetPath = await _resolve(target, mustExist: false);
+      final gateway = fileOperationsGateway;
+      if (gateway != null) {
+        await gateway.rename(
+          access,
+          sourcePath: source.value,
+          targetPath: target.value,
+        );
+        return;
+      }
+      final temporary = target.parent!.child(
+        '.lore-case-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      final temporaryPath = await _resolve(temporary, mustExist: false);
+      final type = await FileSystemEntity.type(sourcePath, followLinks: false);
+      if (type != FileSystemEntityType.directory &&
+          type != FileSystemEntityType.file) {
+        throw _invalidLocation('源文件不存在。');
+      }
+      var movedToTemporary = false;
+      try {
+        await _renameEntity(type, sourcePath, temporaryPath);
+        movedToTemporary = true;
+        await _renameEntity(type, temporaryPath, targetPath);
+      } on Object catch (error, stackTrace) {
+        if (movedToTemporary &&
+            await FileSystemEntity.type(temporaryPath, followLinks: false) !=
+                FileSystemEntityType.notFound) {
+          try {
+            await _renameEntity(type, temporaryPath, sourcePath);
+          } on Object {
+            Error.throwWithStackTrace(error, stackTrace);
+          }
+        }
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+      return;
+    }
     await _ensureMissing(target);
     final sourcePath = await _resolve(source, mustExist: true);
     final targetPath = await _resolve(target, mustExist: false);
@@ -252,6 +301,18 @@ final class LocalDirectoryStorageSession implements LibraryStorageSession {
     final parentEntry = parent == null ? null : await stat(parent);
     if (parentEntry == null || parentEntry.type != StorageEntryType.directory) {
       throw _invalidLocation('目标父目录不存在。');
+    }
+  }
+
+  Future<void> _renameEntity(
+    FileSystemEntityType type,
+    String source,
+    String target,
+  ) async {
+    if (type == FileSystemEntityType.directory) {
+      await Directory(source).rename(target);
+    } else {
+      await File(source).rename(target);
     }
   }
 

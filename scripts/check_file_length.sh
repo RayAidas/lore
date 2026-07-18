@@ -20,8 +20,6 @@ MAX_LINES="${MAX_LINES:-1000}"
 # 每行一个路径，必须以 apps/ 或 packages/ 开头、与 find 输出完全一致
 # （无前导 ./、非绝对路径）；含空格的路径用双引号包起来。
 WHITELIST=(
-  # 已登记债务：便携语义仓储需要继续按职责拆分。
-  "packages/lore_storage/lib/src/storage/storage_backed_library_repository.dart"
 )
 
 # 该文件是否在白名单中。兼容 bash 3.2：空数组在 set -u 下须先判长度再展开。
