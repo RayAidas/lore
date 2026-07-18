@@ -314,6 +314,29 @@ void main() {
     final listView = tester.widget<ListView>(find.byType(ListView));
     expect(listView.physics, isA<ClampingScrollPhysics>());
   });
+
+  testWidgets('does not tooltip names that fit without truncation', (
+    tester,
+  ) async {
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '卷一',
+          relativePath: '卷一',
+          type: LibraryEntryType.directory,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+
+    // 名字完整显示时不应挂 tooltip，避免 hover 弹出重复提示；
+    // 仅在超长被截断时才显示（由 _OverflowTooltip 控制）。
+    expect(find.byTooltip('卷一'), findsNothing);
+  });
 }
 
 WorkspaceController _controller(
