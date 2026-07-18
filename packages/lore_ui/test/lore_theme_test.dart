@@ -24,20 +24,29 @@ void main() {
       );
       expect(theme.popupMenuTheme.elevation, 6);
       expect(theme.popupMenuTheme.position, PopupMenuPosition.under);
-      expect(popupShape.borderRadius, BorderRadius.circular(10));
+      expect(popupShape.borderRadius, BorderRadius.circular(8));
       expect(popupShape.side.color, theme.colorScheme.outlineVariant);
       expect(
         menuStyle.padding!.resolve(<WidgetState>{}),
         const EdgeInsets.symmetric(vertical: 5),
       );
       expect(menuStyle.elevation!.resolve(<WidgetState>{}), 6);
-      expect(menuShape, isA<RoundedRectangleBorder>());
+      expect(
+        (menuShape as RoundedRectangleBorder).borderRadius,
+        BorderRadius.circular(8),
+      );
       expect(
         menuItemStyle.minimumSize!.resolve(<WidgetState>{}),
         const Size(0, 48),
       );
       expect(menuItemStyle.tapTargetSize, MaterialTapTargetSize.padded);
       expect(menuItemStyle.visualDensity, VisualDensity.standard);
+      expect(
+        (menuItemStyle.shape!.resolve(<WidgetState>{})
+                as RoundedRectangleBorder)
+            .borderRadius,
+        BorderRadius.circular(5),
+      );
     });
 
     test('${entry.key} theme makes disabled menu labels secondary', () {
@@ -72,7 +81,7 @@ void main() {
         dialogTheme.actionsPadding,
         const EdgeInsets.fromLTRB(20, 12, 20, 20),
       );
-      expect(shape.borderRadius, BorderRadius.circular(16));
+      expect(shape.borderRadius, BorderRadius.circular(12));
       expect(shape.side.color, theme.colorScheme.outlineVariant);
       expect(dialogTheme.titleTextStyle?.fontSize, 18);
       expect(dialogTheme.titleTextStyle?.fontWeight, FontWeight.w600);

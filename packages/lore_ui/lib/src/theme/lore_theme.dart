@@ -102,7 +102,7 @@ abstract final class LoreTheme {
         clipBehavior: Clip.antiAlias,
         constraints: const BoxConstraints(minWidth: 340, maxWidth: 440),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           side: BorderSide(color: colorScheme.outlineVariant),
         ),
         titleTextStyle: TextStyle(
@@ -126,7 +126,7 @@ abstract final class LoreTheme {
         menuPadding: const EdgeInsets.symmetric(vertical: 5),
         position: PopupMenuPosition.under,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(8),
           side: BorderSide(color: colorScheme.outlineVariant),
         ),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
@@ -158,7 +158,7 @@ abstract final class LoreTheme {
             BorderSide(color: colorScheme.outlineVariant),
           ),
           shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
         ),
       ),
@@ -176,7 +176,7 @@ abstract final class LoreTheme {
             TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500),
           ),
           shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
           ),
           overlayColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.pressed)) {
