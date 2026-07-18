@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'lore_dialog_styles.dart';
+
 final class LoreTextPromptDialog extends StatefulWidget {
   const LoreTextPromptDialog({
     required this.title,
@@ -45,8 +47,10 @@ final class _LoreTextPromptDialogState extends State<LoreTextPromptDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return AlertDialog(
       title: Text(widget.title),
+      contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
       content: TextField(
         controller: _controller,
         autofocus: widget.autofocus,
@@ -62,10 +66,12 @@ final class _LoreTextPromptDialogState extends State<LoreTextPromptDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
+          style: loreDialogSecondaryButton(colorScheme),
           child: Text(widget.cancelLabel),
         ),
         FilledButton(
           onPressed: () => _submit(_controller.text),
+          style: loreDialogPrimaryButton(colorScheme),
           child: Text(widget.confirmLabel),
         ),
       ],

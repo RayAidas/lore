@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'lore_dialog_styles.dart';
+
 final class LoreConfirmDialog extends StatelessWidget {
   const LoreConfirmDialog({
     required this.title,
@@ -24,21 +26,21 @@ final class LoreConfirmDialog extends StatelessWidget {
     return AlertDialog(
       title: Text(title),
       content: Text(message),
+      contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
+          style: loreDialogSecondaryButton(colorScheme),
           child: Text(cancelLabel),
         ),
         FilledButton(
           onPressed: confirmEnabled
               ? () => Navigator.of(context).pop(true)
               : null,
-          style: destructive
-              ? FilledButton.styleFrom(
-                  backgroundColor: colorScheme.error,
-                  foregroundColor: colorScheme.onError,
-                )
-              : null,
+          style: loreDialogPrimaryButton(
+            colorScheme,
+            destructive: destructive,
+          ),
           child: Text(confirmLabel),
         ),
       ],
