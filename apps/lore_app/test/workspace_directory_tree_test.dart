@@ -212,7 +212,9 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('hides .txt extension for text files in the tree', (tester) async {
+  testWidgets('hides .txt extension for text files in the tree', (
+    tester,
+  ) async {
     final repository = _PathWorkspaceRepository({
       '': const [
         LibraryEntry(
@@ -259,6 +261,35 @@ void main() {
 
     expect(find.text('第1章'), findsOneWidget);
     expect(find.text('第1章.txt'), findsNothing);
+  });
+
+  testWidgets('does not show placeholder for empty expanded folders', (
+    tester,
+  ) async {
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '空文件夹',
+          relativePath: '空文件夹',
+          type: LibraryEntryType.directory,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('文件夹为空'), findsNothing);
+
+    await tester.tap(find.text('空文件夹'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('文件夹为空'), findsNothing);
   });
 }
 

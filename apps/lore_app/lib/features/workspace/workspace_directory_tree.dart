@@ -85,6 +85,10 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
           );
         }
         if (entries.isEmpty && !snapshot.hasError) {
+          // 仅书库根为空时给出提示；展开的空文件夹保持静默，不再占位。
+          if (widget.relativePath.isNotEmpty) {
+            return const SizedBox.shrink();
+          }
           return Padding(
             padding: EdgeInsets.fromLTRB(
               _treeHorizontalPadding +
@@ -95,7 +99,7 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
               10,
             ),
             child: Text(
-              widget.relativePath.isEmpty ? '书库为空' : '文件夹为空',
+              '书库为空',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
