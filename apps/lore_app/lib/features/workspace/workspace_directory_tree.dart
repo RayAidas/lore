@@ -302,6 +302,11 @@ final class _TreeRow extends StatelessWidget {
         ? colorScheme.primaryContainer.withValues(alpha: 0.52)
         : Colors.transparent;
     final displayName = _treeDisplayName(entry);
+    final textStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: colorScheme.onSurface.withValues(alpha: selected ? 1 : 0.88),
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+        ) ??
+        const TextStyle();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
       child: Semantics(
@@ -362,23 +367,14 @@ final class _TreeRow extends StatelessWidget {
                     ),
                     const SizedBox(width: 9),
                     Expanded(
-                      child: Tooltip(
+                      child: _OverflowTooltip(
                         message: displayName,
-                        waitDuration: const Duration(milliseconds: 700),
-                        triggerMode: TooltipTriggerMode.manual,
+                        style: textStyle,
                         child: Text(
                           displayName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: colorScheme.onSurface.withValues(
-                                  alpha: selected ? 1 : 0.88,
-                                ),
-                                fontWeight: selected
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                              ),
+                          style: textStyle,
                         ),
                       ),
                     ),
@@ -410,4 +406,42 @@ String _treeDisplayName(LibraryEntry entry) {
     return name.substring(0, name.length - _txtExtension.length);
   }
   return name;
+}
+
+/// 仅当子 [Text] 在可用宽度内放不下（会被省略号截断）时才显示 [Tooltip]。
+///
+/// 目录树行宽通常足以完整显示文件名，此时 hover 不应弹出重复提示；仅当
+/// 名字超长被截断时，才用 tooltip 暴露完整名（与 VSCode 文件树行为一致）。
+class _OverflowTooltip extends StatelessWidget {
+  const _OverflowTooltip({
+    required this.message,
+    required this.style,
+    required this.child,
+  });
+
+  final String message;
+  final TextStyle style;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final painter = TextPainter(
+          text: TextSpan(text: message, style: style),
+          maxLines: 1,
+          textDirection: Directionality.of(context),
+        )..layout();
+        final overflow = painter.width > constraints.maxWidth;
+        painter.dispose();
+        return overflow
+            ? Tooltip(
+                message: message,
+                waitDuration: const Duration(milliseconds: 700),
+                child: child,
+              )
+            : child;
+      },
+    );
+  }
 }
