@@ -253,85 +253,72 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     final colorScheme = Theme.of(context).colorScheme;
     final controller = widget.controller;
     return Material(
-      color: colorScheme.surfaceContainerLowest,
+      color: colorScheme.surfaceContainerLow,
       child: SafeArea(
         top: widget.drawerContext != null,
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 10, 10),
+              padding: const EdgeInsets.fromLTRB(20, 18, 10, 12),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
                       '书库',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.2,
                       ),
                     ),
                   ),
-                  PopupMenuButton<_CreateEntryAction>(
+                  _SidebarMenuButton(
                     tooltip: '新建',
-                    icon: const Icon(Icons.add, size: 20),
-                    onSelected: (action) {
-                      switch (action) {
-                        case _CreateEntryAction.novel:
-                          unawaited(_createNovel());
-                        case _CreateEntryAction.directory:
-                          unawaited(_createDirectory());
-                        case _CreateEntryAction.text:
-                          unawaited(_createDocument(DocumentFormat.text));
-                        case _CreateEntryAction.markdown:
-                          unawaited(_createDocument(DocumentFormat.markdown));
-                      }
-                    },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(
-                        value: _CreateEntryAction.novel,
-                        child: _MenuItem(
-                          icon: Icons.auto_stories_outlined,
-                          label: '新建小说',
-                        ),
+                    icon: Icons.add_rounded,
+                    menuChildren: [
+                      _SidebarMenuItem(
+                        icon: Icons.auto_stories_outlined,
+                        label: '新建小说',
+                        onPressed: () => unawaited(_createNovel()),
                       ),
-                      PopupMenuItem(
-                        value: _CreateEntryAction.directory,
-                        child: _MenuItem(
-                          icon: Icons.create_new_folder_outlined,
-                          label: '新建文件夹',
-                        ),
+                      _SidebarMenuItem(
+                        icon: Icons.create_new_folder_outlined,
+                        label: '新建文件夹',
+                        onPressed: () => unawaited(_createDirectory()),
                       ),
-                      PopupMenuItem(
-                        value: _CreateEntryAction.text,
-                        child: _MenuItem(
-                          icon: Icons.notes_outlined,
-                          label: '新建 TXT',
-                        ),
+                      const Divider(height: 9, indent: 10, endIndent: 10),
+                      _SidebarMenuItem(
+                        icon: Icons.notes_outlined,
+                        label: '新建 TXT',
+                        onPressed: () =>
+                            unawaited(_createDocument(DocumentFormat.text)),
                       ),
-                      PopupMenuItem(
-                        value: _CreateEntryAction.markdown,
-                        child: _MenuItem(
-                          icon: Icons.description_outlined,
-                          label: '新建 Markdown',
-                        ),
+                      _SidebarMenuItem(
+                        icon: Icons.description_outlined,
+                        label: '新建 Markdown',
+                        onPressed: () =>
+                            unawaited(_createDocument(DocumentFormat.markdown)),
                       ),
                     ],
                   ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: '重命名',
-                    onPressed: controller.selectedEntry == null
-                        ? null
-                        : () => unawaited(_renameSelected()),
-                    icon: const Icon(Icons.edit_outlined, size: 18),
-                  ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: '删除',
-                    onPressed: controller.selectedEntry == null
-                        ? null
-                        : () => unawaited(_deleteSelected()),
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                  ),
+                  if (controller.selectedEntry != null)
+                    _SidebarMenuButton(
+                      tooltip: '更多操作',
+                      icon: Icons.more_horiz_rounded,
+                      menuChildren: [
+                        _SidebarMenuItem(
+                          icon: Icons.edit_outlined,
+                          label: '重命名',
+                          onPressed: () => unawaited(_renameSelected()),
+                        ),
+                        const Divider(height: 9, indent: 10, endIndent: 10),
+                        _SidebarMenuItem(
+                          icon: Icons.delete_outline,
+                          label: '移到回收站',
+                          destructive: true,
+                          onPressed: () => unawaited(_deleteSelected()),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
@@ -357,7 +344,7 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
             ),
             const Divider(height: 1),
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+              padding: const EdgeInsets.fromLTRB(16, 7, 8, 7),
               child: Row(
                 children: [
                   Icon(
@@ -395,18 +382,172 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
   }
 }
 
-enum _CreateEntryAction { novel, directory, text, markdown }
+final class _SidebarMenuButton extends StatefulWidget {
+  const _SidebarMenuButton({
+    required this.tooltip,
+    required this.icon,
+    required this.menuChildren,
+  });
 
-final class _MenuItem extends StatelessWidget {
-  const _MenuItem({required this.icon, required this.label});
-
+  final String tooltip;
   final IconData icon;
-  final String label;
+  final List<Widget> menuChildren;
+
+  @override
+  State<_SidebarMenuButton> createState() => _SidebarMenuButtonState();
+}
+
+final class _SidebarMenuButtonState extends State<_SidebarMenuButton> {
+  bool _isOpen = false;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [Icon(icon, size: 18), const SizedBox(width: 12), Text(label)],
+    final colorScheme = Theme.of(context).colorScheme;
+    return MenuAnchor(
+      animated: true,
+      alignmentOffset: const Offset(
+        _sidebarMenuButtonSize - _sidebarMenuWidth,
+        6,
+      ),
+      onOpen: () => setState(() => _isOpen = true),
+      onClose: () => setState(() => _isOpen = false),
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(
+          colorScheme.surfaceContainerLowest,
+        ),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        shadowColor: WidgetStatePropertyAll(
+          colorScheme.shadow.withValues(alpha: 0.18),
+        ),
+        elevation: const WidgetStatePropertyAll(10),
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(vertical: 6),
+        ),
+        fixedSize: const WidgetStatePropertyAll(
+          Size.fromWidth(_sidebarMenuWidth),
+        ),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: colorScheme.outlineVariant),
+          ),
+        ),
+      ),
+      menuChildren: widget.menuChildren,
+      builder: (context, menuController, child) {
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: _isOpen
+                ? colorScheme.primaryContainer.withValues(alpha: 0.72)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: _isOpen
+                  ? colorScheme.primary.withValues(alpha: 0.12)
+                  : Colors.transparent,
+            ),
+          ),
+          child: IconButton(
+            tooltip: widget.tooltip,
+            onPressed: () {
+              if (menuController.isOpen) {
+                menuController.close();
+              } else {
+                menuController.open();
+              }
+            },
+            style: IconButton.styleFrom(
+              minimumSize: const Size.square(_sidebarMenuButtonSize),
+              maximumSize: const Size.square(_sidebarMenuButtonSize),
+              padding: EdgeInsets.zero,
+              hoverColor: colorScheme.onSurface.withValues(alpha: 0.06),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            icon: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 160),
+              switchInCurve: Curves.easeOutBack,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.82, end: 1).animate(animation),
+                  child: child,
+                ),
+              ),
+              child: Icon(
+                widget.icon,
+                key: ValueKey(_isOpen),
+                size: 20,
+                color: _isOpen
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
+
+final class _SidebarMenuItem extends StatelessWidget {
+  const _SidebarMenuItem({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final foregroundColor = destructive
+        ? colorScheme.error
+        : colorScheme.onSurface;
+    return MenuItemButton(
+      onPressed: onPressed,
+      leadingIcon: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: destructive
+              ? colorScheme.errorContainer.withValues(alpha: 0.55)
+              : colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Icon(icon, size: 16, color: foregroundColor),
+      ),
+      style: ButtonStyle(
+        foregroundColor: WidgetStatePropertyAll(foregroundColor),
+        minimumSize: const WidgetStatePropertyAll(Size(192, 42)),
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: 10),
+        ),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        overlayColor: WidgetStatePropertyAll(
+          destructive
+              ? colorScheme.error.withValues(alpha: 0.08)
+              : colorScheme.onSurface.withValues(alpha: 0.055),
+        ),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+      ),
+    );
+  }
+}
+
+const double _sidebarMenuButtonSize = 36;
+const double _sidebarMenuWidth = 204;

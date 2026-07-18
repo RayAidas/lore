@@ -12,6 +12,7 @@ final class WorkspaceDirectory extends StatefulWidget {
     required this.selectedPath,
     required this.reloadToken,
     required this.onSelected,
+    this.depth = 0,
     super.key,
   });
 
@@ -20,6 +21,7 @@ final class WorkspaceDirectory extends StatefulWidget {
   final String? selectedPath;
   final int reloadToken;
   final ValueChanged<LibraryEntry> onSelected;
+  final int depth;
 
   @override
   State<WorkspaceDirectory> createState() => _WorkspaceDirectoryState();
@@ -63,7 +65,18 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
             snapshot.connectionState != ConnectionState.done) {
           return widget.relativePath.isEmpty
               ? const Center(child: CircularProgressIndicator())
-              : const LinearProgressIndicator();
+              : Padding(
+                  padding: EdgeInsets.only(
+                    left:
+                        _treeHorizontalPadding +
+                        (widget.depth * _treeIndent) +
+                        _treeDisclosureWidth,
+                    right: _treeHorizontalPadding,
+                    top: 4,
+                    bottom: 4,
+                  ),
+                  child: const LinearProgressIndicator(minHeight: 2),
+                );
         }
         if (entries == null) {
           return TextButton(
@@ -73,8 +86,20 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
         }
         if (entries.isEmpty && !snapshot.hasError) {
           return Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(widget.relativePath.isEmpty ? '书库为空' : '文件夹为空'),
+            padding: EdgeInsets.fromLTRB(
+              _treeHorizontalPadding +
+                  (widget.depth * _treeIndent) +
+                  _treeDisclosureWidth,
+              10,
+              _treeHorizontalPadding,
+              10,
+            ),
+            child: Text(
+              widget.relativePath.isEmpty ? '书库为空' : '文件夹为空',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           );
         }
         final children = <Widget>[
@@ -92,30 +117,21 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
                 selectedPath: widget.selectedPath,
                 reloadToken: widget.reloadToken,
                 onSelected: widget.onSelected,
+                depth: widget.depth,
               );
             }
-            return ListTile(
+            return _WorkspaceFileTile(
               key: ValueKey(entry.relativePath),
-              dense: true,
-              minVerticalPadding: 0,
-              leading: Icon(
-                entry.entryIcon,
-                size: 18,
-                color: entry.entryIconColor(context),
-              ),
-              title: Text(
-                entry.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+              entry: entry,
               selected: widget.selectedPath == entry.relativePath,
+              depth: widget.depth,
               onTap: () => widget.onSelected(entry),
             );
           }),
         ];
         return widget.relativePath.isEmpty
             ? ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
+                padding: const EdgeInsets.fromLTRB(8, 2, 8, 12),
                 children: children,
               )
             : Column(mainAxisSize: MainAxisSize.min, children: children);
@@ -131,6 +147,7 @@ final class _WorkspaceDirectoryTile extends StatefulWidget {
     required this.selectedPath,
     required this.reloadToken,
     required this.onSelected,
+    required this.depth,
     super.key,
   });
 
@@ -139,6 +156,7 @@ final class _WorkspaceDirectoryTile extends StatefulWidget {
   final String? selectedPath;
   final int reloadToken;
   final ValueChanged<LibraryEntry> onSelected;
+  final int depth;
 
   @override
   State<_WorkspaceDirectoryTile> createState() =>
@@ -171,61 +189,175 @@ final class _WorkspaceDirectoryTileState
   @override
   Widget build(BuildContext context) {
     final selected = widget.selectedPath == widget.entry.relativePath;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _TreeRow(
+          entry: widget.entry,
+          selected: selected,
+          depth: widget.depth,
+          expanded: _expanded,
+          disclosure: AnimatedRotation(
+            turns: _expanded ? 0.25 : 0,
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOut,
+            child: const Icon(Icons.chevron_right_rounded, size: 17),
+          ),
+          icon: _expanded ? Icons.folder_open_outlined : Icons.folder_outlined,
+          onTap: _toggleExpanded,
+        ),
+        if (_expanded)
+          WorkspaceDirectory(
+            controller: widget.controller,
+            relativePath: widget.entry.relativePath,
+            selectedPath: widget.selectedPath,
+            reloadToken: widget.reloadToken,
+            onSelected: widget.onSelected,
+            depth: widget.depth + 1,
+          ),
+      ],
+    );
+  }
+
+  void _toggleExpanded() {
+    final expanded = !_expanded;
+    setState(() => _expanded = expanded);
+    widget.controller.setDirectoryExpanded(widget.entry.relativePath, expanded);
+    widget.onSelected(widget.entry);
+  }
+}
+
+final class _WorkspaceFileTile extends StatelessWidget {
+  const _WorkspaceFileTile({
+    required this.entry,
+    required this.selected,
+    required this.depth,
+    required this.onTap,
+    super.key,
+  });
+
+  final LibraryEntry entry;
+  final bool selected;
+  final int depth;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _TreeRow(
+      entry: entry,
+      selected: selected,
+      depth: depth,
+      disclosure: const SizedBox(width: _treeDisclosureWidth),
+      icon: entry.entryIcon,
+      onTap: onTap,
+    );
+  }
+}
+
+final class _TreeRow extends StatelessWidget {
+  const _TreeRow({
+    required this.entry,
+    required this.selected,
+    required this.depth,
+    required this.disclosure,
+    required this.icon,
+    required this.onTap,
+    this.expanded,
+  });
+
+  final LibraryEntry entry;
+  final bool selected;
+  final int depth;
+  final Widget disclosure;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool? expanded;
+
+  @override
+  Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 1),
+    final rowColor = selected
+        ? colorScheme.primaryContainer.withValues(alpha: 0.52)
+        : Colors.transparent;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Semantics(
+        container: true,
+        button: true,
+        selected: selected,
+        expanded: expanded,
+        onExpand: expanded == false ? onTap : null,
+        onCollapse: expanded == true ? onTap : null,
         child: Material(
-          color: selected
-              ? colorScheme.primaryContainer.withValues(alpha: 0.5)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          child: ExpansionTile(
-            dense: true,
-            minTileHeight: 38,
-            initiallyExpanded: _expanded,
-            iconColor: colorScheme.onSurfaceVariant,
-            collapsedIconColor: colorScheme.onSurfaceVariant,
-            leading: Icon(
-              _expanded && widget.entry.semanticKind == null
-                  ? Icons.folder_open_outlined
-                  : widget.entry.entryIcon,
-              size: 18,
-              color: widget.entry.entryIconColor(context),
-            ),
-            title: Text(
-              widget.entry.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+          color: rowColor,
+          borderRadius: BorderRadius.circular(7),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            hoverColor: colorScheme.onSurface.withValues(alpha: 0.045),
+            focusColor: colorScheme.primary.withValues(alpha: 0.08),
+            splashColor: colorScheme.primary.withValues(alpha: 0.08),
+            child: SizedBox(
+              height: 36,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: _treeHorizontalPadding + (depth * _treeIndent),
+                  right: 10,
+                ),
+                child: Row(
+                  children: [
+                    IconTheme(
+                      data: IconThemeData(
+                        size: 17,
+                        color: colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.78,
+                        ),
+                      ),
+                      child: SizedBox(
+                        width: _treeDisclosureWidth,
+                        child: Center(child: disclosure),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(
+                      icon,
+                      size: 18,
+                      color: entry
+                          .entryIconColor(context)
+                          .withValues(alpha: selected ? 1 : 0.84),
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Tooltip(
+                        message: entry.name,
+                        waitDuration: const Duration(milliseconds: 700),
+                        child: Text(
+                          entry.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: colorScheme.onSurface.withValues(
+                                  alpha: selected ? 1 : 0.88,
+                                ),
+                                fontWeight: selected
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            tilePadding: const EdgeInsets.symmetric(horizontal: 8),
-            childrenPadding: const EdgeInsets.only(left: 12),
-            onExpansionChanged: (expanded) {
-              setState(() => _expanded = expanded);
-              widget.controller.setDirectoryExpanded(
-                widget.entry.relativePath,
-                expanded,
-              );
-              widget.onSelected(widget.entry);
-            },
-            children: _expanded
-                ? [
-                    WorkspaceDirectory(
-                      controller: widget.controller,
-                      relativePath: widget.entry.relativePath,
-                      selectedPath: widget.selectedPath,
-                      reloadToken: widget.reloadToken,
-                      onSelected: widget.onSelected,
-                    ),
-                  ]
-                : const [],
           ),
         ),
       ),
     );
   }
 }
+
+const double _treeHorizontalPadding = 4;
+const double _treeIndent = 17;
+const double _treeDisclosureWidth = 18;

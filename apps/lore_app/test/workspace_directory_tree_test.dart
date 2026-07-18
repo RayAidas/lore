@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:ui' show SemanticsAction;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
 import 'package:lore_app/features/workspace/workspace_directory_tree.dart';
@@ -95,6 +97,120 @@ void main() {
 
     expect(find.text('第一章.md'), findsOneWidget);
   });
+
+  testWidgets('expands directories and selects tree entries from custom rows', (
+    tester,
+  ) async {
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '卷一',
+          relativePath: '卷一',
+          type: LibraryEntryType.directory,
+        ),
+      ],
+      '卷一': const [
+        LibraryEntry(
+          name: '第一章.md',
+          relativePath: '卷一/第一章.md',
+          type: LibraryEntryType.markdownFile,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    final selected = <LibraryEntry>[];
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      _tree(controller, reloadToken: 0, onSelected: selected.add),
+    );
+    await tester.pump();
+
+    expect(find.byIcon(Icons.chevron_right_rounded), findsOneWidget);
+    await tester.tap(find.text('卷一'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(selected.single.relativePath, '卷一');
+    expect(find.text('第一章.md'), findsOneWidget);
+
+    await tester.tap(find.text('第一章.md'));
+    expect(selected.last.relativePath, '卷一/第一章.md');
+  });
+
+  testWidgets('exposes expansion semantics and supports keyboard activation', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '卷一',
+          relativePath: '卷一',
+          type: LibraryEntryType.directory,
+        ),
+      ],
+      '卷一': const [
+        LibraryEntry(
+          name: '第一章.md',
+          relativePath: '卷一/第一章.md',
+          type: LibraryEntryType.markdownFile,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+
+    final collapsedSemantics = tester.getSemantics(find.text('卷一'));
+    expect(
+      collapsedSemantics,
+      matchesSemantics(
+        label: '卷一',
+        isButton: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+        isFocusable: true,
+        hasSelectedState: true,
+        hasExpandedState: true,
+        isExpanded: false,
+      ),
+    );
+    expect(
+      collapsedSemantics.getSemanticsData().hasAction(SemanticsAction.expand),
+      isTrue,
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('第一章.md'), findsOneWidget);
+    final expandedSemantics = tester.getSemantics(find.text('卷一'));
+    expect(
+      expandedSemantics,
+      matchesSemantics(
+        label: '卷一',
+        isButton: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+        isFocusable: true,
+        isFocused: true,
+        hasSelectedState: true,
+        hasExpandedState: true,
+        isExpanded: true,
+      ),
+    );
+    expect(
+      expandedSemantics.getSemanticsData().hasAction(SemanticsAction.collapse),
+      isTrue,
+    );
+    semantics.dispose();
+  });
 }
 
 WorkspaceController _controller(
@@ -111,7 +227,11 @@ WorkspaceController _controller(
   );
 }
 
-Widget _tree(WorkspaceController controller, {required int reloadToken}) {
+Widget _tree(
+  WorkspaceController controller, {
+  required int reloadToken,
+  ValueChanged<LibraryEntry>? onSelected,
+}) {
   return MaterialApp(
     home: Scaffold(
       body: WorkspaceDirectory(
@@ -119,7 +239,7 @@ Widget _tree(WorkspaceController controller, {required int reloadToken}) {
         relativePath: '',
         selectedPath: null,
         reloadToken: reloadToken,
-        onSelected: (_) {},
+        onSelected: onSelected ?? (_) {},
       ),
     ),
   );

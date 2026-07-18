@@ -5,9 +5,9 @@ import 'package:lore_domain/lore_domain.dart';
 extension LibraryEntryIcons on LibraryEntry {
   IconData get entryIcon {
     final semanticIcon = switch (semanticKind) {
-      LibraryEntrySemanticKind.novel => Icons.auto_stories_outlined,
-      LibraryEntrySemanticKind.body => Icons.menu_book_outlined,
-      LibraryEntrySemanticKind.volume => Icons.folder_copy_outlined,
+      LibraryEntrySemanticKind.novel ||
+      LibraryEntrySemanticKind.body ||
+      LibraryEntrySemanticKind.volume => Icons.folder_outlined,
       LibraryEntrySemanticKind.chapter => Icons.article_outlined,
       null => null,
     };
