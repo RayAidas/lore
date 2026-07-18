@@ -9,7 +9,7 @@ final class SharedPreferencesWorkspaceSessionRepository
     implements WorkspaceSessionRepository {
   const SharedPreferencesWorkspaceSessionRepository();
 
-  static const _schemaVersion = 1;
+  static const _schemaVersion = 2;
   static const _keyPrefix = 'lore.workspace.session.';
 
   @override
@@ -21,8 +21,11 @@ final class SharedPreferencesWorkspaceSessionRepository
     }
     try {
       final value = jsonDecode(encoded);
+      final schemaVersion = value is Map<String, Object?>
+          ? value['schemaVersion']
+          : null;
       if (value is! Map<String, Object?> ||
-          value['schemaVersion'] != _schemaVersion ||
+          (schemaVersion != 1 && schemaVersion != _schemaVersion) ||
           value['documents'] is! List<Object?>) {
         return null;
       }
@@ -54,6 +57,12 @@ final class SharedPreferencesWorkspaceSessionRepository
         activePath: value['activePath'] is String
             ? value['activePath']! as String
             : null,
+        expandedDirectoryPaths: value['expandedDirectoryPaths'] is List<Object?>
+            ? (value['expandedDirectoryPaths']! as List<Object?>)
+                  .whereType<String>()
+                  .toSet()
+                  .toList()
+            : const [],
       );
     } on FormatException {
       return null;
@@ -71,6 +80,8 @@ final class SharedPreferencesWorkspaceSessionRepository
       jsonEncode({
         'schemaVersion': _schemaVersion,
         'activePath': snapshot.activePath,
+        'expandedDirectoryPaths':
+            snapshot.expandedDirectoryPaths.toSet().toList()..sort(),
         'documents': snapshot.documents
             .map(
               (document) => {

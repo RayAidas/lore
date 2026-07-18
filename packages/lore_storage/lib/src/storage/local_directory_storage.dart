@@ -7,9 +7,10 @@ import 'package:lore_domain/lore_domain.dart';
 import 'package:path/path.dart' as p;
 
 final class LocalDirectoryStorageFactory implements LibraryStorageFactory {
-  const LocalDirectoryStorageFactory({this.fileOperationsGateway});
+  LocalDirectoryStorageFactory({this.fileOperationsGateway});
 
   final LibraryFileOperationsGateway? fileOperationsGateway;
+  final _replacementEvents = _LocalReplacementEvents();
 
   @override
   Future<LibraryStorageSession> open(LibraryAccess access) async {
@@ -26,24 +27,27 @@ final class LocalDirectoryStorageFactory implements LibraryStorageFactory {
       );
     }
     final resolvedRoot = p.normalize(await root.resolveSymbolicLinks());
-    return LocalDirectoryStorageSession(
+    return LocalDirectoryStorageSession._(
       access: access,
       rootPath: resolvedRoot,
       fileOperationsGateway: fileOperationsGateway,
+      replacementEvents: _replacementEvents,
     );
   }
 }
 
 final class LocalDirectoryStorageSession implements LibraryStorageSession {
-  const LocalDirectoryStorageSession({
+  LocalDirectoryStorageSession._({
     required this.access,
     required this.rootPath,
+    required this._replacementEvents,
     this.fileOperationsGateway,
   });
 
   final LibraryAccess access;
   final String rootPath;
   final LibraryFileOperationsGateway? fileOperationsGateway;
+  final _LocalReplacementEvents _replacementEvents;
 
   @override
   StorageCapabilities get capabilities => StorageCapabilities(
@@ -156,6 +160,7 @@ final class LocalDirectoryStorageSession implements LibraryStorageSession {
     final temporary = File(
       '$resolved.tmp-${DateTime.now().microsecondsSinceEpoch}',
     );
+    _replacementEvents.track(temporary.path, path);
     try {
       await temporary.writeAsBytes(bytes, flush: true);
       if ((await stat(path))?.revision != expectedRevision) {
@@ -273,7 +278,26 @@ final class LocalDirectoryStorageSession implements LibraryStorageSession {
   @override
   Stream<StorageChange> watch() async* {
     await for (final event in Directory(rootPath).watch(recursive: true)) {
-      final path = LogicalPath.parse(p.relative(event.path, from: rootPath));
+      final relativePath = p.relative(event.path, from: rootPath);
+      if (relativePath == '.') {
+        continue;
+      }
+      final path = LogicalPath.parse(relativePath);
+      final replacementTarget = _replacementEvents.targetFor(event.path);
+      if (replacementTarget != null) {
+        if (event is FileSystemMoveEvent && event.destination != null) {
+          final destination = LogicalPath.parse(
+            p.relative(event.destination!, from: rootPath),
+          );
+          yield StorageChange(
+            path: destination,
+            type: destination == replacementTarget
+                ? StorageChangeType.modified
+                : StorageChangeType.created,
+          );
+        }
+        continue;
+      }
       final type = switch (event) {
         FileSystemCreateEvent() => StorageChangeType.created,
         FileSystemDeleteEvent() => StorageChangeType.deleted,
@@ -353,4 +377,35 @@ final class LocalDirectoryStorageSession implements LibraryStorageSession {
       ),
     );
   }
+}
+
+final class _LocalReplacementEvents {
+  static const _retention = Duration(seconds: 30);
+
+  final Map<String, _LocalReplacementEvent> _events = {};
+
+  void track(String temporaryPath, LogicalPath target) {
+    _purgeExpired();
+    _events[p.normalize(temporaryPath)] = _LocalReplacementEvent(
+      target: target,
+      expiresAt: DateTime.now().add(_retention),
+    );
+  }
+
+  LogicalPath? targetFor(String temporaryPath) {
+    _purgeExpired();
+    return _events[p.normalize(temporaryPath)]?.target;
+  }
+
+  void _purgeExpired() {
+    final now = DateTime.now();
+    _events.removeWhere((_, event) => !event.expiresAt.isAfter(now));
+  }
+}
+
+final class _LocalReplacementEvent {
+  const _LocalReplacementEvent({required this.target, required this.expiresAt});
+
+  final LogicalPath target;
+  final DateTime expiresAt;
 }

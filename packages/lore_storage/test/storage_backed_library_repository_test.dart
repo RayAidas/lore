@@ -20,7 +20,7 @@ void main() {
       isPending: false,
     );
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _SequentialIdGenerator(),
       clock: const _FixedClock(),
     );
@@ -143,7 +143,7 @@ void main() {
     'preserves semantic order and increments reconciliation revision',
     () async {
       final factory = _InterceptingStorageFactory(
-        const LocalDirectoryStorageFactory(),
+        LocalDirectoryStorageFactory(),
         reverseLists: true,
       );
       repository = StorageBackedLibraryRepository(
@@ -203,9 +203,7 @@ void main() {
   );
 
   test('keeps interrupted deletes restorable with stable node ids', () async {
-    final factory = _InterceptingStorageFactory(
-      const LocalDirectoryStorageFactory(),
-    );
+    final factory = _InterceptingStorageFactory(LocalDirectoryStorageFactory());
     repository = StorageBackedLibraryRepository(
       storageFactory: factory,
       idGenerator: _SequentialIdGenerator(),

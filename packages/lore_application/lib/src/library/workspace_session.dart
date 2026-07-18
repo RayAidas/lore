@@ -16,8 +16,10 @@ final class WorkspaceSessionSnapshot {
   const WorkspaceSessionSnapshot({
     required this.documents,
     required this.activePath,
+    this.expandedDirectoryPaths = const [],
   });
 
   final List<WorkspaceDocumentState> documents;
   final String? activePath;
+  final List<String> expandedDirectoryPaths;
 }

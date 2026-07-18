@@ -42,10 +42,13 @@ final class WorkspaceController extends ChangeNotifier {
     notify: _notify,
     novelIdForPath: _novelStore.novelIdForPath,
     bumpTreeRevision: _bumpTreeRevision,
+    confirmStructuralChange: _recordStructuralChange,
+    expandedDirectoryPaths: () => _expandedDirectoryPaths.toList(),
     reportFailure: _setWorkspaceFailure,
   );
 
   final Map<String, Timer> _structureChangeTimers = {};
+  final Set<String> _expandedDirectoryPaths = {};
   StreamSubscription<DocumentChange>? _changeSubscription;
   int _treeRevision = 0;
   LibraryFailure? _workspaceFailure;
@@ -99,6 +102,9 @@ final class WorkspaceController extends ChangeNotifier {
         message: '无法恢复上次打开的标签。',
       );
     }
+    _expandedDirectoryPaths
+      ..clear()
+      ..addAll(saved?.expandedDirectoryPaths ?? const []);
     _tabsStore.restoreTabs(saved);
     _changeSubscription = service
         .watchDocuments(session)
@@ -159,6 +165,18 @@ final class WorkspaceController extends ChangeNotifier {
 
   Future<List<LibraryEntry>> listChildren({String relativePath = ''}) {
     return service.listChildren(session, relativePath: relativePath);
+  }
+
+  bool isDirectoryExpanded(String relativePath) =>
+      _expandedDirectoryPaths.contains(relativePath);
+
+  void setDirectoryExpanded(String relativePath, bool expanded) {
+    final changed = expanded
+        ? _expandedDirectoryPaths.add(relativePath)
+        : _expandedDirectoryPaths.remove(relativePath);
+    if (changed) {
+      _tabsStore.scheduleSessionSave();
+    }
   }
 
   Future<NovelStructureMutation> createNovel(
@@ -326,6 +344,7 @@ final class WorkspaceController extends ChangeNotifier {
       newName: newName,
     );
     _tabsStore.updatePathsAfterRename(sourcePath, entry.relativePath);
+    _remapExpandedPaths(sourcePath, entry.relativePath);
     _tabsStore.selectEntry(entry);
     _treeRevision += 1;
     _tabsStore.scheduleSessionSave();
@@ -481,6 +500,7 @@ final class WorkspaceController extends ChangeNotifier {
     _novelStore.replace(mutation.snapshot);
     for (final change in mutation.pathChanges) {
       _tabsStore.updatePathsAfterRename(change.oldPath, change.newPath);
+      _remapExpandedPaths(change.oldPath, change.newPath);
     }
     _tabsStore.selectEntry(mutation.entry);
     _treeRevision += 1;
@@ -493,24 +513,62 @@ final class WorkspaceController extends ChangeNotifier {
       _novelStore.replace(result.snapshot!);
     }
     _tabsStore.applyDeletionPathChanges(result.pathChanges);
+    for (final change in result.pathChanges) {
+      _removeExpandedPaths(change.oldPath);
+    }
     _treeRevision += 1;
+    _tabsStore.scheduleSessionSave();
     _notify();
+  }
+
+  void _remapExpandedPaths(String oldPath, String newPath) {
+    final affected = _expandedDirectoryPaths
+        .where((path) => path == oldPath || p.isWithin(oldPath, path))
+        .toList();
+    for (final path in affected) {
+      _expandedDirectoryPaths.remove(path);
+      final suffix = path == oldPath ? '' : p.relative(path, from: oldPath);
+      _expandedDirectoryPaths.add(
+        suffix.isEmpty ? newPath : p.join(newPath, suffix),
+      );
+    }
+  }
+
+  void _removeExpandedPaths(String removedPath) {
+    _expandedDirectoryPaths.removeWhere(
+      (path) => path == removedPath || p.isWithin(removedPath, path),
+    );
   }
 
   void _handleDocumentChange(DocumentChange change) {
     final treeChanged = change.type != DocumentChangeType.modified;
-    if (treeChanged) {
-      _treeRevision += 1;
-      for (final novel in _novelStore.novels) {
-        if (change.relativePath == novel.rootPath ||
-            p.isWithin(novel.rootPath, change.relativePath)) {
-          _scheduleStructureReconciliation(novel.metadata.id);
-        }
-      }
+    final changedDocument = _tabsStore.documents
+        .where((document) => document.relativePath == change.relativePath)
+        .firstOrNull;
+    final deferStructuralChange =
+        treeChanged &&
+        changedDocument != null &&
+        !changedDocument.sourceMissing &&
+        changedDocument.failure?.code != LibraryFailureCode.notFound;
+    if (treeChanged && !deferStructuralChange) {
+      _recordStructuralChange(change.relativePath);
     }
-    _tabsStore.handleDocumentChange(change);
-    if (treeChanged) {
+    _tabsStore.handleDocumentChange(
+      change,
+      confirmMissingAsStructural: deferStructuralChange,
+    );
+    if (treeChanged && !deferStructuralChange) {
       _notify();
+    }
+  }
+
+  void _recordStructuralChange(String relativePath) {
+    _treeRevision += 1;
+    for (final novel in _novelStore.novels) {
+      if (relativePath == novel.rootPath ||
+          p.isWithin(novel.rootPath, relativePath)) {
+        _scheduleStructureReconciliation(novel.metadata.id);
+      }
     }
   }
 

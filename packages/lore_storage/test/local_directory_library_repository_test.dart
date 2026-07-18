@@ -20,7 +20,7 @@ void main() {
       isPending: false,
     );
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _SequenceIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -123,7 +123,7 @@ void main() {
     final manifest = File(p.join(root.path, '.lore', 'library.json'));
     const externalContent = 'externally created metadata';
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _CreatingIdGenerator(manifest, externalContent),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -391,7 +391,7 @@ void main() {
 
   test('creates a registered novel with body metadata', () async {
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -416,7 +416,7 @@ void main() {
 
   test('registers and scans an existing novel directory', () async {
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -453,7 +453,7 @@ void main() {
 
   test('creates, moves and reorders chapters with stable identities', () async {
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -502,7 +502,7 @@ void main() {
 
   test('renames novel and body while preserving chapter identity', () async {
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -546,7 +546,7 @@ void main() {
     'recovers an interrupted body rename without changing chapter ids',
     () async {
       repository = StorageBackedLibraryRepository(
-        storageFactory: const LocalDirectoryStorageFactory(),
+        storageFactory: LocalDirectoryStorageFactory(),
         idGenerator: _IncrementingIdGenerator(),
         clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
       );
@@ -592,7 +592,7 @@ void main() {
 
   test('rejects novel metadata paths outside the novel directory', () async {
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -622,7 +622,7 @@ void main() {
     'listNovels reports corrupt novel metadata instead of hiding it',
     () async {
       repository = StorageBackedLibraryRepository(
-        storageFactory: const LocalDirectoryStorageFactory(),
+        storageFactory: LocalDirectoryStorageFactory(),
         idGenerator: _IncrementingIdGenerator(),
         clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
       );
@@ -649,7 +649,7 @@ void main() {
 
   test('rejects unknown content node roles as corrupt metadata', () async {
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -680,7 +680,7 @@ void main() {
 
   test('does not commit a pending rename before the file moved', () async {
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );
@@ -728,7 +728,7 @@ void main() {
 
   test('preserves volume and chapter ids after an external rename', () async {
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );

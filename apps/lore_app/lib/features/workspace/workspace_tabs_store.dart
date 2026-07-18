@@ -33,10 +33,14 @@ final class WorkspaceTabsStore {
     required void Function() notify,
     required NovelId? Function(String relativePath) novelIdForPath,
     required void Function() bumpTreeRevision,
+    required void Function(String relativePath) confirmStructuralChange,
+    required List<String> Function() expandedDirectoryPaths,
     required void Function(LibraryFailure failure) reportFailure,
   }) : _notify = notify,
        _novelIdForPath = novelIdForPath,
        _bumpTreeRevision = bumpTreeRevision,
+       _confirmStructuralChange = confirmStructuralChange,
+       _expandedDirectoryPaths = expandedDirectoryPaths,
        _reportFailure = reportFailure;
 
   static const _autoSaveDelay = Duration(milliseconds: 800);
@@ -51,6 +55,8 @@ final class WorkspaceTabsStore {
   final void Function() _notify;
   final NovelId? Function(String) _novelIdForPath;
   final void Function() _bumpTreeRevision;
+  final void Function(String) _confirmStructuralChange;
+  final List<String> Function() _expandedDirectoryPaths;
   final void Function(LibraryFailure) _reportFailure;
 
   final List<WorkspaceTab> _tabs = [];
@@ -333,7 +339,11 @@ final class WorkspaceTabsStore {
     }).toList();
     await service.saveSession(
       session,
-      WorkspaceSessionSnapshot(documents: states, activePath: _activePath),
+      WorkspaceSessionSnapshot(
+        documents: states,
+        activePath: _activePath,
+        expandedDirectoryPaths: _expandedDirectoryPaths(),
+      ),
     );
   }
 
@@ -482,7 +492,10 @@ final class WorkspaceTabsStore {
 
   /// 处理文件变更事件中「影响已打开文档」的部分：为受影响文档安排冲突复检。
   /// 不处理目录树版本号与小说 reconcile（由控制器在调用前后编排）。
-  void handleDocumentChange(DocumentChange change) {
+  void handleDocumentChange(
+    DocumentChange change, {
+    bool confirmMissingAsStructural = false,
+  }) {
     final affectedDocuments = documents.where((document) {
       if (document.relativePath == change.relativePath) {
         return true;
@@ -498,7 +511,12 @@ final class WorkspaceTabsStore {
       _externalChangeTimers[document.relativePath]?.cancel();
       _externalChangeTimers[document.relativePath] = Timer(
         _externalChangeDelay,
-        () => unawaited(_inspectExternalChange(document)),
+        () => unawaited(
+          _inspectExternalChange(
+            document,
+            confirmMissingAsStructural: confirmMissingAsStructural,
+          ),
+        ),
       );
     }
   }
@@ -513,7 +531,10 @@ final class WorkspaceTabsStore {
     }
   }
 
-  Future<void> _inspectExternalChange(OpenDocument document) async {
+  Future<void> _inspectExternalChange(
+    OpenDocument document, {
+    bool confirmMissingAsStructural = false,
+  }) async {
     try {
       final diskSnapshot = await service.readDocument(
         session,
@@ -537,6 +558,10 @@ final class WorkspaceTabsStore {
       }
     } on LibraryOperationException catch (error) {
       _applyDocumentFailure(document, error.failure);
+      if (confirmMissingAsStructural &&
+          error.failure.code == LibraryFailureCode.notFound) {
+        _confirmStructuralChange(document.relativePath);
+      }
     }
     _notify();
   }

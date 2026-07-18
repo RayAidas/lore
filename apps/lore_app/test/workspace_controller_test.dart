@@ -23,7 +23,9 @@ void main() {
   );
 
   testWidgets('auto-save persists the latest editor snapshot', (tester) async {
-    final repository = _MemoryWorkspaceRepository();
+    final repository = _MemoryWorkspaceRepository(
+      emitAtomicReplacementEventsOnSave: true,
+    );
     final sessions = _MemorySessionRepository();
     final controller = WorkspaceController(
       session: session,
@@ -39,14 +41,60 @@ void main() {
 
     await controller.initialize();
     await controller.openPath('章节.txt');
+    final initialTreeRevision = controller.treeRevision;
     controller.activeDocument!.editorController.text = '第一版';
     await tester.pump(const Duration(milliseconds: 400));
     controller.activeDocument!.editorController.text = '第二版';
     await tester.pump(const Duration(milliseconds: 900));
+    await tester.pump(const Duration(milliseconds: 200));
     await tester.pump();
 
     expect(repository.savedTexts, ['第二版']);
     expect(controller.activeDocument!.saveStatus, DocumentSaveStatus.clean);
+    expect(controller.treeRevision, initialTreeRevision);
+    controller.dispose();
+  });
+
+  testWidgets('deleting and recreating an open document refreshes the tree', (
+    tester,
+  ) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+    );
+    addTearDown(repository.dispose);
+
+    await controller.initialize();
+    await controller.openPath('章节.txt');
+    final initialTreeRevision = controller.treeRevision;
+    repository.sourceMissing = true;
+    repository.changes.add(
+      const DocumentChange(
+        relativePath: '章节.txt',
+        type: DocumentChangeType.deleted,
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(controller.treeRevision, initialTreeRevision + 1);
+
+    repository.sourceMissing = false;
+    repository.changes.add(
+      const DocumentChange(
+        relativePath: '章节.txt',
+        type: DocumentChangeType.created,
+      ),
+    );
+    await tester.pump();
+
+    expect(controller.treeRevision, initialTreeRevision + 2);
     controller.dispose();
   });
 
@@ -335,10 +383,50 @@ void main() {
     expect(controller.treeRevision, initialRevision + 1);
     controller.dispose();
   });
+
+  testWidgets('restores and remaps expanded directory paths', (tester) async {
+    final repository = _MemoryWorkspaceRepository();
+    final sessions = _MemorySessionRepository(
+      value: const WorkspaceSessionSnapshot(
+        documents: [],
+        activePath: null,
+        expandedDirectoryPaths: ['卷一', '卷一/场景'],
+      ),
+    );
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: sessions,
+      ),
+    );
+    addTearDown(repository.dispose);
+
+    await controller.initialize();
+    expect(controller.isDirectoryExpanded('卷一'), isTrue);
+    expect(controller.isDirectoryExpanded('卷一/场景'), isTrue);
+
+    controller.selectPath('卷一');
+    await controller.renameSelected('新卷');
+    await tester.pump(const Duration(milliseconds: 600));
+
+    expect(controller.isDirectoryExpanded('卷一'), isFalse);
+    expect(controller.isDirectoryExpanded('新卷'), isTrue);
+    expect(controller.isDirectoryExpanded('新卷/场景'), isTrue);
+    expect(
+      sessions.value!.expandedDirectoryPaths,
+      containsAll(['新卷', '新卷/场景']),
+    );
+    controller.dispose();
+  });
 }
 
 final class _MemoryWorkspaceRepository
     implements LibraryTreeRepository, DocumentRepository {
+  _MemoryWorkspaceRepository({this.emitAtomicReplacementEventsOnSave = false});
+
+  final bool emitAtomicReplacementEventsOnSave;
   final changes = StreamController<DocumentChange>.broadcast();
   final savedTexts = <String>[];
   final readPaths = <String>[];
@@ -450,6 +538,21 @@ final class _MemoryWorkspaceRepository
       diskText = text;
     }
     revision += 1;
+    if (emitAtomicReplacementEventsOnSave) {
+      changes
+        ..add(
+          DocumentChange(
+            relativePath: original.ref.relativePath,
+            type: DocumentChangeType.deleted,
+          ),
+        )
+        ..add(
+          DocumentChange(
+            relativePath: original.ref.relativePath,
+            type: DocumentChangeType.created,
+          ),
+        );
+    }
     return DocumentSaveSuccess(await readDocument(access, original.ref));
   }
 

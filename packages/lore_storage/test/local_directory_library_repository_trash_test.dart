@@ -20,7 +20,7 @@ void main() {
       isPending: false,
     );
     repository = StorageBackedLibraryRepository(
-      storageFactory: const LocalDirectoryStorageFactory(),
+      storageFactory: LocalDirectoryStorageFactory(),
       idGenerator: _IncrementingIdGenerator(),
       clock: _FixedClock(DateTime.utc(2026, 7, 17, 8, 30)),
     );

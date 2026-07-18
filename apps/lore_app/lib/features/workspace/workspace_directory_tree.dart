@@ -27,6 +27,7 @@ final class WorkspaceDirectory extends StatefulWidget {
 
 final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
   late Future<List<LibraryEntry>> _entries;
+  List<LibraryEntry>? _cachedEntries;
 
   @override
   void initState() {
@@ -54,51 +55,64 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
     return FutureBuilder<List<LibraryEntry>>(
       future: _entries,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (snapshot.hasData) {
+          _cachedEntries = snapshot.data;
+        }
+        final entries = snapshot.data ?? _cachedEntries;
+        if (entries == null &&
+            snapshot.connectionState != ConnectionState.done) {
           return widget.relativePath.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : const LinearProgressIndicator();
         }
-        if (snapshot.hasError) {
+        if (entries == null) {
           return TextButton(
             onPressed: () => setState(_reload),
             child: const Text('目录加载失败，点击重试'),
           );
         }
-        final entries = snapshot.data ?? const <LibraryEntry>[];
-        if (entries.isEmpty) {
+        if (entries.isEmpty && !snapshot.hasError) {
           return Padding(
             padding: const EdgeInsets.all(16),
             child: Text(widget.relativePath.isEmpty ? '书库为空' : '文件夹为空'),
           );
         }
-        final children = entries.map((entry) {
-          if (entry.isDirectory) {
-            return _WorkspaceDirectoryTile(
-              entry: entry,
-              controller: widget.controller,
-              selectedPath: widget.selectedPath,
-              reloadToken: widget.reloadToken,
-              onSelected: widget.onSelected,
+        final children = <Widget>[
+          if (snapshot.hasError)
+            TextButton(
+              onPressed: () => setState(_reload),
+              child: const Text('目录刷新失败，点击重试'),
+            ),
+          ...entries.map((entry) {
+            if (entry.isDirectory) {
+              return _WorkspaceDirectoryTile(
+                key: ValueKey(entry.relativePath),
+                entry: entry,
+                controller: widget.controller,
+                selectedPath: widget.selectedPath,
+                reloadToken: widget.reloadToken,
+                onSelected: widget.onSelected,
+              );
+            }
+            return ListTile(
+              key: ValueKey(entry.relativePath),
+              dense: true,
+              minVerticalPadding: 0,
+              leading: Icon(
+                entry.entryIcon,
+                size: 18,
+                color: entry.entryIconColor(context),
+              ),
+              title: Text(
+                entry.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              selected: widget.selectedPath == entry.relativePath,
+              onTap: () => widget.onSelected(entry),
             );
-          }
-          return ListTile(
-            dense: true,
-            minVerticalPadding: 0,
-            leading: Icon(
-              entry.entryIcon,
-              size: 18,
-              color: entry.entryIconColor(context),
-            ),
-            title: Text(
-              entry.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            selected: widget.selectedPath == entry.relativePath,
-            onTap: () => widget.onSelected(entry),
-          );
-        }).toList();
+          }),
+        ];
         return widget.relativePath.isEmpty
             ? ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -117,6 +131,7 @@ final class _WorkspaceDirectoryTile extends StatefulWidget {
     required this.selectedPath,
     required this.reloadToken,
     required this.onSelected,
+    super.key,
   });
 
   final LibraryEntry entry;
@@ -132,7 +147,26 @@ final class _WorkspaceDirectoryTile extends StatefulWidget {
 
 final class _WorkspaceDirectoryTileState
     extends State<_WorkspaceDirectoryTile> {
-  bool _expanded = false;
+  late bool _expanded;
+
+  @override
+  void initState() {
+    super.initState();
+    _expanded = widget.controller.isDirectoryExpanded(
+      widget.entry.relativePath,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _WorkspaceDirectoryTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller ||
+        oldWidget.entry.relativePath != widget.entry.relativePath) {
+      _expanded = widget.controller.isDirectoryExpanded(
+        widget.entry.relativePath,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -172,6 +206,10 @@ final class _WorkspaceDirectoryTileState
             childrenPadding: const EdgeInsets.only(left: 12),
             onExpansionChanged: (expanded) {
               setState(() => _expanded = expanded);
+              widget.controller.setDirectoryExpanded(
+                widget.entry.relativePath,
+                expanded,
+              );
               widget.onSelected(widget.entry);
             },
             children: _expanded

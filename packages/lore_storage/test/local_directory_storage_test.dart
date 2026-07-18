@@ -8,19 +8,19 @@ import 'package:test/test.dart';
 
 void main() {
   late Directory root;
+  late LibraryAccess access;
+  late LocalDirectoryStorageFactory factory;
   late LocalDirectoryStorageSession storage;
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('lore-storage-session-');
-    storage =
-        await const LocalDirectoryStorageFactory().open(
-              LibraryAccess(
-                token: root.path,
-                displayPath: root.path,
-                isPending: false,
-              ),
-            )
-            as LocalDirectoryStorageSession;
+    access = LibraryAccess(
+      token: root.path,
+      displayPath: root.path,
+      isPending: false,
+    );
+    factory = LocalDirectoryStorageFactory();
+    storage = await factory.open(access) as LocalDirectoryStorageSession;
   });
 
   tearDown(() => root.delete(recursive: true));
@@ -63,4 +63,27 @@ void main() {
     );
     expect(() => LogicalPath.parse('../outside'), throwsFormatException);
   });
+
+  test(
+    'does not hide external files that resemble replacement names',
+    () async {
+      final repository = StorageBackedLibraryRepository(
+        storageFactory: factory,
+        idGenerator: const UuidIdGenerator(),
+        clock: const SystemClock(),
+      );
+      final change = repository
+          .watchDocuments(access)
+          .firstWhere((change) => change.relativePath == 'notes.tmp-123')
+          .timeout(const Duration(seconds: 2));
+      await Future<void>.delayed(Duration.zero);
+
+      await storage.createFile(
+        LogicalPath.parse('notes.tmp-123'),
+        Uint8List.fromList([1, 2, 3]),
+      );
+
+      expect((await change).type, DocumentChangeType.created);
+    },
+  );
 }
