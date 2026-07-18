@@ -25,13 +25,26 @@ Run commands from the repository root unless shown otherwise:
 
 ```bash
 flutter pub get                         # Resolve workspace dependencies
-dart format .                          # Format all Dart source
-flutter analyze                        # Run workspace lint and type checks
-(cd packages/lore_application && dart test)
+dart format .                           # Format all Dart source
+flutter analyze                         # Run workspace lint and type checks
+
+# Run analyze + every package's tests in one go (recommended):
+./scripts/test.sh
+
+# Or run a single package:
+(cd packages/lore_application && dart test)   # pure Dart package
+(cd packages/lore_editor && flutter test)     # Flutter-dependent packages
 (cd packages/lore_storage && flutter test)
 (cd apps/lore_app && flutter test)
+
 (cd apps/lore_app && flutter run -d macos)
 ```
+
+If your shell exports `http_proxy`/`https_proxy` (common with local proxies
+such as Clash on `127.0.0.1:7890`), `flutter_tester`'s loopback connection
+fails with `HttpException: Connection closed before full header was received`.
+Set `NO_PROXY=127.0.0.1,localhost` before running `flutter test` manually —
+`./scripts/test.sh` already exports it for you.
 
 Use `flutter run -d android` from `apps/lore_app/` when validating Android behavior.
 
@@ -41,7 +54,7 @@ Use two-space indentation and rely on `dart format`; do not hand-align code. Fol
 
 ## Testing Guidelines
 
-Use `package:test` for pure Dart packages and `flutter_test` for Flutter-dependent code. Name tests by observable behavior, for example `preserves chapter ids after external rename`. Add regression coverage for storage recovery, path safety, controller state, and responsive UI changes. Run the narrowest relevant test first, then `flutter analyze` and affected package suites.
+Use `package:test` for pure Dart packages and `flutter_test` for Flutter-dependent code. Name tests by observable behavior, for example `preserves chapter ids after external rename`. Add regression coverage for storage recovery, path safety, controller state, and responsive UI changes. Run the narrowest relevant test first, then `flutter analyze` and affected package suites. Run `./scripts/test.sh` to execute the whole workspace (analyze + every package) in one command.
 
 ## Commit & Pull Request Guidelines
 
