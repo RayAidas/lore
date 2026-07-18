@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
@@ -11,6 +12,17 @@ import 'library_failure_snackbar.dart';
 import 'name_prompt_dialog.dart';
 import 'workspace_controller.dart';
 import 'workspace_directory_tree.dart';
+
+/// 目录树右键菜单的可选动作。
+enum _ContextMenuAction {
+  open,
+  newFolder,
+  newText,
+  newMarkdown,
+  rename,
+  copyPath,
+  delete,
+}
 
 /// 工作区左侧栏：标题、新建/重命名/删除、目录树、书库路径与切换。
 ///
@@ -248,6 +260,124 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     showLibraryFailure(context, failure);
   }
 
+  Future<void> _handleContextMenu(LibraryEntry entry, Offset position) async {
+    // 路径 A：先选中目标，复用基于 selectedEntry 的重命名/删除/新建逻辑。
+    widget.controller.selectEntry(entry);
+    final action = await showMenu<_ContextMenuAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx,
+        position.dy,
+      ),
+      items: _buildMenuItems(entry),
+    );
+    if (action == null || !mounted) {
+      return;
+    }
+    await _invokeContextMenuAction(action, entry);
+  }
+
+  List<PopupMenuEntry<_ContextMenuAction>> _buildMenuItems(LibraryEntry entry) {
+    final isDir = entry.isDirectory;
+    final isPlainDir = isDir && entry.semanticKind == null;
+    final canOpen = !isDir && entry.type != LibraryEntryType.otherFile;
+    final isSemantic = entry.semanticKind != null;
+    return <PopupMenuEntry<_ContextMenuAction>>[
+      if (canOpen) ...[
+        PopupMenuItem(
+          value: _ContextMenuAction.open,
+          child: _menuRow(Icons.open_in_new_outlined, '打开'),
+        ),
+        const PopupMenuDivider(),
+      ],
+      if (isPlainDir) ...[
+        PopupMenuItem(
+          value: _ContextMenuAction.newFolder,
+          child: _menuRow(Icons.create_new_folder_outlined, '新建子文件夹'),
+        ),
+        PopupMenuItem(
+          value: _ContextMenuAction.newText,
+          child: _menuRow(Icons.text_snippet_outlined, '新建 TXT'),
+        ),
+        PopupMenuItem(
+          value: _ContextMenuAction.newMarkdown,
+          child: _menuRow(Icons.description_outlined, '新建 Markdown'),
+        ),
+        const PopupMenuDivider(),
+      ],
+      PopupMenuItem(
+        value: _ContextMenuAction.rename,
+        child: _menuRow(Icons.edit_outlined, '重命名'),
+      ),
+      PopupMenuItem(
+        value: _ContextMenuAction.copyPath,
+        child: _menuRow(Icons.content_copy_outlined, '复制路径'),
+      ),
+      const PopupMenuDivider(),
+      PopupMenuItem(
+        value: _ContextMenuAction.delete,
+        enabled: !isSemantic,
+        child: _menuRow(
+          Icons.delete_outline,
+          '移到回收站',
+          destructive: !isSemantic,
+        ),
+      ),
+    ];
+  }
+
+  Future<void> _invokeContextMenuAction(
+    _ContextMenuAction action,
+    LibraryEntry entry,
+  ) async {
+    switch (action) {
+      case _ContextMenuAction.open:
+        await _openPath(entry.relativePath);
+      case _ContextMenuAction.newFolder:
+        await _createDirectory();
+      case _ContextMenuAction.newText:
+        await _createDocument(DocumentFormat.text);
+      case _ContextMenuAction.newMarkdown:
+        await _createDocument(DocumentFormat.markdown);
+      case _ContextMenuAction.rename:
+        await _renameSelected();
+      case _ContextMenuAction.delete:
+        await _deleteSelected();
+      case _ContextMenuAction.copyPath:
+        await Clipboard.setData(ClipboardData(text: entry.relativePath));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('已复制路径'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+    }
+  }
+
+  Widget _menuRow(IconData icon, String label, {bool destructive = false}) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 18,
+          color: destructive ? colorScheme.error : colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 12),
+        Text(
+          label,
+          style: TextStyle(
+            color: destructive ? colorScheme.error : colorScheme.onSurface,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -339,6 +469,8 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                           }
                         }
                       },
+                      onContextMenu: (entry, offset) =>
+                          unawaited(_handleContextMenu(entry, offset)),
                     )
                   : const Center(child: CircularProgressIndicator()),
             ),

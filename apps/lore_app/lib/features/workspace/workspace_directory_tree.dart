@@ -4,6 +4,10 @@ import 'package:lore_domain/lore_domain.dart';
 import 'library_entry_icons.dart';
 import 'workspace_controller.dart';
 
+/// 目录树右键/长按上下文菜单回调：携带目标条目与触发的全局坐标。
+typedef ContextMenuCallback =
+    void Function(LibraryEntry entry, Offset globalPosition);
+
 /// 侧栏目录树：递归列出书库条目，目录可展开懒加载。
 final class WorkspaceDirectory extends StatefulWidget {
   const WorkspaceDirectory({
@@ -12,6 +16,7 @@ final class WorkspaceDirectory extends StatefulWidget {
     required this.selectedPath,
     required this.reloadToken,
     required this.onSelected,
+    this.onContextMenu,
     this.depth = 0,
     super.key,
   });
@@ -21,6 +26,7 @@ final class WorkspaceDirectory extends StatefulWidget {
   final String? selectedPath;
   final int reloadToken;
   final ValueChanged<LibraryEntry> onSelected;
+  final ContextMenuCallback? onContextMenu;
   final int depth;
 
   @override
@@ -121,6 +127,7 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
                 selectedPath: widget.selectedPath,
                 reloadToken: widget.reloadToken,
                 onSelected: widget.onSelected,
+                onContextMenu: widget.onContextMenu,
                 depth: widget.depth,
               );
             }
@@ -130,6 +137,7 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
               selected: widget.selectedPath == entry.relativePath,
               depth: widget.depth,
               onTap: () => widget.onSelected(entry),
+              onContextMenu: widget.onContextMenu,
             );
           }),
         ];
@@ -151,6 +159,7 @@ final class _WorkspaceDirectoryTile extends StatefulWidget {
     required this.selectedPath,
     required this.reloadToken,
     required this.onSelected,
+    this.onContextMenu,
     required this.depth,
     super.key,
   });
@@ -160,6 +169,7 @@ final class _WorkspaceDirectoryTile extends StatefulWidget {
   final String? selectedPath;
   final int reloadToken;
   final ValueChanged<LibraryEntry> onSelected;
+  final ContextMenuCallback? onContextMenu;
   final int depth;
 
   @override
@@ -209,6 +219,7 @@ final class _WorkspaceDirectoryTileState
           ),
           icon: _expanded ? Icons.folder_open_outlined : Icons.folder_outlined,
           onTap: _toggleExpanded,
+          onContextMenu: widget.onContextMenu,
         ),
         if (_expanded)
           WorkspaceDirectory(
@@ -217,6 +228,7 @@ final class _WorkspaceDirectoryTileState
             selectedPath: widget.selectedPath,
             reloadToken: widget.reloadToken,
             onSelected: widget.onSelected,
+            onContextMenu: widget.onContextMenu,
             depth: widget.depth + 1,
           ),
       ],
@@ -237,6 +249,7 @@ final class _WorkspaceFileTile extends StatelessWidget {
     required this.selected,
     required this.depth,
     required this.onTap,
+    this.onContextMenu,
     super.key,
   });
 
@@ -244,6 +257,7 @@ final class _WorkspaceFileTile extends StatelessWidget {
   final bool selected;
   final int depth;
   final VoidCallback onTap;
+  final ContextMenuCallback? onContextMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -254,6 +268,7 @@ final class _WorkspaceFileTile extends StatelessWidget {
       disclosure: const SizedBox(width: _treeDisclosureWidth),
       icon: entry.entryIcon,
       onTap: onTap,
+      onContextMenu: onContextMenu,
     );
   }
 }
@@ -266,6 +281,7 @@ final class _TreeRow extends StatelessWidget {
     required this.disclosure,
     required this.icon,
     required this.onTap,
+    this.onContextMenu,
     this.expanded,
   });
 
@@ -275,6 +291,7 @@ final class _TreeRow extends StatelessWidget {
   final Widget disclosure;
   final IconData icon;
   final VoidCallback onTap;
+  final ContextMenuCallback? onContextMenu;
   final bool? expanded;
 
   @override
@@ -299,6 +316,17 @@ final class _TreeRow extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
+            onSecondaryTapUp: onContextMenu == null
+                ? null
+                : (details) => onContextMenu!(entry, details.globalPosition),
+            onLongPress: onContextMenu == null
+                ? null
+                : () {
+                    final box = context.findRenderObject() as RenderBox?;
+                    if (box != null) {
+                      onContextMenu!(entry, box.localToGlobal(Offset.zero));
+                    }
+                  },
             hoverColor: colorScheme.onSurface.withValues(alpha: 0.045),
             focusColor: colorScheme.primary.withValues(alpha: 0.08),
             splashColor: colorScheme.primary.withValues(alpha: 0.08),
@@ -336,6 +364,7 @@ final class _TreeRow extends StatelessWidget {
                       child: Tooltip(
                         message: displayName,
                         waitDuration: const Duration(milliseconds: 700),
+                        triggerMode: TooltipTriggerMode.manual,
                         child: Text(
                           displayName,
                           maxLines: 1,
