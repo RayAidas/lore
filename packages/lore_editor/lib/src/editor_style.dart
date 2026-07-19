@@ -12,9 +12,9 @@ abstract final class EditorCaret {
 
   static const Radius radius = Radius.circular(1.0);
 
-  /// 光标高度随字号缩放，但与行距解耦：默认行高 1.95 会让 Material 默认
-  /// 光标贯穿整个行盒（约 1.95× 字号）显得过高；1.2× 字号约等于字身高度
-  /// 加少量边距，光标贴合文字、不再撑满整行。用户调整行高时光标保持稳定。
+  /// 光标高度随字号缩放，但与行距解耦：行高会让 Material 默认光标贯穿整个
+  /// 行盒显得过高；1.2× 字号约等于字身高度加少量边距，光标贴合文字、不再
+  /// 撑满整行。用户调整行高时光标保持稳定。
   static const double heightFactor = 1.2;
 
   static double heightFor(double fontSize) => fontSize * heightFactor;
@@ -37,15 +37,19 @@ final class EditorStyle {
     required this.letterSpacing,
     this.typewriterMode = false,
     this.focusMode = false,
+    this.firstLineIndent = true,
+    this.paragraphSpacing = 18,
   });
 
   const EditorStyle.defaults()
-    : lineHeight = 1.95,
-      fontSize = 17,
+    : lineHeight = 1.5,
+      fontSize = 15,
       contentWidth = 900,
       letterSpacing = 0.2,
       typewriterMode = false,
-      focusMode = false;
+      focusMode = false,
+      firstLineIndent = true,
+      paragraphSpacing = 12;
 
   final double lineHeight;
   final double fontSize;
@@ -58,6 +62,12 @@ final class EditorStyle {
   /// 专注模式：淡化非当前段落（仅 TXT 编辑器消费）。
   final bool focusMode;
 
+  /// 段落首行缩进：新建段落时在段首自动插入两个全角空格（仅 TXT 编辑器消费）。
+  final bool firstLineIndent;
+
+  /// 段落之间的额外间距（逻辑像素，仅 TXT 编辑器消费）。
+  final double paragraphSpacing;
+
   EditorStyle copyWith({
     double? lineHeight,
     double? fontSize,
@@ -65,6 +75,8 @@ final class EditorStyle {
     double? letterSpacing,
     bool? typewriterMode,
     bool? focusMode,
+    bool? firstLineIndent,
+    double? paragraphSpacing,
   }) {
     return EditorStyle(
       lineHeight: lineHeight ?? this.lineHeight,
@@ -73,6 +85,8 @@ final class EditorStyle {
       letterSpacing: letterSpacing ?? this.letterSpacing,
       typewriterMode: typewriterMode ?? this.typewriterMode,
       focusMode: focusMode ?? this.focusMode,
+      firstLineIndent: firstLineIndent ?? this.firstLineIndent,
+      paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
     );
   }
 }

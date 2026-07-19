@@ -46,6 +46,8 @@ final class DocumentPane extends ConsumerWidget {
       contentWidth: prefs.editorContentWidth,
       typewriterMode: prefs.typewriterMode,
       focusMode: prefs.focusMode,
+      firstLineIndent: prefs.firstLineIndent,
+      paragraphSpacing: prefs.paragraphSpacing,
     );
     return Column(
       children: [

@@ -78,6 +78,9 @@ void main() {
             child: LoreLargeTextEditor(
               controller: controller,
               scrollController: scrollController,
+              style: const EditorStyle.defaults().copyWith(
+                firstLineIndent: false,
+              ),
               autofocus: true,
             ),
           ),
@@ -550,5 +553,110 @@ void main() {
     expect(field.cursorHeight, EditorCaret.heightFor(style.fontSize));
     expect(field.cursorRadius, EditorCaret.radius);
     expect(field.cursorColor, isNotNull);
+  });
+
+  testWidgets('auto-indents new paragraphs when first-line indent is on', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '原段落\n末段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              autofocus: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.enterText(find.byType(TextField).first, '新段一\n新段二');
+    await tester.pump();
+
+    // 缩进默认开：新段落段首自带两个全角空格。
+    expect(controller.text, contains('\n　　'));
+    expect(controller.blocks[1].text, '　　新段二');
+  });
+
+  testWidgets('does not double-indent when Enter lands before an existing indent', (
+    tester,
+  ) async {
+    // 第二段已带缩进；在其缩进之前（offset 0）插入换行，不应再补一组缩进。
+    final controller = LoreLargeTextController(text: '甲\n　　乙');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              autofocus: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.enterText(find.byType(TextField).at(1), '\n　　乙');
+    await tester.pump();
+
+    expect(controller.text, isNot(contains('　　　　')));
+    expect(controller.text, contains('　　乙'));
+  });
+
+  testWidgets('adds paragraph spacing only after paragraph-ending blocks', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '第一段\n第二段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+    const spacing = 24.0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              style: const EditorStyle.defaults().copyWith(
+                paragraphSpacing: spacing,
+                firstLineIndent: false,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    Finder spacerAround(int index) => find.ancestor(
+      of: find.byType(TextField).at(index),
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is Padding &&
+            widget.padding is EdgeInsets &&
+            (widget.padding as EdgeInsets).bottom == spacing,
+      ),
+    );
+    // 第一段 hasLineBreak → 段末有段间距 Padding；末段无。
+    expect(spacerAround(0).evaluate(), isNotEmpty);
+    expect(spacerAround(1).evaluate(), isEmpty);
   });
 }

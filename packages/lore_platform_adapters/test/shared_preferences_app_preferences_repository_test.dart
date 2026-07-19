@@ -31,6 +31,8 @@ void main() {
       findUseRegex: true,
       typewriterMode: true,
       focusMode: true,
+      firstLineIndent: false,
+      paragraphSpacing: 24,
     );
 
     await repository.save(original);
@@ -47,6 +49,8 @@ void main() {
     expect(loaded.findUseRegex, isTrue);
     expect(loaded.typewriterMode, isTrue);
     expect(loaded.focusMode, isTrue);
+    expect(loaded.firstLineIndent, isFalse);
+    expect(loaded.paragraphSpacing, 24);
   });
 
   test('loads legacy blob missing immersive toggles with other prefs intact', () async {
@@ -75,6 +79,8 @@ void main() {
     expect(loaded.findMatchCase, isTrue);
     expect(loaded.typewriterMode, isFalse);
     expect(loaded.focusMode, isFalse);
+    expect(loaded.firstLineIndent, isTrue);
+    expect(loaded.paragraphSpacing, 18);
   });
 
   test('immersive toggles tolerate wrong-typed values by falling back to false', () async {

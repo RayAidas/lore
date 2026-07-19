@@ -50,6 +50,10 @@ final class PreferencesController extends AsyncNotifier<AppPreferences> {
       _update((current) => current.copyWith(typewriterMode: value));
   Future<void> setFocusMode(bool value) =>
       _update((current) => current.copyWith(focusMode: value));
+  Future<void> setFirstLineIndent(bool value) =>
+      _update((current) => current.copyWith(firstLineIndent: value));
+  Future<void> setParagraphSpacing(double value) =>
+      _update((current) => current.copyWith(paragraphSpacing: value));
 
   Future<void> _update(AppPreferences Function(AppPreferences) apply) async {
     final service = ref.read(appPreferencesServiceProvider);

@@ -19,6 +19,8 @@ final class AppPreferences {
     required this.findUseRegex,
     required this.typewriterMode,
     required this.focusMode,
+    required this.firstLineIndent,
+    required this.paragraphSpacing,
   });
 
   static const schemaVersionCurrent = 1;
@@ -28,14 +30,16 @@ final class AppPreferences {
     schemaVersion: schemaVersionCurrent,
     themeMode: AppThemeMode.system,
     defaultChapterFormat: ChapterFormat.text,
-    editorLineHeight: 1.95,
-    editorFontSize: 17,
+    editorLineHeight: 1.5,
+    editorFontSize: 15,
     editorContentWidth: 900,
     dailyWordGoal: 2000,
     findMatchCase: false,
     findUseRegex: false,
     typewriterMode: false,
     focusMode: false,
+    firstLineIndent: true,
+    paragraphSpacing: 12,
   );
 
   final int schemaVersion;
@@ -62,6 +66,13 @@ final class AppPreferences {
   /// 沉浸写作：专注模式（淡化非当前段落）。仅 TXT 编辑器生效。
   final bool focusMode;
 
+  /// 段落排版：新建段落时在段首自动插入两个全角空格（首行缩进 2 字）。
+  /// 仅 TXT 编辑器生效。
+  final bool firstLineIndent;
+
+  /// 段落排版：段落之间的额外间距（逻辑像素）。仅 TXT 编辑器生效。
+  final double paragraphSpacing;
+
   AppPreferences copyWith({
     AppThemeMode? themeMode,
     ChapterFormat? defaultChapterFormat,
@@ -73,6 +84,8 @@ final class AppPreferences {
     bool? findUseRegex,
     bool? typewriterMode,
     bool? focusMode,
+    bool? firstLineIndent,
+    double? paragraphSpacing,
   }) {
     return AppPreferences(
       schemaVersion: schemaVersion,
@@ -86,6 +99,8 @@ final class AppPreferences {
       findUseRegex: findUseRegex ?? this.findUseRegex,
       typewriterMode: typewriterMode ?? this.typewriterMode,
       focusMode: focusMode ?? this.focusMode,
+      firstLineIndent: firstLineIndent ?? this.firstLineIndent,
+      paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
     );
   }
 }

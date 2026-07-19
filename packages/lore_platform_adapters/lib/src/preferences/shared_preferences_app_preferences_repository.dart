@@ -61,6 +61,15 @@ final class SharedPreferencesAppPreferencesRepository
           value['typewriterMode'] is bool ? value['typewriterMode']! as bool : false;
       final focusMode =
           value['focusMode'] is bool ? value['focusMode']! as bool : false;
+      // 段落排版同理：首行缩进缺失取 true（默认开），段间距缺失取 18。
+      final firstLineIndent =
+          value['firstLineIndent'] is bool
+          ? value['firstLineIndent']! as bool
+          : true;
+      final paragraphSpacing =
+          value['paragraphSpacing'] is num
+          ? (value['paragraphSpacing']! as num).toDouble()
+          : 18.0;
       return AppPreferences(
         schemaVersion: _schemaVersion,
         themeMode: themeMode,
@@ -73,6 +82,8 @@ final class SharedPreferencesAppPreferencesRepository
         findUseRegex: useRegex,
         typewriterMode: typewriterMode,
         focusMode: focusMode,
+        firstLineIndent: firstLineIndent,
+        paragraphSpacing: paragraphSpacing,
       );
     } on FormatException {
       return null;
@@ -102,6 +113,8 @@ final class SharedPreferencesAppPreferencesRepository
       'findUseRegex': preferences.findUseRegex,
       'typewriterMode': preferences.typewriterMode,
       'focusMode': preferences.focusMode,
+      'firstLineIndent': preferences.firstLineIndent,
+      'paragraphSpacing': preferences.paragraphSpacing,
     };
   }
 
