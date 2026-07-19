@@ -46,6 +46,10 @@ final class PreferencesController extends AsyncNotifier<AppPreferences> {
       _update((current) => current.copyWith(findMatchCase: value));
   Future<void> setFindUseRegex(bool value) =>
       _update((current) => current.copyWith(findUseRegex: value));
+  Future<void> setTypewriterMode(bool value) =>
+      _update((current) => current.copyWith(typewriterMode: value));
+  Future<void> setFocusMode(bool value) =>
+      _update((current) => current.copyWith(focusMode: value));
 
   Future<void> _update(AppPreferences Function(AppPreferences) apply) async {
     final service = ref.read(appPreferencesServiceProvider);

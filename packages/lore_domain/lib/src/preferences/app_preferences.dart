@@ -17,6 +17,8 @@ final class AppPreferences {
     required this.dailyWordGoal,
     required this.findMatchCase,
     required this.findUseRegex,
+    required this.typewriterMode,
+    required this.focusMode,
   });
 
   static const schemaVersionCurrent = 1;
@@ -32,6 +34,8 @@ final class AppPreferences {
     dailyWordGoal: 2000,
     findMatchCase: false,
     findUseRegex: false,
+    typewriterMode: false,
+    focusMode: false,
   );
 
   final int schemaVersion;
@@ -52,6 +56,12 @@ final class AppPreferences {
   final bool findMatchCase;
   final bool findUseRegex;
 
+  /// 沉浸写作：打字机模式（光标行保持垂直居中）。仅 TXT 编辑器生效。
+  final bool typewriterMode;
+
+  /// 沉浸写作：专注模式（淡化非当前段落）。仅 TXT 编辑器生效。
+  final bool focusMode;
+
   AppPreferences copyWith({
     AppThemeMode? themeMode,
     ChapterFormat? defaultChapterFormat,
@@ -61,6 +71,8 @@ final class AppPreferences {
     int? dailyWordGoal,
     bool? findMatchCase,
     bool? findUseRegex,
+    bool? typewriterMode,
+    bool? focusMode,
   }) {
     return AppPreferences(
       schemaVersion: schemaVersion,
@@ -72,6 +84,8 @@ final class AppPreferences {
       dailyWordGoal: dailyWordGoal ?? this.dailyWordGoal,
       findMatchCase: findMatchCase ?? this.findMatchCase,
       findUseRegex: findUseRegex ?? this.findUseRegex,
+      typewriterMode: typewriterMode ?? this.typewriterMode,
+      focusMode: focusMode ?? this.focusMode,
     );
   }
 }

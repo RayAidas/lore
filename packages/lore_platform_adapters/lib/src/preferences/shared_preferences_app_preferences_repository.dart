@@ -55,6 +55,12 @@ final class SharedPreferencesAppPreferencesRepository
           useRegex is! bool) {
         return null;
       }
+      // 沉浸写作开关是后加字段，老 blob 里可能没有——容错读取，缺失/类型
+      // 不符时取 false，且不纳入上面的严格失败守卫，避免老用户升级丢偏好。
+      final typewriterMode =
+          value['typewriterMode'] is bool ? value['typewriterMode']! as bool : false;
+      final focusMode =
+          value['focusMode'] is bool ? value['focusMode']! as bool : false;
       return AppPreferences(
         schemaVersion: _schemaVersion,
         themeMode: themeMode,
@@ -65,6 +71,8 @@ final class SharedPreferencesAppPreferencesRepository
         dailyWordGoal: dailyWordGoal,
         findMatchCase: matchCase,
         findUseRegex: useRegex,
+        typewriterMode: typewriterMode,
+        focusMode: focusMode,
       );
     } on FormatException {
       return null;
@@ -92,6 +100,8 @@ final class SharedPreferencesAppPreferencesRepository
       'dailyWordGoal': preferences.dailyWordGoal,
       'findMatchCase': preferences.findMatchCase,
       'findUseRegex': preferences.findUseRegex,
+      'typewriterMode': preferences.typewriterMode,
+      'focusMode': preferences.focusMode,
     };
   }
 

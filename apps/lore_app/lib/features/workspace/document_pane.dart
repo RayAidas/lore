@@ -44,6 +44,8 @@ final class DocumentPane extends ConsumerWidget {
       lineHeight: prefs.editorLineHeight,
       fontSize: prefs.editorFontSize,
       contentWidth: prefs.editorContentWidth,
+      typewriterMode: prefs.typewriterMode,
+      focusMode: prefs.focusMode,
     );
     return Column(
       children: [
@@ -85,6 +87,24 @@ final class DocumentPane extends ConsumerWidget {
                     controller.setPreview(document, selection.first);
                   },
                 ),
+              if (!document.isMarkdown) ...[
+                IconButton(
+                  tooltip: '打字机模式 (Cmd+Shift+T)',
+                  isSelected: prefs.typewriterMode,
+                  onPressed: () => ref
+                      .read(appPreferencesProvider.notifier)
+                      .setTypewriterMode(!prefs.typewriterMode),
+                  icon: const Icon(Icons.vertical_align_center, size: 18),
+                ),
+                IconButton(
+                  tooltip: '专注模式',
+                  isSelected: prefs.focusMode,
+                  onPressed: () => ref
+                      .read(appPreferencesProvider.notifier)
+                      .setFocusMode(!prefs.focusMode),
+                  icon: const Icon(Icons.center_focus_strong, size: 18),
+                ),
+              ],
               const SizedBox(width: 10),
               IconButton(
                 tooltip: '保存 (Cmd+S)',

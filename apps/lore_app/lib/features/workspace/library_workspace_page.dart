@@ -121,6 +121,17 @@ final class _LibraryWorkspacePageState
                 ): () {
                   _findController?.previous();
                 },
+                const SingleActivator(
+                  LogicalKeyboardKey.keyT,
+                  meta: true,
+                  shift: true,
+                ): () {
+                  final current = ref.read(appPreferencesProvider).value ??
+                      AppPreferences.defaults();
+                  ref
+                      .read(appPreferencesProvider.notifier)
+                      .setTypewriterMode(!current.typewriterMode);
+                },
               },
               child: Focus(
                 autofocus: true,

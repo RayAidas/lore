@@ -29,6 +29,8 @@ void main() {
       dailyWordGoal: 1500,
       findMatchCase: true,
       findUseRegex: true,
+      typewriterMode: true,
+      focusMode: true,
     );
 
     await repository.save(original);
@@ -43,6 +45,61 @@ void main() {
     expect(loaded.dailyWordGoal, 1500);
     expect(loaded.findMatchCase, isTrue);
     expect(loaded.findUseRegex, isTrue);
+    expect(loaded.typewriterMode, isTrue);
+    expect(loaded.focusMode, isTrue);
+  });
+
+  test('loads legacy blob missing immersive toggles with other prefs intact', () async {
+    // 模拟 1.x 版本写入的旧 blob：没有 typewriterMode/focusMode 键。
+    // 应当加载成功，旧字段保留，新字段回退默认 false，而非整体回退默认值。
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 1,
+        'themeMode': 'sepia',
+        'defaultChapterFormat': 'markdown',
+        'editorLineHeight': 2.2,
+        'editorFontSize': 19,
+        'editorContentWidth': 760,
+        'dailyWordGoal': 800,
+        'findMatchCase': true,
+        'findUseRegex': false,
+      }),
+    });
+
+    final loaded = await repository.load();
+    expect(loaded, isNotNull);
+    expect(loaded!.themeMode, AppThemeMode.sepia);
+    expect(loaded.defaultChapterFormat, ChapterFormat.markdown);
+    expect(loaded.editorFontSize, 19);
+    expect(loaded.dailyWordGoal, 800);
+    expect(loaded.findMatchCase, isTrue);
+    expect(loaded.typewriterMode, isFalse);
+    expect(loaded.focusMode, isFalse);
+  });
+
+  test('immersive toggles tolerate wrong-typed values by falling back to false', () async {
+    // 新字段类型不符（如字符串）时回退 false，且不影响其它字段加载。
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 1,
+        'themeMode': 'dark',
+        'defaultChapterFormat': 'text',
+        'editorLineHeight': 1.95,
+        'editorFontSize': 17,
+        'editorContentWidth': 900,
+        'dailyWordGoal': 2000,
+        'findMatchCase': false,
+        'findUseRegex': false,
+        'typewriterMode': 'true', // 不是 bool
+        'focusMode': 1, // 不是 bool
+      }),
+    });
+
+    final loaded = await repository.load();
+    expect(loaded, isNotNull);
+    expect(loaded!.themeMode, AppThemeMode.dark);
+    expect(loaded.typewriterMode, isFalse);
+    expect(loaded.focusMode, isFalse);
   });
 
   test('returns null on corrupted JSON', () async {

@@ -374,4 +374,149 @@ void main() {
 
     expect(controller.text, 'ab');
   });
+
+  testWidgets('typewriter mode scrolls to center the focused caret', (
+    tester,
+  ) async {
+    final paragraphs = List.generate(40, (index) => '第$index段正文内容');
+    final controller = LoreLargeTextController(text: paragraphs.join('\n'));
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              style: const EditorStyle.defaults().copyWith(
+                typewriterMode: true,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // 聚焦一个位于视口中下方的 block（光标在中心下方 → 应向下滚动居中）。
+    await tester.tap(find.byType(TextField).at(8));
+    await tester.pumpAndSettle();
+
+    expect(scrollController.offset, greaterThan(0));
+  });
+
+  testWidgets('typewriter mode off does not auto-scroll on focus', (
+    tester,
+  ) async {
+    final paragraphs = List.generate(40, (index) => '第$index段正文内容');
+    final controller = LoreLargeTextController(text: paragraphs.join('\n'));
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(TextField).at(8));
+    await tester.pumpAndSettle();
+
+    expect(scrollController.offset, isZero);
+  });
+
+  testWidgets('focus mode dims non-active paragraphs', (tester) async {
+    final controller = LoreLargeTextController(text: '第一段\n第二段\n第三段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              style: const EditorStyle.defaults().copyWith(focusMode: true),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // 聚焦中间段落 → 它保持全不透明，其余两段被 Opacity(0.28) 包裹。
+    await tester.tap(find.byType(TextField).at(1));
+    await tester.pumpAndSettle();
+
+    Finder dimmedAround(int index) => find.ancestor(
+      of: find.byType(TextField).at(index),
+      matching: find.byWidgetPredicate(
+        (widget) => widget is Opacity && widget.opacity == 0.28,
+      ),
+    );
+    expect(dimmedAround(0).evaluate(), isNotEmpty);
+    expect(dimmedAround(1).evaluate(), isEmpty);
+    expect(dimmedAround(2).evaluate(), isNotEmpty);
+  });
+
+  testWidgets('focus mode follows the caret across paragraphs', (tester) async {
+    final controller = LoreLargeTextController(text: '第一段\n第二段\n第三段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              style: const EditorStyle.defaults().copyWith(focusMode: true),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Finder dimmedAround(int index) => find.ancestor(
+      of: find.byType(TextField).at(index),
+      matching: find.byWidgetPredicate(
+        (widget) => widget is Opacity && widget.opacity == 0.28,
+      ),
+    );
+
+    // 先聚焦第二段：第 0、2 段淡化，第 1 段高亮。
+    await tester.tap(find.byType(TextField).at(1));
+    await tester.pumpAndSettle();
+    expect(dimmedAround(0).evaluate(), isNotEmpty);
+    expect(dimmedAround(1).evaluate(), isEmpty);
+    expect(dimmedAround(2).evaluate(), isNotEmpty);
+
+    // 再点第三段：淡化应跟随光标移动——第 2 段恢复，第 1 段被淡化。
+    await tester.tap(find.byType(TextField).at(2));
+    await tester.pumpAndSettle();
+    expect(dimmedAround(0).evaluate(), isNotEmpty);
+    expect(dimmedAround(1).evaluate(), isNotEmpty);
+    expect(dimmedAround(2).evaluate(), isEmpty);
+  });
 }

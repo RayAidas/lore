@@ -105,6 +105,22 @@ class _SettingsBody extends ConsumerWidget {
           onChanged: controller.setEditorContentWidth,
         ),
         const Divider(),
+        _SectionHeader('沉浸写作'),
+        SwitchListTile(
+          secondary: const Icon(Icons.vertical_align_center),
+          title: const Text('打字机模式'),
+          subtitle: const Text('键入时保持光标所在行垂直居中（仅 TXT）'),
+          value: prefs.typewriterMode,
+          onChanged: controller.setTypewriterMode,
+        ),
+        SwitchListTile(
+          secondary: const Icon(Icons.center_focus_strong),
+          title: const Text('专注模式'),
+          subtitle: const Text('淡化非当前段落，突出正在书写的内容（仅 TXT）'),
+          value: prefs.focusMode,
+          onChanged: controller.setFocusMode,
+        ),
+        const Divider(),
         _SectionHeader('写作目标'),
         ListTile(
           leading: const Icon(Icons.flag_outlined),

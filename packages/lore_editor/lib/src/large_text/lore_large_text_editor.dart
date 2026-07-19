@@ -43,6 +43,12 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
       oldWidget.controller.removeListener(_handleControllerChanged);
       widget.controller.addListener(_handleControllerChanged);
     }
+    // 打字机模式从关闭切到开启时立即校准一次，无需等下一次按键。
+    if (!oldWidget.style.typewriterMode && widget.style.typewriterMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _recenterCaretIfNeeded();
+      });
+    }
   }
 
   @override
@@ -70,6 +76,13 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
           );
         });
       }
+      // 打字机模式：每次编辑/选区变化后把光标行滚动到视口中央。post-frame
+      // 等重排落定、光标几何有效；拖拽守卫避免与鼠标选区/手动滚动打架。
+      if (widget.style.typewriterMode) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _recenterCaretIfNeeded();
+        });
+      }
     }
   }
 
@@ -78,6 +91,16 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
     final width = MediaQuery.sizeOf(context).width > widget.style.contentWidth
         ? widget.style.contentWidth
         : MediaQuery.sizeOf(context).width;
+    // 专注模式：仅含光标的段落保持全不透明，其余淡化。选区无效时回退为
+    // "不淡化任何段"，避免出现整篇被淡化的破损观感。
+    final focusMode = widget.style.focusMode;
+    final selectionValid =
+        focusMode && widget.controller.selection.isValid;
+    final activeBlockIndex = selectionValid
+        ? widget.controller.blockIndexForOffset(
+            widget.controller.selection.extentOffset,
+          )
+        : -1;
     return Focus(
       canRequestFocus: false,
       onKeyEvent: (_, event) => _handleRootKey(event),
@@ -125,6 +148,7 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
                     globalSelectionDrag: _globalSelectionDrag,
                     style: widget.style,
                     autofocus: widget.autofocus && index == 0,
+                    dimmed: selectionValid && index != activeBlockIndex,
                     onFocused: () {},
                   );
                 },
@@ -248,6 +272,39 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
     );
   }
 
+  /// 打字机模式：把光标所在行滚动到视口垂直居中。
+  ///
+  /// 光标当前在编辑器局部坐标的 Y 为 [caretLocalY]，目标为视口高度的一半；
+  /// 滚动 [delta = caretLocalY - target] 个像素即可（光标在中心下方时 delta>0，
+  /// 增大 pixels 向下滚，把光标上移到中心）。8px 死区避免每次按键微抖。
+  void _recenterCaretIfNeeded() {
+    if (!mounted ||
+        !widget.style.typewriterMode ||
+        widget.controller.selectionDragActive ||
+        _globalSelectionDrag ||
+        !widget.scrollController.hasClients) {
+      return;
+    }
+    final editorBox = context.findRenderObject() as RenderBox?;
+    final caretGlobalY = _blockRegistry.focusedCaretCenterY();
+    if (editorBox == null || caretGlobalY == null) {
+      return;
+    }
+    final caretLocalY = editorBox.globalToLocal(Offset(0, caretGlobalY)).dy;
+    final target = editorBox.size.height / 2;
+    final delta = caretLocalY - target;
+    if (delta.abs() < 8) {
+      return;
+    }
+    final position = widget.scrollController.position;
+    widget.scrollController.jumpTo(
+      (position.pixels + delta).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      ),
+    );
+  }
+
   Future<void> _copy() async {
     final selection = widget.controller.selection;
     if (selection.isCollapsed) {
@@ -284,6 +341,7 @@ final class _LargeTextBlockField extends StatefulWidget {
     required this.globalSelectionDrag,
     required this.style,
     required this.autofocus,
+    required this.dimmed,
     required this.onFocused,
     super.key,
   });
@@ -295,6 +353,7 @@ final class _LargeTextBlockField extends StatefulWidget {
   final bool globalSelectionDrag;
   final EditorStyle style;
   final bool autofocus;
+  final bool dimmed;
   final VoidCallback onFocused;
 
   @override
@@ -553,6 +612,44 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
     _updating = false;
   }
 
+  bool get hasFocus => _focusNode.hasFocus;
+
+  /// 返回当前光标（选区 extent）所在行的垂直中点（全局坐标），用于打字机模式
+  /// 把光标行滚动到视口中央。无法计算（未 layout、选区无效）时返回 null。
+  /// 复用已缓存的 `_layoutPainterFor`，避免重复 layout。
+  double? caretCenter() {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) {
+      return null;
+    }
+    final selection = _textController.selection;
+    if (!selection.isValid) {
+      return null;
+    }
+    final localExtent = selection.extentOffset.clamp(
+      0,
+      widget.block.text.length,
+    );
+    final textStyle = Theme.of(context).textTheme.bodyLarge?.copyWith(
+      height: widget.style.lineHeight,
+      fontSize: widget.style.fontSize,
+      letterSpacing: widget.style.letterSpacing,
+    );
+    final painter = _layoutPainterFor(
+      text: widget.block.text,
+      style: textStyle,
+      direction: Directionality.of(context),
+      scaler: MediaQuery.textScalerOf(context),
+      width: box.size.width,
+    );
+    final caretTop = painter.getOffsetForCaret(
+      TextPosition(offset: localExtent),
+      Rect.zero,
+    );
+    final lineCenter = caretTop.dy + painter.preferredLineHeight / 2;
+    return box.localToGlobal(Offset(0, lineCenter)).dy;
+  }
+
   int? documentOffsetFor(Offset globalPosition) {
     final box = context.findRenderObject() as RenderBox?;
     if (box == null) {
@@ -654,57 +751,60 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
       scaler: textScaler,
       width: width,
     );
+    final content = Stack(
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: _BlockSelectionPainter(
+                text: widget.block.text,
+                style: textStyle,
+                selection: TextSelection(
+                  baseOffset: localStart,
+                  extentOffset: localEnd,
+                ),
+                color: selectionColor,
+                textDirection: textDirection,
+                textScaler: textScaler,
+                layoutFor: layoutFor,
+              ),
+            ),
+          ),
+        ),
+        TextSelectionTheme(
+          data: const TextSelectionThemeData(
+            selectionColor: Colors.transparent,
+          ),
+          child: TextField(
+            controller: _textController,
+            focusNode: _focusNode,
+            enableInteractiveSelection: false,
+            autofocus: widget.autofocus,
+            maxLines: null,
+            minLines: 1,
+            keyboardType: TextInputType.multiline,
+            style: textStyle,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.zero,
+              filled: false,
+            ),
+          ),
+        ),
+      ],
+    );
     return Focus(
       onKeyEvent: (_, event) => widget.registry.handleKey(
         widget.blockIndex,
         event,
         widget.documentController,
       ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: _BlockSelectionPainter(
-                  text: widget.block.text,
-                  style: textStyle,
-                  selection: TextSelection(
-                    baseOffset: localStart,
-                    extentOffset: localEnd,
-                  ),
-                  color: selectionColor,
-                  textDirection: textDirection,
-                  textScaler: textScaler,
-                  layoutFor: layoutFor,
-                ),
-              ),
-            ),
-          ),
-          TextSelectionTheme(
-            data: const TextSelectionThemeData(
-              selectionColor: Colors.transparent,
-            ),
-            child: TextField(
-              controller: _textController,
-              focusNode: _focusNode,
-              enableInteractiveSelection: false,
-              autofocus: widget.autofocus,
-              maxLines: null,
-              minLines: 1,
-              keyboardType: TextInputType.multiline,
-              style: textStyle,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-                filled: false,
-              ),
-            ),
-          ),
-        ],
-      ),
+      // 专注模式：淡化非当前段落。Opacity 不影响命中测试，点击淡化段落
+      // 仍可聚焦它，焦点移过去后该段恢复全不透明。
+      child: widget.dimmed ? Opacity(opacity: 0.28, child: content) : content,
     );
   }
 }
@@ -790,6 +890,17 @@ final class _BlockGeometryRegistry {
 
   void applySelection(int index, LoreLargeTextController controller) {
     _states[index]?.applyDocumentSelection();
+  }
+
+  /// 返回当前聚焦 block 的光标行垂直中点（全局坐标），供打字机模式居中。
+  /// 无 block 聚焦时返回 null。
+  double? focusedCaretCenterY() {
+    for (final state in _states.values) {
+      if (state.hasFocus) {
+        return state.caretCenter();
+      }
+    }
+    return null;
   }
 
   int? documentOffsetFor(
