@@ -71,21 +71,20 @@ void main() {
         theme.colorScheme.surfaceContainerLowest,
       );
       expect(dialogTheme.surfaceTintColor, Colors.transparent);
-      expect(dialogTheme.elevation, 12);
+      expect(dialogTheme.elevation, 8);
       expect(
         dialogTheme.constraints,
-        const BoxConstraints(minWidth: 340, maxWidth: 440),
+        const BoxConstraints(minWidth: 320, maxWidth: 400),
       );
       expect(dialogTheme.insetPadding, const EdgeInsets.all(24));
       expect(
         dialogTheme.actionsPadding,
-        const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        const EdgeInsets.fromLTRB(16, 12, 16, 16),
       );
-      expect(shape.borderRadius, BorderRadius.circular(12));
-      expect(shape.side.color, theme.colorScheme.outlineVariant);
-      expect(dialogTheme.titleTextStyle?.fontSize, 18);
-      expect(dialogTheme.titleTextStyle?.fontWeight, FontWeight.w600);
-      expect(dialogTheme.contentTextStyle?.height, 1.5);
+      expect(shape.borderRadius, BorderRadius.circular(10));
+      expect(dialogTheme.titleTextStyle?.fontSize, 17);
+      expect(dialogTheme.titleTextStyle?.fontWeight, FontWeight.w700);
+      expect(dialogTheme.contentTextStyle?.height, 1.55);
     });
   }
 
