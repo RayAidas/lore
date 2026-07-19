@@ -193,10 +193,7 @@ void main() {
       MaterialApp(
         theme: LoreTheme.light(),
         home: const Scaffold(
-          body: LoreConfirmDialog(
-            title: '删除？',
-            message: '将移到回收站。',
-          ),
+          body: LoreConfirmDialog(title: '删除？', message: '将移到回收站。'),
         ),
       ),
     );
@@ -209,5 +206,152 @@ void main() {
     // 若 minimumSize 误用 Size.fromHeight 导致按钮无限宽，会退化为上下纵排。
     expect(confirm.center.dy, closeTo(cancel.center.dy, 1));
     expect(cancel.right, lessThanOrEqualTo(confirm.left));
+  });
+
+  testWidgets('type-to-confirm keeps confirm disabled until input matches', (
+    tester,
+  ) async {
+    late Future<bool> result;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LoreTheme.light(),
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () {
+              result = showLoreTypeToConfirmDialog(
+                context: context,
+                title: '删除整本小说？',
+                message: '将移到回收站。',
+                expectedText: '星辰',
+                helperText: '请输入小说名 "星辰" 以确认。',
+              );
+            },
+            child: const Text('打开'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+
+    // helperText 渲染出来，提示用户该输入什么。
+    expect(find.text('请输入小说名 "星辰" 以确认。'), findsOneWidget);
+
+    FilledButton confirmButton() =>
+        tester.widget<FilledButton>(find.byType(FilledButton));
+
+    // 初始输入为空：确认按钮禁用。
+    expect(confirmButton().onPressed, isNull);
+
+    // 输入不匹配的文本：确认按钮仍然禁用。
+    await tester.enterText(find.byType(TextField), '别的名字');
+    await tester.pump();
+    expect(confirmButton().onPressed, isNull);
+    // 关闭对话框，让 Future 干净完成，避免测试结束时挂起帧。
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(await result, isFalse);
+  });
+
+  testWidgets('type-to-confirm enables confirm and returns true on match', (
+    tester,
+  ) async {
+    late Future<bool> result;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LoreTheme.light(),
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () {
+              result = showLoreTypeToConfirmDialog(
+                context: context,
+                title: '删除整本小说？',
+                message: '将移到回收站。',
+                expectedText: '星辰',
+              );
+            },
+            child: const Text('打开'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '星辰');
+    await tester.pump();
+
+    final confirmButton = tester.widget<FilledButton>(
+      find.byType(FilledButton),
+    );
+    expect(confirmButton.onPressed, isNotNull);
+
+    await tester.tap(find.text('删除'));
+    await tester.pumpAndSettle();
+    expect(await result, isTrue);
+  });
+
+  testWidgets('type-to-confirm tolerates surrounding whitespace', (
+    tester,
+  ) async {
+    late Future<bool> result;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LoreTheme.light(),
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () {
+              result = showLoreTypeToConfirmDialog(
+                context: context,
+                title: '删除整本小说？',
+                message: '将移到回收站。',
+                expectedText: '星辰',
+              );
+            },
+            child: const Text('打开'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+
+    // 回归守卫：dialog 用 _controller.text.trim() 比较，首尾空白应被忽略。
+    await tester.enterText(find.byType(TextField), '  星辰  ');
+    await tester.pump();
+    await tester.tap(find.text('删除'));
+    await tester.pumpAndSettle();
+    expect(await result, isTrue);
+  });
+
+  testWidgets('type-to-confirm returns false when cancelled', (tester) async {
+    late Future<bool> result;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LoreTheme.light(),
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () {
+              result = showLoreTypeToConfirmDialog(
+                context: context,
+                title: '删除整本小说？',
+                message: '将移到回收站。',
+                expectedText: '星辰',
+              );
+            },
+            child: const Text('打开'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(await result, isFalse);
   });
 }
