@@ -70,20 +70,13 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
         final entries = snapshot.data ?? _cachedEntries;
         if (entries == null &&
             snapshot.connectionState != ConnectionState.done) {
+          // 根目录首次加载用圆形进度反馈；子目录懒加载时不占位——空目录
+          // 最终也是 0 高度，加载态若占位会在切到空态时引起一次布局抖动
+          // （点击空文件夹展开会先挤出进度条再收回）。本地 FS 读取极快，
+          // 牺牲这一闪而过的进度条换取无抖动的展开体验。
           return widget.relativePath.isEmpty
               ? const Center(child: CircularProgressIndicator())
-              : Padding(
-                  padding: EdgeInsets.only(
-                    left:
-                        _treeHorizontalPadding +
-                        (widget.depth * _treeIndent) +
-                        _treeDisclosureWidth,
-                    right: _treeHorizontalPadding,
-                    top: 4,
-                    bottom: 4,
-                  ),
-                  child: const LinearProgressIndicator(minHeight: 2),
-                );
+              : const SizedBox.shrink();
         }
         if (entries == null) {
           return TextButton(

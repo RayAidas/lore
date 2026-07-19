@@ -292,6 +292,43 @@ void main() {
     expect(find.text('文件夹为空'), findsNothing);
   });
 
+  testWidgets('does not reserve layout space while lazy-loading a folder', (
+    tester,
+  ) async {
+    // 展开一个尚未加载完成的目录时，加载中间帧不得占位——否则空目录
+    // 展开会先挤出进度条（~10px）再在加载完成时收回，造成一帧布局抖动。
+    final childLoaded = Completer<List<LibraryEntry>>();
+    final repository = _QueuedWorkspaceRepository([
+      Future.value(const [
+        LibraryEntry(
+          name: '空文件夹',
+          relativePath: '空文件夹',
+          type: LibraryEntryType.directory,
+        ),
+      ]),
+      childLoaded.future,
+    ]);
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+
+    await tester.tap(find.text('空文件夹'));
+    await tester.pump();
+
+    // 子目录 Future 尚未完成（loading 中间帧）：不应出现任何进度条占位。
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+
+    childLoaded.complete(const []);
+    await tester.pump();
+    await tester.pump();
+
+    // 加载完成且目录为空：仍无占位。
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
   testWidgets('clamps scrolling to avoid overscroll bounce', (tester) async {
     final repository = _PathWorkspaceRepository({
       '': const [
