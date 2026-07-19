@@ -70,6 +70,33 @@ void main() {
     });
   });
 
+  group('ChapterTitleText.sanitizeForFilename', () {
+    test('保留普通文字与内部空格', () {
+      expect(ChapterTitleText.sanitizeForFilename('甜蜜的家'), '甜蜜的家');
+      expect(ChapterTitleText.sanitizeForFilename('a b c'), 'a b c');
+    });
+
+    test('去掉路径分隔符与各平台非法符号', () {
+      expect(
+        ChapterTitleText.sanitizeForFilename('a/b\\c:d*e?f"g<h>i|j'),
+        'abcdefghij',
+      );
+    });
+
+    test('去掉 ASCII 控制字符（含换行）', () {
+      expect(ChapterTitleText.sanitizeForFilename('a\nb\tc'), 'abc');
+    });
+
+    test('剥掉前导点与首尾空白', () {
+      expect(ChapterTitleText.sanitizeForFilename('.hidden'), 'hidden');
+      expect(ChapterTitleText.sanitizeForFilename('  x  '), 'x');
+    });
+
+    test('全非法字符时结果为空', () {
+      expect(ChapterTitleText.sanitizeForFilename('///...'), '');
+    });
+  });
+
   group('ChapterTitleText.compose', () {
     test('标题 + 换行 + 正文', () {
       expect(ChapterTitleText.compose(3, '甜蜜的家', '第一段'), '第3章 甜蜜的家\n第一段');
