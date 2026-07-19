@@ -117,36 +117,76 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     }
   }
 
-  Future<void> _deleteSelected() async {
-    final entry = widget.controller.selectedEntry;
-    if (entry == null) {
-      return;
-    }
-    final isSemantic = entry.semanticKind != null;
-    final confirmed = await showLoreConfirmDialog(
-      context: context,
-      title: '删除？',
-      message: isSemantic
-          ? '卷与章节请在小说结构面板中删除。'
-          : '“${entry.name}”将移到回收站，可在回收站恢复。',
-      confirmLabel: '删除',
-      confirmEnabled: !isSemantic,
-      destructive: true,
-    );
-    if (confirmed) {
-      try {
-        await widget.controller.deleteSelectedEntry();
-      } on LibraryOperationException catch (error) {
-        _showFailure(error.failure);
-      }
+  Future<void> _deleteSelected(LibraryEntry entry) async {
+    switch (entry.semanticKind) {
+      case LibraryEntrySemanticKind.body:
+        // 不可达：右键菜单不渲染 body 的删除入口。保留为 exhaustive 覆盖。
+        return;
+      case LibraryEntrySemanticKind.novel:
+        if (!mounted) {
+          return;
+        }
+        final novelConfirmed = await showLoreTypeToConfirmDialog(
+          context: context,
+          title: '删除整本小说？',
+          message: '“${entry.name}”及其所有卷、章节将移到回收站，可在回收站恢复。',
+          expectedText: entry.name,
+          helperText: '请输入小说名 “${entry.name}” 以确认。',
+        );
+        if (!novelConfirmed || !mounted) {
+          return;
+        }
+        await _invokeDelete(
+          () => widget.controller.deleteNovel(NovelId(entry.novelId!)),
+        );
+        return;
+      case LibraryEntrySemanticKind.volume:
+      case LibraryEntrySemanticKind.chapter:
+        await _confirmAndDelete(
+          entry,
+          () => widget.controller.deleteContentNode(
+            NovelId(entry.novelId!),
+            ContentId(entry.semanticId!),
+          ),
+        );
+        return;
+      case null:
+        await _confirmAndDelete(entry, widget.controller.deleteSelectedEntry);
+        return;
     }
   }
 
-  Future<void> _renameSelected() async {
-    final entry = widget.controller.selectedEntry;
-    if (entry == null) {
+  /// 弹普通删除确认对话框，确认后执行 [action]；取消或 widget 已卸载则跳过。
+  Future<void> _confirmAndDelete(
+    LibraryEntry entry,
+    Future<DeletionResult> Function() action,
+  ) async {
+    if (!mounted) {
       return;
     }
+    final confirmed = await showLoreConfirmDialog(
+      context: context,
+      title: '删除？',
+      message: '“${entry.name}”将移到回收站，可在回收站恢复。',
+      confirmLabel: '删除',
+      destructive: true,
+    );
+    if (!confirmed || !mounted) {
+      return;
+    }
+    await _invokeDelete(action);
+  }
+
+  /// 执行删除并统一把 [LibraryOperationException] 转成失败提示。
+  Future<void> _invokeDelete(Future<DeletionResult> Function() action) async {
+    try {
+      await action();
+    } on LibraryOperationException catch (error) {
+      _showFailure(error.failure);
+    }
+  }
+
+  Future<void> _renameSelected(LibraryEntry entry) async {
     final isDocument =
         !entry.isDirectory && entry.type != LibraryEntryType.otherFile;
     final initial = isDocument
@@ -264,7 +304,7 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     final isDir = entry.isDirectory;
     final isPlainDir = isDir && entry.semanticKind == null;
     final canOpen = !isDir && entry.type != LibraryEntryType.otherFile;
-    final isSemantic = entry.semanticKind != null;
+    final canDelete = entry.semanticKind != LibraryEntrySemanticKind.body;
     return <PopupMenuEntry<_ContextMenuAction>>[
       if (canOpen) ...[
         LorePopupMenuItem(value: _ContextMenuAction.open, label: '打开'),
@@ -279,12 +319,12 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
       ],
       LorePopupMenuItem(value: _ContextMenuAction.rename, label: '重命名'),
       LorePopupMenuItem(value: _ContextMenuAction.copyPath, label: '复制路径'),
-      LorePopupMenuItem(
-        value: _ContextMenuAction.delete,
-        enabled: !isSemantic,
-        label: '移到回收站',
-        destructive: !isSemantic,
-      ),
+      if (canDelete)
+        LorePopupMenuItem(
+          value: _ContextMenuAction.delete,
+          label: '移到回收站',
+          destructive: true,
+        ),
     ];
   }
 
@@ -302,9 +342,9 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
       case _ContextMenuAction.newMarkdown:
         await _createDocument(DocumentFormat.markdown);
       case _ContextMenuAction.rename:
-        await _renameSelected();
+        await _renameSelected(entry);
       case _ContextMenuAction.delete:
-        await _deleteSelected();
+        await _deleteSelected(entry);
       case _ContextMenuAction.copyPath:
         await Clipboard.setData(ClipboardData(text: entry.relativePath));
         if (mounted) {
@@ -365,22 +405,6 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                       ),
                     ],
                   ),
-                  if (controller.selectedEntry != null)
-                    _SidebarMenuButton(
-                      tooltip: '更多操作',
-                      icon: Icons.more_horiz_rounded,
-                      menuChildren: [
-                        LoreMenuItemButton(
-                          label: '重命名',
-                          onPressed: () => unawaited(_renameSelected()),
-                        ),
-                        LoreMenuItemButton(
-                          label: '移到回收站',
-                          destructive: true,
-                          onPressed: () => unawaited(_deleteSelected()),
-                        ),
-                      ],
-                    ),
                 ],
               ),
             ),
