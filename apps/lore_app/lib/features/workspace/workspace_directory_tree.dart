@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:lore_domain/lore_domain.dart';
 
@@ -310,9 +311,21 @@ final class _TreeRow extends StatefulWidget {
 }
 
 final class _TreeRowState extends State<_TreeRow> {
-  // 右键 down 时置位，防止 InkWell 桌面在鼠标事件上偶发把右键 up 也当
-  // onTap 触发，导致右键弹菜单的同时误打开条目。
+  // 桌面端 InkWell 会把鼠标右键 up 误当 onTap 触发，导致右键弹菜单的同时
+  // 误打开条目。这里在 [Listener.onPointerDown] 阶段按按钮同步置位/复位：
+  // 指针事件在手势竞技场裁决之前同步分发，保证右键标志一定先于可能误触的
+  // onTap 就绪（比依赖 onSecondaryTapDown 的时序更稳，不随 Flutter 版本漂移）。
   bool _secondaryArmed = false;
+
+  void _handlePointerDown(PointerDownEvent event) {
+    if (event.buttons == kSecondaryButton) {
+      _secondaryArmed = true;
+    } else if (event.buttons == kPrimaryButton) {
+      // 右键标志若未被误触的 onTap 消费，不能跨到下一次左键点击，否则
+      // 右键后第一次左键会被吞掉。下一次主键 down 时复位。
+      _secondaryArmed = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -338,100 +351,97 @@ final class _TreeRowState extends State<_TreeRow> {
         const TextStyle();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Semantics(
-        container: true,
-        button: true,
-        selected: selected,
-        expanded: expanded,
-        onExpand: expanded == false ? onTap : null,
-        onCollapse: expanded == true ? onTap : null,
-        child: Material(
-          color: rowColor,
-          borderRadius: BorderRadius.circular(7),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () {
-              if (!_secondaryArmed) {
-                onTap();
-              }
-              _secondaryArmed = false;
-            },
-            onSecondaryTapDown: (_) {
-              _secondaryArmed = true;
-            },
-            onSecondaryTapUp: onContextMenu == null
-                ? null
-                : (details) => onContextMenu(entry, details.globalPosition),
-            onSecondaryTapCancel: () {
-              _secondaryArmed = false;
-            },
-            onLongPress: onContextMenu == null
-                ? null
-                : () {
-                    final box = context.findRenderObject() as RenderBox?;
-                    if (box != null) {
-                      onContextMenu(entry, box.localToGlobal(Offset.zero));
-                    }
-                  },
-            hoverColor: colorScheme.onSurface.withValues(alpha: 0.045),
-            focusColor: colorScheme.primary.withValues(alpha: 0.08),
-            splashColor: colorScheme.primary.withValues(alpha: 0.08),
-            child: SizedBox(
-              height: _treeRowHeight,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: _treeHorizontalPadding + (depth * _treeIndent),
-                  right: 10,
-                ),
-                child: Row(
-                  children: [
-                    IconTheme(
-                      data: IconThemeData(
-                        size: 17,
-                        color: colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.78,
+      child: Listener(
+        onPointerDown: _handlePointerDown,
+        child: Semantics(
+          container: true,
+          button: true,
+          selected: selected,
+          expanded: expanded,
+          onExpand: expanded == false ? onTap : null,
+          onCollapse: expanded == true ? onTap : null,
+          child: Material(
+            color: rowColor,
+            borderRadius: BorderRadius.circular(7),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () {
+                if (!_secondaryArmed) {
+                  onTap();
+                }
+                _secondaryArmed = false;
+              },
+              onSecondaryTapUp: onContextMenu == null
+                  ? null
+                  : (details) => onContextMenu(entry, details.globalPosition),
+              onLongPress: onContextMenu == null
+                  ? null
+                  : () {
+                      final box = context.findRenderObject() as RenderBox?;
+                      if (box != null) {
+                        onContextMenu(entry, box.localToGlobal(Offset.zero));
+                      }
+                    },
+              hoverColor: colorScheme.onSurface.withValues(alpha: 0.045),
+              focusColor: colorScheme.primary.withValues(alpha: 0.08),
+              splashColor: colorScheme.primary.withValues(alpha: 0.08),
+              child: SizedBox(
+                height: _treeRowHeight,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: _treeHorizontalPadding + (depth * _treeIndent),
+                    right: 10,
+                  ),
+                  child: Row(
+                    children: [
+                      IconTheme(
+                        data: IconThemeData(
+                          size: 17,
+                          color: colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.78,
+                          ),
+                        ),
+                        child: SizedBox(
+                          width: _treeDisclosureWidth,
+                          child: Center(child: disclosure),
                         ),
                       ),
-                      child: SizedBox(
-                        width: _treeDisclosureWidth,
-                        child: Center(child: disclosure),
+                      const SizedBox(width: 2),
+                      Icon(
+                        icon,
+                        size: 18,
+                        color: entry
+                            .entryIconColor(context)
+                            .withValues(alpha: selected ? 1 : 0.84),
                       ),
-                    ),
-                    const SizedBox(width: 2),
-                    Icon(
-                      icon,
-                      size: 18,
-                      color: entry
-                          .entryIconColor(context)
-                          .withValues(alpha: selected ? 1 : 0.84),
-                    ),
-                    const SizedBox(width: 9),
-                    Expanded(
-                      child: _OverflowTooltip(
-                        message: displayName,
-                        style: textStyle,
-                        child: Text(
-                          displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: _OverflowTooltip(
+                          message: displayName,
                           style: textStyle,
-                        ),
-                      ),
-                    ),
-                    if (statsLabel != null)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8),
-                        child: Text(
-                          statsLabel,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: colorScheme.onSurfaceVariant.withValues(
-                              alpha: 0.6,
-                            ),
+                          child: Text(
+                            displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: textStyle,
                           ),
                         ),
                       ),
-                  ],
+                      if (statsLabel != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Text(
+                            statsLabel,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colorScheme.onSurfaceVariant.withValues(
+                                alpha: 0.6,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),

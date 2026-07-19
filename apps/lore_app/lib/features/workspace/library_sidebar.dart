@@ -279,30 +279,44 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     showLibraryFailure(context, failure);
   }
 
-  Future<void> _handleContextMenu(LibraryEntry entry, Offset position) async {
+  @override
+  void dispose() {
+    // 侧栏卸载时确保覆盖层菜单一并移除，避免悬挂 overlay。
+    ContextMenuController.removeAny();
+    super.dispose();
+  }
+
+  /// 右键/长按触发：在 [position] 处弹出上下文菜单。
+  ///
+  /// 菜单由 [showLoreContextMenu] 呈现（基于 `ContextMenuController`+`TapRegion`，
+  /// 非模态、不吞指针）：任意时刻仅一个菜单，菜单已弹出时再次右键其他条目，
+  /// 同一次点击即可关闭旧菜单并打开新菜单（与 Obsidian 等原生行为一致），也
+  /// 消除右键误触打开视图的时序边界。
+  void _showContextMenu(LibraryEntry entry, Offset position) {
     if (!mounted) {
       return;
     }
-    // 路径 A：先选中目标，复用基于 selectedEntry 的重命名/删除/新建逻辑。
-    widget.controller.selectEntry(entry);
-    final action = await showMenu<_ContextMenuAction>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        position.dx,
-        position.dy,
-        position.dx,
-        position.dy,
-      ),
-      constraints: const BoxConstraints(minWidth: 184, maxWidth: 224),
-      items: _buildMenuItems(entry),
-    );
-    if (action == null || !mounted) {
-      return;
+    // 右键不应切换中间视图。novel/body/volume 的选中会让中间区域切到结构面板，
+    // 而这些条目的菜单动作（新建子节点/重命名/删除）都基于 entry 本身、不依赖
+    // 选中态——因此对它们跳过选中。其余条目（散文件/章节/普通目录）选中不会
+    // 引起视图切换，仍同步选中以复用 rename/delete/新建里基于 selectedEntry 的逻辑。
+    final drivesStructurePane = switch (entry.semanticKind) {
+      LibraryEntrySemanticKind.novel ||
+      LibraryEntrySemanticKind.body ||
+      LibraryEntrySemanticKind.volume => true,
+      _ => false,
+    };
+    if (!drivesStructurePane) {
+      widget.controller.selectEntry(entry);
     }
-    await _invokeContextMenuAction(action, entry);
+    showLoreContextMenu(
+      context: context,
+      position: position,
+      items: _buildContextMenuItems(entry),
+    );
   }
 
-  List<PopupMenuEntry<_ContextMenuAction>> _buildMenuItems(LibraryEntry entry) {
+  List<LoreContextMenuItem> _buildContextMenuItems(LibraryEntry entry) {
     final isDir = entry.isDirectory;
     final isPlainDir = isDir && entry.semanticKind == null;
     final canDelete = entry.semanticKind != LibraryEntrySemanticKind.body;
@@ -311,32 +325,30 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
         entry.semanticKind == LibraryEntrySemanticKind.body;
     final canCreateChapter =
         entry.semanticKind == LibraryEntrySemanticKind.volume;
-    return <PopupMenuEntry<_ContextMenuAction>>[
-      if (canCreateVolume)
-        LorePopupMenuItem(value: _ContextMenuAction.newVolume, label: '新建卷'),
-      if (canCreateChapter)
-        LorePopupMenuItem(value: _ContextMenuAction.newChapter, label: '新建章节'),
+    LoreContextMenuItem item(
+      String label,
+      _ContextMenuAction action, {
+      bool destructive = false,
+    }) => LoreContextMenuItem(
+      label: label,
+      destructive: destructive,
+      onTap: () => unawaited(_invokeContextMenuAction(action, entry)),
+    );
+
+    return <LoreContextMenuItem>[
+      if (canCreateVolume) item('新建卷', _ContextMenuAction.newVolume),
+      if (canCreateChapter) item('新建章节', _ContextMenuAction.newChapter),
       if (isPlainDir) ...[
-        LorePopupMenuItem(value: _ContextMenuAction.newFolder, label: '新建子文件夹'),
-        LorePopupMenuItem(value: _ContextMenuAction.newText, label: '新建 TXT'),
-        LorePopupMenuItem(
-          value: _ContextMenuAction.newMarkdown,
-          label: '新建 Markdown',
-        ),
+        item('新建子文件夹', _ContextMenuAction.newFolder),
+        item('新建 TXT', _ContextMenuAction.newText),
+        item('新建 Markdown', _ContextMenuAction.newMarkdown),
       ],
-      LorePopupMenuItem(value: _ContextMenuAction.rename, label: '重命名'),
-      LorePopupMenuItem(value: _ContextMenuAction.copyPath, label: '复制路径'),
+      item('重命名', _ContextMenuAction.rename),
+      item('复制路径', _ContextMenuAction.copyPath),
       if (widget.controller.revealGateway != null)
-        LorePopupMenuItem(
-          value: _ContextMenuAction.revealInFinder,
-          label: '在 Finder 中显示',
-        ),
+        item('在 Finder 中显示', _ContextMenuAction.revealInFinder),
       if (canDelete)
-        LorePopupMenuItem(
-          value: _ContextMenuAction.delete,
-          label: '移到回收站',
-          destructive: true,
-        ),
+        item('移到回收站', _ContextMenuAction.delete, destructive: true),
     ];
   }
 
@@ -462,7 +474,7 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                         }
                       },
                       onContextMenu: (entry, offset) =>
-                          unawaited(_handleContextMenu(entry, offset)),
+                          _showContextMenu(entry, offset),
                     )
                   : const Center(child: CircularProgressIndicator()),
             ),

@@ -2,7 +2,9 @@ import 'dart:ui' show PointerDeviceKind, SemanticsAction;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart' show kSecondaryMouseButton;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lore_app/features/workspace/library_sidebar.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
 import 'package:lore_app/features/workspace/workspace_directory_tree.dart';
 import 'package:lore_application/lore_application.dart';
@@ -174,6 +176,49 @@ void main() {
     expect(selected, isEmpty);
   });
 
+  testWidgets('primary tap immediately after a secondary tap still selects '
+      '(right-click does not swallow the next left-click)', (tester) async {
+    // 回归：右键后 _secondaryArmed 会被置位，若无 primary-down 复位，
+    // 紧接着的第一次左键会被误判为右键残留而被吞掉。
+    final selected = <LibraryEntry>[];
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '笔记.txt',
+          relativePath: '笔记.txt',
+          type: LibraryEntryType.textFile,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      _tree(
+        controller,
+        reloadToken: 0,
+        onSelected: selected.add,
+        onContextMenu: (_, _) {},
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final secondary = await tester.startGesture(
+      tester.getCenter(find.text('笔记')),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await secondary.up();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('笔记'));
+    await tester.pump();
+
+    expect(selected, hasLength(1));
+    expect(selected.single.relativePath, '笔记.txt');
+  });
+
   testWidgets('row exposes long-press semantics only when context menu wired', (
     tester,
   ) async {
@@ -217,6 +262,101 @@ void main() {
       isTrue,
     );
     semantics.dispose();
+  });
+
+  // 以下两个用例走真实的 LibrarySidebar（而非直接驱动 WorkspaceDirectory），
+  // 专门守护"右键不应切换中间视图"的修复：novel/body/volume 跳过 selectEntry，
+  // 其余条目仍同步选中。
+
+  testWidgets('right-click a novel entry does not select it (no view switch)', (
+    tester,
+  ) async {
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '我的小说',
+          relativePath: '我的小说',
+          type: LibraryEntryType.directory,
+          semanticKind: LibraryEntrySemanticKind.novel,
+          novelId: 'n1',
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: LibrarySidebar(
+              controller: controller,
+              displayPath: '/tmp/library',
+              onSelectLibrary: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(controller.selectedPath, isNull);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('我的小说')),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.up();
+    await tester.pump();
+
+    // 右键小说目录不应改变选中——否则中间区域会被切到结构面板。
+    expect(controller.selectedPath, isNull);
+  });
+
+  testWidgets('right-click a plain file still selects it (no view switch)', (
+    tester,
+  ) async {
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '笔记.txt',
+          relativePath: '笔记.txt',
+          type: LibraryEntryType.textFile,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: LibrarySidebar(
+              controller: controller,
+              displayPath: '/tmp/library',
+              onSelectLibrary: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('笔记')),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.up();
+    await tester.pump();
+
+    // 散文件右键仍同步选中（供重命名/删除使用），且其选中不会切走视图。
+    expect(controller.selectedPath, '笔记.txt');
   });
 }
 
