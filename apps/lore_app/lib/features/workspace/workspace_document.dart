@@ -53,6 +53,16 @@ final class OpenDocument extends WorkspaceTab {
   Future<bool>? saveFuture;
   int characterCount = 0;
 
+  /// 章节标题编号（来自文件首行 `第N章`）。null 表示非章节标题文档（散文件、
+  /// 卷目录、Markdown 章节等暂未启用标题栏的情形），此时编辑器持有完整正文。
+  int? chapterNumber;
+
+  /// 章节副标题：标题行 `第N章` 之后、由用户编辑的部分（不含锁定前缀与分隔空格）。
+  String chapterTitleSubtitle = '';
+
+  /// 副标题是否有未保存改动（与正文控制器的脏标记独立，因副标题不在控制器内）。
+  bool titleDirty = false;
+
   @override
   String get relativePath => snapshot.ref.relativePath;
 
@@ -61,7 +71,8 @@ final class OpenDocument extends WorkspaceTab {
   bool get isMarkdown => format == DocumentFormat.markdown;
 
   @override
-  bool get hasUnsavedChanges => editorController.hasUnsavedChanges;
+  bool get hasUnsavedChanges =>
+      editorController.hasUnsavedChanges || titleDirty;
 
   void notifyChanged() => notifyListeners();
 

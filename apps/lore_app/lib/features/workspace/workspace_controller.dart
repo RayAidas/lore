@@ -357,6 +357,10 @@ final class WorkspaceController extends ChangeNotifier {
   void setPreview(OpenDocument document, bool showPreview) =>
       _tabsStore.setPreview(document, showPreview);
 
+  /// 更新章节副标题（锁定前缀 `第N章` 不可改）；改动会触发脏标记与自动保存。
+  void updateChapterTitleSubtitle(OpenDocument document, String subtitle) =>
+      _tabsStore.updateChapterTitleSubtitle(document, subtitle);
+
   Future<bool> saveActive() => _tabsStore.saveActive();
 
   Future<bool> saveDocument(OpenDocument document) =>

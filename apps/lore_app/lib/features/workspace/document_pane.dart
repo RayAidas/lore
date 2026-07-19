@@ -8,13 +8,14 @@ import 'package:lore_editor/lore_editor.dart';
 
 import '../preferences/preferences_providers.dart';
 import '../library/library_providers.dart';
+import 'chapter_title_bar.dart';
 import 'library_failure_snackbar.dart';
 import 'local_markdown_image.dart';
 import 'open_document_extensions.dart';
 import 'workspace_controller.dart';
 
 /// 文档编辑/预览主面板：工具条 + 冲突/错误横幅 + 编辑器或预览 + 状态栏。
-final class DocumentPane extends ConsumerWidget {
+final class DocumentPane extends ConsumerStatefulWidget {
   const DocumentPane({
     required this.controller,
     required this.document,
@@ -29,14 +30,33 @@ final class DocumentPane extends ConsumerWidget {
   final VoidCallback onReloadConflict;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DocumentPane> createState() => _DocumentPaneState();
+}
+
+final class _DocumentPaneState extends ConsumerState<DocumentPane> {
+  /// 章节标题栏按回车后聚焦正文的入口节点；交给 [LoreLargeTextEditor] 转发
+  /// 到首个段落块。
+  final FocusNode _bodyFocusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _bodyFocusNode.dispose();
+    super.dispose();
+  }
+
+  WorkspaceController get controller => widget.controller;
+  OpenDocument get document => widget.document;
+  LibrarySession get session => widget.session;
+
+  @override
+  Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: document,
-      builder: (context, _) => _buildContent(context, ref),
+      builder: (context, _) => _buildContent(context),
     );
   }
 
-  Widget _buildContent(BuildContext context, WidgetRef ref) {
+  Widget _buildContent(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final prefs =
         ref.watch(appPreferencesProvider).value ?? AppPreferences.defaults();
@@ -49,6 +69,7 @@ final class DocumentPane extends ConsumerWidget {
       firstLineIndent: prefs.firstLineIndent,
       paragraphSpacing: prefs.paragraphSpacing,
     );
+    final hasTitle = document.chapterNumber != null;
     return Column(
       children: [
         Container(
@@ -127,7 +148,7 @@ final class DocumentPane extends ConsumerWidget {
             actions: [
               if (!document.sourceMissing)
                 TextButton(
-                  onPressed: onReloadConflict,
+                  onPressed: widget.onReloadConflict,
                   child: const Text('重新加载磁盘版本'),
                 ),
               FilledButton.tonal(
@@ -170,24 +191,55 @@ final class DocumentPane extends ConsumerWidget {
                       height: height,
                     ),
                   )
-                : switch (document.editorController) {
-                    LoreLargeTextController largeController =>
-                      LoreLargeTextEditor(
-                        key: ValueKey(document.relativePath),
-                        controller: largeController,
-                        scrollController: document.scrollController,
-                        style: editorStyle,
-                        autofocus: true,
+                : Column(
+                    children: [
+                      if (hasTitle)
+                        ChapterTitleBar(
+                          key: ValueKey('title-${document.relativePath}'),
+                          chapterNumber: document.chapterNumber!,
+                          subtitle: document.chapterTitleSubtitle,
+                          style: editorStyle,
+                          autofocusSubtitle:
+                              document.editorController.text.isEmpty,
+                          onChanged: (value) => controller
+                              .updateChapterTitleSubtitle(document, value),
+                          onEnter: () {
+                            document.editorController.selection =
+                                const TextSelection.collapsed(offset: 0);
+                            _bodyFocusNode.requestFocus();
+                          },
+                        ),
+                      Expanded(
+                        child: switch (document.editorController) {
+                          LoreLargeTextController largeController =>
+                            LoreLargeTextEditor(
+                              key: ValueKey(document.relativePath),
+                              controller: largeController,
+                              scrollController: document.scrollController,
+                              style: editorStyle,
+                              // 有标题栏时去掉正文顶部留白，间距由标题栏底 padding 控制。
+                              topPadding: hasTitle ? 0 : 42,
+                              focusNode: hasTitle ? _bodyFocusNode : null,
+                              // 章节正文首段自动补两字缩进（受 firstLineIndent 偏好控制）。
+                              indentFirstParagraph: hasTitle,
+                              autofocus:
+                                  !hasTitle ||
+                                  document.editorController.text.isNotEmpty,
+                            ),
+                          LoreTextController textController => LoreTextEditor(
+                            key: ValueKey(document.relativePath),
+                            controller: textController,
+                            scrollController: document.scrollController,
+                            style: editorStyle,
+                            autofocus:
+                                !hasTitle ||
+                                document.editorController.text.isNotEmpty,
+                          ),
+                          _ => const SizedBox.shrink(),
+                        },
                       ),
-                    LoreTextController textController => LoreTextEditor(
-                      key: ValueKey(document.relativePath),
-                      controller: textController,
-                      scrollController: document.scrollController,
-                      style: editorStyle,
-                      autofocus: true,
-                    ),
-                    _ => const SizedBox.shrink(),
-                  },
+                    ],
+                  ),
           ),
         ),
         Container(

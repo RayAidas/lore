@@ -55,6 +55,87 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets('chapter title is split from body and recombined on save', (
+    tester,
+  ) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+    );
+    addTearDown(repository.dispose);
+
+    // 首行 `第1章` 被识别为标题：编辑器只持有正文，标题编号与副标题独立存储。
+    repository.diskText = '第1章\n正文段';
+    await controller.initialize();
+    await controller.openPath('第1章.txt');
+
+    final document = controller.activeDocument!;
+    expect(document.chapterNumber, 1);
+    expect(document.chapterTitleSubtitle, '');
+    expect(document.editorController.text, '正文段');
+
+    // 仅改副标题：锁定前缀不变，置脏并安排自动保存。
+    controller.updateChapterTitleSubtitle(document, '甜蜜的家');
+    expect(document.saveStatus, DocumentSaveStatus.dirty);
+
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump();
+
+    // 落盘文本重组为「第1章 副标题\n正文」。
+    expect(repository.savedTexts, ['第1章 甜蜜的家\n正文段']);
+    expect(document.chapterNumber, 1);
+    expect(document.chapterTitleSubtitle, '甜蜜的家');
+    expect(document.saveStatus, DocumentSaveStatus.clean);
+    controller.dispose();
+  });
+
+  testWidgets('subtitle edited during save is not lost', (tester) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+    );
+    addTearDown(repository.dispose);
+
+    repository.diskText = '第1章\n正文段';
+    // 让第一次 save 在 fake 内部门控挂起，便于在保存进行中再改副标题。
+    final gate = Completer<void>();
+    repository.saveGate = gate;
+    await controller.initialize();
+    await controller.openPath('第1章.txt');
+    final document = controller.activeDocument!;
+
+    controller.updateChapterTitleSubtitle(document, '甲');
+    // 触发自动保存：_performSave 进入并在 gate 上挂起。
+    await tester.pump(const Duration(milliseconds: 900));
+
+    // 保存进行中再次改副标题（复现竞态）。
+    controller.updateChapterTitleSubtitle(document, '乙');
+    expect(document.titleDirty, isTrue);
+
+    gate.complete(); // 放行第一次保存（写入「甲」）
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pump();
+
+    // 修复后：第一次保存发现副标题已变，循环再来一轮写入「乙」——两次都落盘。
+    expect(document.chapterTitleSubtitle, '乙');
+    expect(document.titleDirty, isFalse);
+    expect(document.saveStatus, DocumentSaveStatus.clean);
+    expect(repository.savedTexts, ['第1章 甲\n正文段', '第1章 乙\n正文段']);
+    controller.dispose();
+  });
+
   testWidgets('deleting and recreating an open document refreshes the tree', (
     tester,
   ) async {
@@ -435,6 +516,10 @@ final class _MemoryWorkspaceRepository
   int revision = 1;
   bool sourceMissing = false;
 
+  /// 若非 null，下一次 [saveDocument] 会等待此 Completer 完成后再继续，
+  /// 便于测试在保存进行中插入编辑（复现副标题保存竞态）。仅消费一次。
+  Completer<void>? saveGate;
+
   Future<void> dispose() => changes.close();
 
   @override
@@ -527,6 +612,11 @@ final class _MemoryWorkspaceRepository
       throw const LibraryOperationException(
         LibraryFailure(code: LibraryFailureCode.notFound, message: 'missing'),
       );
+    }
+    final gate = saveGate;
+    if (gate != null) {
+      saveGate = null;
+      await gate.future;
     }
     if (original.revision.value != 'revision-$revision') {
       return DocumentSaveConflict(await readDocument(access, original.ref));

@@ -51,8 +51,7 @@ final class DocumentTabs extends StatelessWidget {
                 return ListenableBuilder(
                   listenable: tab,
                   builder: (context, _) {
-                    final active =
-                        controller.activePath == tab.relativePath;
+                    final active = controller.activePath == tab.relativePath;
                     return Padding(
                       padding: const EdgeInsets.symmetric(
                         vertical: 4,
@@ -101,19 +100,19 @@ class _TabChip extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isMarkdown = p.extension(tab.name).toLowerCase() == '.md';
+    // 与左侧目录树一致：文本文件隐藏 `.txt` 后缀，Markdown 等保留扩展名。
+    final displayName = _tabDisplayName(tab.name);
 
     return Tooltip(
       message: tab.name,
       excludeFromSemantics: true,
       waitDuration: const Duration(milliseconds: 500),
       child: Semantics(
-        label: tab.name,
+        label: displayName,
         selected: active,
         button: true,
         child: Material(
-          color: active
-              ? colorScheme.surfaceContainerLow
-              : Colors.transparent,
+          color: active ? colorScheme.surfaceContainerLow : Colors.transparent,
           borderRadius: _borderRadius,
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -137,7 +136,7 @@ class _TabChip extends StatelessWidget {
                   const SizedBox(width: 7),
                   Flexible(
                     child: Text(
-                      tab.name,
+                      displayName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
@@ -196,13 +195,23 @@ class _TabCloseButton extends StatelessWidget {
             child: InkWell(
               onTap: onPressed,
               borderRadius: BorderRadius.circular(5),
-              child: const Center(
-                child: Icon(Icons.close_rounded, size: 13),
-              ),
+              child: const Center(child: Icon(Icons.close_rounded, size: 13)),
             ),
           ),
         ),
       ),
     );
   }
+}
+
+const _txtExtension = '.txt';
+
+/// 标签展示名：与目录树 `_treeDisplayName` 一致地剥掉 `.txt` 后缀（大小写
+/// 不敏感），其余文件名原样返回。
+String _tabDisplayName(String name) {
+  if (name.length > _txtExtension.length &&
+      name.toLowerCase().endsWith(_txtExtension)) {
+    return name.substring(0, name.length - _txtExtension.length);
+  }
+  return name;
 }

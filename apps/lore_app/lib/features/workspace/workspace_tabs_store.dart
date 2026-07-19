@@ -166,6 +166,49 @@ final class WorkspaceTabsStore {
     document.notifyChanged();
   }
 
+  /// 更新章节副标题（锁定前缀 `第N章` 不在此方法职责内）。副标题改动独立于
+  /// 正文控制器，故显式置脏 + 安排自动保存，使仅改标题也能落盘。
+  void updateChapterTitleSubtitle(OpenDocument document, String subtitle) {
+    if (document.chapterNumber == null ||
+        subtitle == document.chapterTitleSubtitle) {
+      return;
+    }
+    document.chapterTitleSubtitle = subtitle;
+    document.titleDirty = true;
+    if (document.saveStatus != DocumentSaveStatus.conflict) {
+      document.failure = null;
+      document.saveStatus = DocumentSaveStatus.dirty;
+      _scheduleAutoSave(document);
+    }
+    _scheduleSessionSave();
+    document.notifyChanged();
+  }
+
+  /// 把磁盘完整文本重新拆分为「标题栏状态 + 正文」并写回控制器（用于加载、
+  /// 冲突重载、外部变更刷新）。selection 为正文相对偏移，超出范围时由控制器夹紧。
+  void _applyDiskText(
+    OpenDocument document,
+    String fullText, {
+    TextSelection? selection,
+  }) {
+    final parsed = document.format == DocumentFormat.text
+        ? ChapterTitleText.tryParse(fullText)
+        : null;
+    if (parsed == null) {
+      document.chapterNumber = null;
+      document.chapterTitleSubtitle = '';
+      document.editorController.replaceFromDisk(fullText, selection: selection);
+      return;
+    }
+    document.chapterNumber = parsed.number;
+    document.chapterTitleSubtitle = parsed.subtitle;
+    document.titleDirty = false;
+    document.editorController.replaceFromDisk(
+      ChapterTitleText.bodyOf(fullText),
+      selection: selection,
+    );
+  }
+
   Future<bool> saveActive() async {
     final document = activeDocument;
     return document == null || await saveDocument(document);
@@ -190,6 +233,18 @@ final class WorkspaceTabsStore {
     }
     while (document.hasUnsavedChanges) {
       final editorSnapshot = document.editorController.buildSnapshot();
+      // 捕获本次保存所依据的副标题快照。保存 await 期间用户可能再次改副标题：
+      // 仅当磁盘写入成功且副标题在期间未变化时才清脏，否则保留 titleDirty 让
+      // 循环再来一轮，避免「保存期间改的副标题」被静默丢弃（关 Tab 时丢失）。
+      final subtitleSnapshot = document.chapterTitleSubtitle;
+      // 章节标题文档：把「锁定前缀 + 副标题」重组回首行，再拼接正文。
+      final fullText = document.chapterNumber == null
+          ? editorSnapshot.text
+          : ChapterTitleText.compose(
+              document.chapterNumber!,
+              subtitleSnapshot,
+              editorSnapshot.text,
+            );
       document.saveStatus = DocumentSaveStatus.saving;
       document.failure = null;
       document.notifyChanged();
@@ -197,13 +252,16 @@ final class WorkspaceTabsStore {
         final result = await service.saveDocument(
           session,
           original: document.snapshot,
-          text: editorSnapshot.text,
+          text: fullText,
         );
         switch (result) {
           case DocumentSaveSuccess(:final snapshot):
             document.snapshot = snapshot;
             document.sourceMissing = false;
             document.editorController.markSaved(editorSnapshot.version);
+            // 若保存期间副标题又变了，保持脏标记让循环再来一轮写入新值。
+            document.titleDirty =
+                document.chapterTitleSubtitle != subtitleSnapshot;
             document.saveStatus = document.hasUnsavedChanges
                 ? DocumentSaveStatus.dirty
                 : DocumentSaveStatus.clean;
@@ -277,7 +335,8 @@ final class WorkspaceTabsStore {
       return;
     }
     document.snapshot = diskSnapshot;
-    document.editorController.replaceFromDisk(
+    _applyDiskText(
+      document,
       diskSnapshot.text,
       selection: document.editorController.selection,
     );
@@ -299,6 +358,13 @@ final class WorkspaceTabsStore {
         '${now.hour.toString().padLeft(2, '0')}'
         '${now.minute.toString().padLeft(2, '0')}'
         '${now.second.toString().padLeft(2, '0')}';
+    final initialText = document.chapterNumber == null
+        ? document.editorController.text
+        : ChapterTitleText.compose(
+            document.chapterNumber!,
+            document.chapterTitleSubtitle,
+            document.editorController.text,
+          );
     final entry = await service.createDocument(
       session,
       parentPath: p.dirname(document.relativePath) == '.'
@@ -306,7 +372,7 @@ final class WorkspaceTabsStore {
           : p.dirname(document.relativePath),
       name: '$stem (冲突 $timestamp)$extension',
       format: document.format,
-      initialText: document.editorController.text,
+      initialText: initialText,
     );
     if (document.sourceMissing) {
       final version = document.editorController.buildSnapshot().version;
@@ -373,14 +439,22 @@ final class WorkspaceTabsStore {
     TextSelection? selection,
     double scrollOffset = 0,
   }) {
+    // TXT 章节文档把首行 `第N章 [副标题]` 拆为标题栏状态，编辑器只持有正文；
+    // 其余文档（散文件、Markdown 章节）保持「编辑器持有完整正文」的旧行为。
+    final parsed = snapshot.ref.format == DocumentFormat.text
+        ? ChapterTitleText.tryParse(snapshot.text)
+        : null;
+    final controllerText = parsed == null
+        ? snapshot.text
+        : ChapterTitleText.bodyOf(snapshot.text);
     final LoreDocumentController controller =
         snapshot.ref.format == DocumentFormat.text
-        ? LoreLargeTextController(text: snapshot.text)
-        : LoreTextController(text: snapshot.text);
+        ? LoreLargeTextController(text: controllerText)
+        : LoreTextController(text: controllerText);
     if (selection != null) {
       controller.selection = TextSelection(
-        baseOffset: selection.baseOffset.clamp(0, snapshot.text.length),
-        extentOffset: selection.extentOffset.clamp(0, snapshot.text.length),
+        baseOffset: selection.baseOffset.clamp(0, controllerText.length),
+        extentOffset: selection.extentOffset.clamp(0, controllerText.length),
       );
     }
     final document = OpenDocument(
@@ -390,6 +464,8 @@ final class WorkspaceTabsStore {
         initialScrollOffset: scrollOffset < 0 ? 0 : scrollOffset,
       ),
     );
+    document.chapterNumber = parsed?.number;
+    document.chapterTitleSubtitle = parsed?.subtitle ?? '';
     document.characterCount = controller.characterCount;
     var observedVersion = controller.editVersion;
     controller.addListener(() {
@@ -553,7 +629,8 @@ final class WorkspaceTabsStore {
         document.saveStatus = DocumentSaveStatus.conflict;
       } else {
         document.snapshot = diskSnapshot;
-        document.editorController.replaceFromDisk(
+        _applyDiskText(
+          document,
           diskSnapshot.text,
           selection: document.editorController.selection,
         );
