@@ -45,6 +45,7 @@ final class WorkspaceController extends ChangeNotifier {
     confirmStructuralChange: _recordStructuralChange,
     expandedDirectoryPaths: () => _expandedDirectoryPaths.toList(),
     reportFailure: _setWorkspaceFailure,
+    requestTitleSync: _syncChapterTitle,
   );
 
   final Map<String, Timer> _structureChangeTimers = {};
@@ -360,6 +361,48 @@ final class WorkspaceController extends ChangeNotifier {
   /// 更新章节副标题（锁定前缀 `第N章` 不可改）；改动会触发脏标记与自动保存。
   void updateChapterTitleSubtitle(OpenDocument document, String subtitle) =>
       _tabsStore.updateChapterTitleSubtitle(document, subtitle);
+
+  /// 副标题改动后防抖触发的「标题→文件名」同步：把待写正文先落盘，再按
+  /// `第N章 [副标题]` 重命名注册章节文件；目录树与 Tab 经既有 pathChanges 跟随。
+  /// 非注册章节（散文件）或未启用结构服务时静默跳过。
+  Future<void> _syncChapterTitle(OpenDocument document) async {
+    if (novelStructureService == null) {
+      return;
+    }
+    // 先确保正文（含新副标题的首行）落盘，再重命名——避免文件名与内容首行错位。
+    if (document.saveFuture != null) {
+      await document.saveFuture;
+    }
+    if (document.hasUnsavedChanges) {
+      await saveDocument(document);
+    }
+    final number = document.chapterNumber;
+    if (number == null) {
+      return;
+    }
+    final match = _novelStore.chapterNodeForPath(document.relativePath);
+    if (match == null) {
+      return;
+    }
+    final desiredStem = ChapterTitleText.titleLine(
+      number,
+      ChapterTitleText.sanitizeForFilename(document.chapterTitleSubtitle),
+    );
+    final currentStem = p.basenameWithoutExtension(document.relativePath);
+    if (desiredStem == currentStem) {
+      return;
+    }
+    try {
+      await renameContentNode(
+        match.novel.metadata.id,
+        match.node.id,
+        desiredStem,
+      );
+    } on LibraryOperationException catch (error) {
+      _setWorkspaceFailure(error.failure);
+      _notify();
+    }
+  }
 
   Future<bool> saveActive() => _tabsStore.saveActive();
 

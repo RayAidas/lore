@@ -36,17 +36,20 @@ final class WorkspaceTabsStore {
     required void Function(String relativePath) confirmStructuralChange,
     required List<String> Function() expandedDirectoryPaths,
     required void Function(LibraryFailure failure) reportFailure,
+    required Future<void> Function(OpenDocument document) requestTitleSync,
   }) : _notify = notify,
        _novelIdForPath = novelIdForPath,
        _bumpTreeRevision = bumpTreeRevision,
        _confirmStructuralChange = confirmStructuralChange,
        _expandedDirectoryPaths = expandedDirectoryPaths,
-       _reportFailure = reportFailure;
+       _reportFailure = reportFailure,
+       _requestTitleSync = requestTitleSync;
 
   static const _autoSaveDelay = Duration(milliseconds: 800);
   static const _sessionSaveDelay = Duration(milliseconds: 500);
   static const _statisticsDelay = Duration(milliseconds: 250);
   static const _externalChangeDelay = Duration(milliseconds: 180);
+  static const _titleSyncDelay = Duration(milliseconds: 1000);
   static const _maximumRestoredTabs = 20;
 
   final LibraryWorkspaceService service;
@@ -58,6 +61,7 @@ final class WorkspaceTabsStore {
   final void Function(String) _confirmStructuralChange;
   final List<String> Function() _expandedDirectoryPaths;
   final void Function(LibraryFailure) _reportFailure;
+  final Future<void> Function(OpenDocument) _requestTitleSync;
 
   final List<WorkspaceTab> _tabs = [];
   final Map<String, Timer> _externalChangeTimers = {};
@@ -167,7 +171,8 @@ final class WorkspaceTabsStore {
   }
 
   /// 更新章节副标题（锁定前缀 `第N章` 不在此方法职责内）。副标题改动独立于
-  /// 正文控制器，故显式置脏 + 安排自动保存，使仅改标题也能落盘。
+  /// 正文控制器，故显式置脏 + 安排自动保存，使仅改标题也能落盘。同时安排一次
+  /// 防抖的标题→文件名同步（由控制器查节点并重命名）。
   void updateChapterTitleSubtitle(OpenDocument document, String subtitle) {
     if (document.chapterNumber == null ||
         subtitle == document.chapterTitleSubtitle) {
@@ -179,9 +184,21 @@ final class WorkspaceTabsStore {
       document.failure = null;
       document.saveStatus = DocumentSaveStatus.dirty;
       _scheduleAutoSave(document);
+      _scheduleTitleSync(document);
     }
     _scheduleSessionSave();
     document.notifyChanged();
+  }
+
+  /// 防抖安排一次标题→文件名同步（比自动保存略晚，确保内容先落盘再重命名）。
+  void _scheduleTitleSync(OpenDocument document) {
+    document.titleSyncTimer?.cancel();
+    document.titleSyncTimer = Timer(_titleSyncDelay, () {
+      if (_disposed) {
+        return;
+      }
+      unawaited(_requestTitleSync(document));
+    });
   }
 
   /// 把磁盘完整文本重新拆分为「标题栏状态 + 正文」并写回控制器（用于加载、

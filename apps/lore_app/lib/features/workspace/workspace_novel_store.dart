@@ -40,6 +40,35 @@ final class WorkspaceNovelStore {
     return null;
   }
 
+  /// 按文档相对路径查注册的章节节点：返回所属小说快照与节点。仅匹配
+  /// [ContentNodeType.chapter]；散文件、卷目录、未注册文件返回 null。
+  /// 用于副标题→文件名联动：只有注册章节才会触发重命名。
+  ({NovelSnapshot novel, ContentNode node})? chapterNodeForPath(
+    String relativePath,
+  ) {
+    for (final novel in _novels) {
+      if (relativePath != novel.rootPath &&
+          !p.isWithin(novel.rootPath, relativePath)) {
+        continue;
+      }
+      final nodeRelative = relativePath == novel.rootPath
+          ? ''
+          : p.relative(relativePath, from: novel.rootPath);
+      ContentNode? node;
+      for (final candidate in novel.contentTree.nodes) {
+        if (candidate.type == ContentNodeType.chapter &&
+            candidate.relativePath == nodeRelative) {
+          node = candidate;
+          break;
+        }
+      }
+      if (node != null) {
+        return (novel: novel, node: node);
+      }
+    }
+    return null;
+  }
+
   void replace(NovelSnapshot snapshot) {
     final index = _novels.indexWhere(
       (novel) => novel.metadata.id == snapshot.metadata.id,

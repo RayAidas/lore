@@ -51,6 +51,7 @@ final class OpenDocument extends WorkspaceTab {
   Timer? saveTimer;
   Timer? statisticsTimer;
   Future<bool>? saveFuture;
+  Timer? titleSyncTimer;
   int characterCount = 0;
 
   /// 章节标题编号（来自文件首行 `第N章`）。null 表示非章节标题文档（散文件、
@@ -80,6 +81,7 @@ final class OpenDocument extends WorkspaceTab {
   void dispose() {
     saveTimer?.cancel();
     statisticsTimer?.cancel();
+    titleSyncTimer?.cancel();
     editorController.dispose();
     scrollController.dispose();
     super.dispose();

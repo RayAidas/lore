@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_editor/lore_editor.dart';
 
@@ -122,6 +123,13 @@ final class _ChapterTitleBarState extends State<ChapterTitleBar> {
                       // 由我们在其中显式把焦点交给正文。
                       textInputAction: TextInputAction.done,
                       textAlign: TextAlign.start,
+                      // 副标题会成为文件名的一部分：输入即剥掉路径分隔符、各平台
+                      // 非法符号与换行/制表符，使「文件首行」与「文件名」保持一致。
+                      inputFormatters: [
+                        FilteringTextInputFormatter.deny(
+                          RegExp(r'[/\\:*?"<>|\n\r\t]'),
+                        ),
+                      ],
                       style: titleStyle,
                       cursorColor: EditorCaret.color(colorScheme),
                       cursorWidth: EditorCaret.width,

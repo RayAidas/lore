@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
+import 'package:lore_app/features/workspace/workspace_novel_store.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:path/path.dart' as p;
@@ -134,6 +135,57 @@ void main() {
     expect(document.saveStatus, DocumentSaveStatus.clean);
     expect(repository.savedTexts, ['第1章 甲\n正文段', '第1章 乙\n正文段']);
     controller.dispose();
+  });
+
+  test('chapterNodeForPath resolves registered chapters only', () {
+    final store = WorkspaceNovelStore(session: session);
+    store.replace(_chapterNovelSnapshot());
+    final match = store.chapterNodeForPath('我的小说/正文/第1章.txt');
+    expect(match, isNotNull);
+    expect(match!.node.id, ContentId('chapter-1'));
+    expect(match.novel.metadata.id, NovelId('novel-1'));
+    // 卷目录、库外散文件均不匹配。
+    expect(store.chapterNodeForPath('我的小说/正文'), isNull);
+    expect(store.chapterNodeForPath('散文件.txt'), isNull);
+  });
+
+  testWidgets('subtitle change syncs the chapter filename', (tester) async {
+    final snapshot = _chapterNovelSnapshot();
+    final novelRepo = _FakeNovelRepository(snapshot);
+    final treeRepo = _FakeContentTreeRepository(snapshot);
+    final repository = _MemoryWorkspaceRepository()..diskText = '第1章\n正文段';
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+      novelStructureService: NovelStructureService(
+        novelRepository: novelRepo,
+        contentTreeRepository: treeRepo,
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+
+    await controller.initialize();
+    await controller.openPath('我的小说/正文/第1章.txt');
+    final document = controller.activeDocument!;
+    expect(document.chapterNumber, 1);
+
+    controller.updateChapterTitleSubtitle(document, '甜蜜的家');
+    // 自动保存(800ms) 先把含新副标题的首行落盘，标题同步(1000ms) 随后重命名；
+    // 再多 pump 一段以触发重命名安排的会话保存(500ms) 定时器，避免遗留。
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pump();
+
+    expect(treeRepo.lastRenameNewName, '第1章 甜蜜的家');
+    expect(treeRepo.lastRenameNodeId, ContentId('chapter-1'));
+    // 开放文档路径经 pathChanges 重写到新文件名；Tab 与目录树随之跟随。
+    expect(document.relativePath, '我的小说/正文/第1章 甜蜜的家.txt');
+    expect(controller.activePath, '我的小说/正文/第1章 甜蜜的家.txt');
   });
 
   testWidgets('deleting and recreating an open document refreshes the tree', (
@@ -679,4 +731,132 @@ final class _MemorySessionRepository implements WorkspaceSessionRepository {
   ) async {
     value = snapshot;
   }
+}
+
+NovelSnapshot _chapterNovelSnapshot({
+  String chapterRelativePath = '正文/第1章.txt',
+  int chapterNumber = 1,
+}) {
+  final novelId = NovelId('novel-1');
+  final bodyId = ContentId('body');
+  final chapterId = ContentId('chapter-1');
+  return NovelSnapshot(
+    rootPath: '我的小说',
+    metadata: NovelMetadata(
+      schemaVersion: 2,
+      id: novelId,
+      title: '我的小说',
+      description: '',
+      coverPath: null,
+      body: NovelBody(id: bodyId, relativePath: '正文'),
+      chapterFormat: ChapterFormat.text,
+      numberingMode: NumberingMode.continuous,
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    ),
+    contentTree: ContentTree(
+      schemaVersion: 2,
+      novelId: novelId,
+      revision: 1,
+      nodes: [
+        ContentNode(
+          id: chapterId,
+          type: ContentNodeType.chapter,
+          parentId: bodyId,
+          relativePath: chapterRelativePath,
+          order: 1000,
+          number: chapterNumber,
+          role: ContentRole.normal,
+        ),
+      ],
+    ),
+  );
+}
+
+class _FakeNovelRepository implements NovelRepository {
+  _FakeNovelRepository(this.novel);
+
+  NovelSnapshot novel;
+
+  @override
+  Future<List<NovelSnapshot>> listNovels(LibraryAccess access) async => [novel];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('_FakeNovelRepository.${invocation.memberName}');
+}
+
+class _FakeContentTreeRepository implements ContentTreeRepository {
+  _FakeContentTreeRepository(this.novel);
+
+  NovelSnapshot novel;
+  String? lastRenameNewName;
+  ContentId? lastRenameNodeId;
+
+  @override
+  Future<NovelStructureMutation> renameNode(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required ContentId nodeId,
+    required String newName,
+  }) async {
+    lastRenameNewName = newName;
+    lastRenameNodeId = nodeId;
+    final oldNode = novel.contentTree.nodeById(nodeId);
+    if (oldNode == null) {
+      throw StateError('chapter node not found: $nodeId');
+    }
+    final oldRel = oldNode.relativePath;
+    final dir = p.dirname(oldRel);
+    final ext = p.extension(oldRel);
+    final newRel = dir == '.' ? '$newName$ext' : '$dir/$newName$ext';
+    final renamed = ContentNode(
+      id: oldNode.id,
+      type: oldNode.type,
+      parentId: oldNode.parentId,
+      relativePath: newRel,
+      order: oldNode.order,
+      number: oldNode.number,
+      role: oldNode.role,
+    );
+    final newTree = ContentTree(
+      schemaVersion: novel.contentTree.schemaVersion,
+      novelId: novel.contentTree.novelId,
+      revision: novel.contentTree.revision + 1,
+      nodes: novel.contentTree.nodes
+          .map((node) => node.id == nodeId ? renamed : node)
+          .toList(growable: false),
+    );
+    novel = NovelSnapshot(
+      rootPath: novel.rootPath,
+      metadata: novel.metadata,
+      contentTree: newTree,
+    );
+    final oldPath = p.join(novel.rootPath, oldRel);
+    final newPath = p.join(novel.rootPath, newRel);
+    return NovelStructureMutation(
+      snapshot: novel,
+      entry: LibraryEntry(
+        name: '$newName$ext',
+        relativePath: newPath,
+        type: LibraryEntryType.textFile,
+        semanticKind: LibraryEntrySemanticKind.chapter,
+        semanticId: nodeId.value,
+        novelId: novel.metadata.id.value,
+        semanticOrder: oldNode.order,
+      ),
+      pathChanges: [PathChange(oldPath: oldPath, newPath: newPath)],
+    );
+  }
+
+  @override
+  Future<NovelReconciliationResult> reconcile(
+    LibraryAccess access, {
+    required NovelId novelId,
+  }) async => NovelReconciliationResult(snapshot: novel);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
+    '_FakeContentTreeRepository.${invocation.memberName}',
+  );
 }
