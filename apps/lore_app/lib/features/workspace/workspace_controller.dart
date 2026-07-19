@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:path/path.dart' as p;
@@ -366,43 +366,48 @@ final class WorkspaceController extends ChangeNotifier {
   /// `第N章 [副标题]` 重命名注册章节文件；目录树与 Tab 经既有 pathChanges 跟随。
   /// 非注册章节（散文件）或未启用结构服务时静默跳过。
   Future<void> _syncChapterTitle(OpenDocument document) async {
-    if (novelStructureService == null) {
-      return;
-    }
-    // 先确保正文（含新副标题的首行）落盘，再重命名——避免文件名与内容首行错位。
-    if (document.saveFuture != null) {
-      await document.saveFuture;
-    }
-    if (document.hasUnsavedChanges) {
-      await saveDocument(document);
-    }
-    final number = document.chapterNumber;
-    if (number == null) {
-      return;
-    }
-    final match = _novelStore.chapterNodeForPath(document.relativePath);
-    if (match == null) {
-      return;
-    }
-    final desiredStem = ChapterTitleText.titleLine(
-      number,
-      ChapterTitleText.sanitizeForFilename(document.chapterTitleSubtitle),
-    );
-    final currentStem = p.basenameWithoutExtension(document.relativePath);
-    if (desiredStem == currentStem) {
+    if (novelStructureService == null || !_isOpen(document)) {
       return;
     }
     try {
+      // 先确保正文（含新副标题的首行）落盘，再重命名——避免文件名与内容首行错位。
+      if (document.saveFuture != null) {
+        await document.saveFuture;
+      }
+      if (!_isOpen(document)) return;
+      if (document.hasUnsavedChanges) {
+        await saveDocument(document);
+      }
+      if (!_isOpen(document)) return;
+      final number = document.chapterNumber;
+      if (number == null) return;
+      final match = _novelStore.chapterNodeForPath(document.relativePath);
+      if (match == null) return;
+      final desiredStem = ChapterTitleText.titleLine(
+        number,
+        ChapterTitleText.sanitizeForFilename(document.chapterTitleSubtitle),
+      );
+      final currentStem = p.basenameWithoutExtension(document.relativePath);
+      if (desiredStem == currentStem) return;
       await renameContentNode(
         match.novel.metadata.id,
         match.node.id,
         desiredStem,
       );
     } on LibraryOperationException catch (error) {
+      if (!_isOpen(document)) return;
       _setWorkspaceFailure(error.failure);
       _notify();
+    } catch (error) {
+      // 副标题同步是后台防抖任务：标签可能在 await 期间被关闭（控制器随后
+      // dispose）、或某次监听回调抛错。这些都不应作为未处理异步错误崩溃 isolate。
+      // 调试时抛出便于排查，发布时静默放弃本次同步。
+      if (kDebugMode) rethrow;
     }
   }
+
+  /// 该文档是否仍是当前打开的标签（用于后台任务在 await 后判断是否应继续）。
+  bool _isOpen(OpenDocument document) => documents.contains(document);
 
   Future<bool> saveActive() => _tabsStore.saveActive();
 

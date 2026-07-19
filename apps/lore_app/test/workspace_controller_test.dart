@@ -193,6 +193,77 @@ void main() {
     expect(controller.activePath, '我的小说/正文/第1章 甜蜜的家.txt');
   });
 
+  testWidgets('closing the tab cancels the pending title sync', (tester) async {
+    final snapshot = _chapterNovelSnapshot();
+    final novelRepo = _FakeNovelRepository(snapshot);
+    final treeRepo = _FakeContentTreeRepository(snapshot);
+    final repository = _MemoryWorkspaceRepository()..diskText = '第1章\n正文段';
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+      novelStructureService: NovelStructureService(
+        novelRepository: novelRepo,
+        contentTreeRepository: treeRepo,
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+
+    await controller.initialize();
+    await controller.openPath('我的小说/正文/第1章.txt');
+    final document = controller.activeDocument!;
+    controller.updateChapterTitleSubtitle(document, '甜蜜的家');
+    // 在标题同步(1000ms) 触发前关闭标签：dispose 取消 titleSyncTimer。
+    expect(await controller.closeTab(document), isTrue);
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pump();
+
+    expect(treeRepo.lastRenameNewName, isNull);
+  });
+
+  testWidgets(
+    'saved first line and filename agree for a leading-dot subtitle',
+    (tester) async {
+      final snapshot = _chapterNovelSnapshot();
+      final novelRepo = _FakeNovelRepository(snapshot);
+      final treeRepo = _FakeContentTreeRepository(snapshot);
+      final repository = _MemoryWorkspaceRepository()..diskText = '第1章\n正文段';
+      final controller = WorkspaceController(
+        session: session,
+        service: LibraryWorkspaceService(
+          treeRepository: repository,
+          documentRepository: repository,
+          sessionRepository: _MemorySessionRepository(),
+        ),
+        novelStructureService: NovelStructureService(
+          novelRepository: novelRepo,
+          contentTreeRepository: treeRepo,
+        ),
+      );
+      addTearDown(repository.dispose);
+      addTearDown(controller.dispose);
+
+      await controller.initialize();
+      await controller.openPath('我的小说/正文/第1章.txt');
+      final document = controller.activeDocument!;
+      // 前导点：输入过滤器本会拦，这里直接置入以验证保存与重命名都净化掉它，
+      // 使落盘首行与文件名一致（不出现「每次编辑都重命名」的漂移）。
+      controller.updateChapterTitleSubtitle(document, '.序');
+
+      await tester.pump(const Duration(milliseconds: 900)); // 自动保存(800ms)
+      await tester.pump();
+      expect(repository.savedTexts.last, '第1章 序\n正文段');
+
+      await tester.pump(const Duration(milliseconds: 900)); // 标题同步(1000ms)
+      await tester.pump();
+      expect(treeRepo.lastRenameNewName, '第1章 序');
+    },
+  );
+
   testWidgets('editor does not remount on a path-only rename', (tester) async {
     // 副标题→文件名重命名只改 relativePath（文档实例不变）。编辑器若按路径作 key
     // 会整体重挂载、autofocus 抢走正文首段焦点。这里断言重命名前后编辑器元素

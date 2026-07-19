@@ -195,10 +195,11 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                     children: [
                       if (hasTitle)
                         ChapterTitleBar(
-                          // 按文档实例而非路径作 key：副标题→文件名重命名会改变
-                          // relativePath，若按路径作 key 会导致标题栏与编辑器整体
-                          // 重挂载、副标题失焦、编辑器 autofocus 抢走正文首段焦点。
-                          key: ValueKey('title-${identityHashCode(document)}'),
+                          // 按文档实例（identity）作 key：副标题→文件名重命名会改变
+                          // relativePath，按路径作 key 会整体重挂载、副标题失焦；
+                          // 按实例作 key 仅在切文档（不同实例）时重挂载。标题栏与
+                          // 编辑器是不同 widget 类型，可共用同一 key 值。
+                          key: ValueKey(document),
                           chapterNumber: document.chapterNumber!,
                           subtitle: document.chapterTitleSubtitle,
                           style: editorStyle,
@@ -218,7 +219,7 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                             LoreLargeTextEditor(
                               // 按文档实例作 key：仅在切换文档（不同实例）时重挂载，
                               // 副标题重命名（同实例、路径变）时不重挂载，避免失焦。
-                              key: ValueKey(identityHashCode(document)),
+                              key: ValueKey(document),
                               controller: largeController,
                               scrollController: document.scrollController,
                               style: editorStyle,
@@ -232,7 +233,7 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                                   document.editorController.text.isNotEmpty,
                             ),
                           LoreTextController textController => LoreTextEditor(
-                            key: ValueKey(identityHashCode(document)),
+                            key: ValueKey(document),
                             controller: textController,
                             scrollController: document.scrollController,
                             style: editorStyle,

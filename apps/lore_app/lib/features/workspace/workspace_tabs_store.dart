@@ -254,12 +254,14 @@ final class WorkspaceTabsStore {
       // 仅当磁盘写入成功且副标题在期间未变化时才清脏，否则保留 titleDirty 让
       // 循环再来一轮，避免「保存期间改的副标题」被静默丢弃（关 Tab 时丢失）。
       final subtitleSnapshot = document.chapterTitleSubtitle;
-      // 章节标题文档：把「锁定前缀 + 副标题」重组回首行，再拼接正文。
+      // 章节标题文档：把「锁定前缀 + 副标题」重组回首行，再拼接正文。副标题经
+      // sanitizeForFilename 净化，使落盘首行与文件名（标题同步用同一净化）一致，
+      // 避免前导点 / 控制字符造成首行与文件名长期错位、每次编辑都重命名。
       final fullText = document.chapterNumber == null
           ? editorSnapshot.text
           : ChapterTitleText.compose(
               document.chapterNumber!,
-              subtitleSnapshot,
+              ChapterTitleText.sanitizeForFilename(subtitleSnapshot),
               editorSnapshot.text,
             );
       document.saveStatus = DocumentSaveStatus.saving;
@@ -379,7 +381,7 @@ final class WorkspaceTabsStore {
         ? document.editorController.text
         : ChapterTitleText.compose(
             document.chapterNumber!,
-            document.chapterTitleSubtitle,
+            ChapterTitleText.sanitizeForFilename(document.chapterTitleSubtitle),
             document.editorController.text,
           );
     final entry = await service.createDocument(

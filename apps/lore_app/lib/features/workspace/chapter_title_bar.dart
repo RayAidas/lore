@@ -123,11 +123,11 @@ final class _ChapterTitleBarState extends State<ChapterTitleBar> {
                       // 由我们在其中显式把焦点交给正文。
                       textInputAction: TextInputAction.done,
                       textAlign: TextAlign.start,
-                      // 副标题会成为文件名的一部分：输入即剥掉路径分隔符、各平台
-                      // 非法符号与换行/制表符，使「文件首行」与「文件名」保持一致。
+                      // 副标题会成为文件名的一部分：输入即按 sanitizeForFilename 的
+                      // 同一套非法字符集剥掉，使「文件首行」与「文件名」保持一致。
                       inputFormatters: [
                         FilteringTextInputFormatter.deny(
-                          RegExp(r'[/\\:*?"<>|\n\r\t]'),
+                          ChapterTitleText.filenameIllegalChars,
                         ),
                       ],
                       style: titleStyle,

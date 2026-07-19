@@ -10,7 +10,9 @@ abstract final class ChapterTitleText {
   static final _prefixPattern = RegExp(r'^第(\d+)章');
 
   /// 文件名非法字符：路径分隔符、各平台保留符号、ASCII 控制字符。
-  static final _filenameIllegalChars = RegExp(r'[/\\:*?"<>|\x00-\x1F]');
+  /// 公开供输入过滤器与 [sanitizeForFilename] 共用，确保「文件首行」与
+  /// 「文件名」按同一规则清洗。
+  static final RegExp filenameIllegalChars = RegExp(r'[/\\:*?"<>|\x00-\x1F]');
 
   /// 锁定前缀，例如 `第3章`。
   static String prefix(int number) => '第$number章';
@@ -19,7 +21,7 @@ abstract final class ChapterTitleText {
   /// 非法符号与控制字符，并剥掉前导点（避免隐藏文件名 / 触发存储层 `_validName`
   /// 拒绝）与首尾空白。结果可能为空（调用方负责回退为 `第N章`）。
   static String sanitizeForFilename(String value) {
-    final stripped = value.replaceAll(_filenameIllegalChars, '').trim();
+    final stripped = value.replaceAll(filenameIllegalChars, '').trim();
     var start = 0;
     while (start < stripped.length && stripped.codeUnitAt(start) == 0x2E) {
       // '.' 0x2E
