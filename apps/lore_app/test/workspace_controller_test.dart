@@ -1,10 +1,15 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lore_app/features/preferences/preferences_providers.dart';
+import 'package:lore_app/features/workspace/document_pane.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
 import 'package:lore_app/features/workspace/workspace_novel_store.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
+import 'package:lore_editor/lore_editor.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
@@ -186,6 +191,72 @@ void main() {
     // 开放文档路径经 pathChanges 重写到新文件名；Tab 与目录树随之跟随。
     expect(document.relativePath, '我的小说/正文/第1章 甜蜜的家.txt');
     expect(controller.activePath, '我的小说/正文/第1章 甜蜜的家.txt');
+  });
+
+  testWidgets('editor does not remount on a path-only rename', (tester) async {
+    // 副标题→文件名重命名只改 relativePath（文档实例不变）。编辑器若按路径作 key
+    // 会整体重挂载、autofocus 抢走正文首段焦点。这里断言重命名前后编辑器元素
+    // 是同一个（未重挂载），副标题字段也保持焦点。
+    final repository = _MemoryWorkspaceRepository()..diskText = '第1章\n正文段';
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.openPath('第1章.txt');
+    final document = controller.activeDocument!;
+    expect(document.chapterNumber, 1);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appPreferencesRepositoryProvider.overrideWith(
+            (ref) => _DefaultsPrefsRepository(),
+          ),
+        ],
+        child: MaterialApp(
+          home: Material(
+            child: DocumentPane(
+              controller: controller,
+              document: document,
+              session: session,
+              onReloadConflict: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final editorBefore = tester.element(find.byType(LoreLargeTextEditor));
+    // 聚焦副标题字段（标题栏的 TextField 排在编辑器正文块之前）。
+    await tester.tap(find.byType(TextField).first);
+    await tester.pump();
+    final subtitleNode = FocusManager.instance.primaryFocus;
+
+    // 模拟重命名：仅改文档路径（同实例），触发 DocumentPane 重建。
+    document.snapshot = DocumentSnapshot(
+      ref: document.snapshot.ref.copyWith(relativePath: '第1章 甜蜜的家.txt'),
+      text: document.snapshot.text,
+      encoding: document.snapshot.encoding,
+      lineEnding: document.snapshot.lineEnding,
+      revision: document.snapshot.revision,
+    );
+    document.notifyChanged();
+    await tester.pump();
+
+    final editorAfter = tester.element(find.byType(LoreLargeTextEditor));
+    expect(identical(editorBefore, editorAfter), isTrue);
+    // 副标题仍持焦点（未被编辑器 autofocus 抢走）。
+    expect(FocusManager.instance.primaryFocus, same(subtitleNode));
+    // 打开文档时安排的会话保存定时器在这里落地，避免 teardown 报遗留。
+    await tester.pump(const Duration(milliseconds: 600));
   });
 
   testWidgets('deleting and recreating an open document refreshes the tree', (
@@ -731,6 +802,19 @@ final class _MemorySessionRepository implements WorkspaceSessionRepository {
   ) async {
     value = snapshot;
   }
+}
+
+/// 仅返回默认偏好的 [AppPreferencesRepository]，供 DocumentPane 组件测试免去
+/// SharedPreferences 落库依赖（真实 [PreferencesController] 在其上运行）。
+class _DefaultsPrefsRepository implements AppPreferencesRepository {
+  @override
+  Future<AppPreferences?> load() async => AppPreferences.defaults();
+
+  @override
+  Future<void> save(AppPreferences preferences) async {}
+
+  @override
+  Stream<AppPreferences> watch() => const Stream.empty();
 }
 
 NovelSnapshot _chapterNovelSnapshot({
