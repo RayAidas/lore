@@ -1,6 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
-import '../lore_text_controller.dart';
+import '../document_controller.dart';
 import 'find_replace_controller.dart';
 
 /// 底部贴附的查找替换面板。
@@ -22,7 +24,7 @@ final class FindReplaceOverlay extends StatelessWidget {
   });
 
   final FindReplaceController findController;
-  final LoreTextController editorController;
+  final LoreDocumentController editorController;
   final bool initialShowReplace;
   final VoidCallback? onClose;
 
@@ -46,7 +48,7 @@ final class _FindReplaceOverlayStateful extends StatefulWidget {
   });
 
   final FindReplaceController findController;
-  final LoreTextController editorController;
+  final LoreDocumentController editorController;
   final bool initialShowReplace;
   final VoidCallback? onClose;
 
@@ -61,6 +63,11 @@ final class _FindReplaceOverlayStatefulState
   late final TextEditingController _replaceField;
   late bool _showReplace;
   int? _lastEditVersion;
+  Timer? _recomputeTimer;
+
+  /// 文本量低于该阈值时查找直接走同步路径——小文档匹配很快，无须为它
+  /// 承担 150ms 防抖 + isolate 启动的延迟；大文档才需要异步化避免卡顿。
+  static const _asyncSearchThreshold = 262144; // 256 KiB (UTF-16 code units)
 
   @override
   void initState() {
@@ -80,6 +87,7 @@ final class _FindReplaceOverlayStatefulState
   void dispose() {
     widget.findController.removeListener(_handleFindChanged);
     widget.editorController.removeListener(_handleEditorChanged);
+    _recomputeTimer?.cancel();
     _patternField.dispose();
     _replaceField.dispose();
     super.dispose();
@@ -98,7 +106,20 @@ final class _FindReplaceOverlayStatefulState
       return;
     }
     _lastEditVersion = version;
-    widget.findController.recompute(widget.editorController.text);
+    _scheduleRecompute();
+  }
+
+  void _scheduleRecompute() {
+    _recomputeTimer?.cancel();
+    // 用 O(1) 的 length 判阈值，避免大文档每次按键都物化全文（text 是 O(n)）。
+    if (widget.editorController.length < _asyncSearchThreshold) {
+      widget.findController.recompute(widget.editorController.text);
+      return;
+    }
+    final text = widget.editorController.text;
+    _recomputeTimer = Timer(const Duration(milliseconds: 150), () {
+      unawaited(widget.findController.recomputeAsync(text));
+    });
   }
 
   void _applyCurrentSelection() {
@@ -181,9 +202,12 @@ final class _FindReplaceOverlayStatefulState
                                 color: controller.caseSensitive
                                     ? theme.colorScheme.primary
                                     : null,
-                                onPressed: () => controller.setCaseSensitive(
-                                  !controller.caseSensitive,
-                                ),
+                                onPressed: () {
+                                  controller.setCaseSensitive(
+                                    !controller.caseSensitive,
+                                  );
+                                  _scheduleRecompute();
+                                },
                                 icon: const Icon(Icons.text_fields, size: 18),
                               ),
                               IconButton(
@@ -192,9 +216,10 @@ final class _FindReplaceOverlayStatefulState
                                 color: controller.useRegex
                                     ? theme.colorScheme.primary
                                     : null,
-                                onPressed: () => controller.setUseRegex(
-                                  !controller.useRegex,
-                                ),
+                                onPressed: () {
+                                  controller.setUseRegex(!controller.useRegex);
+                                  _scheduleRecompute();
+                                },
                                 icon: const Icon(Icons.code, size: 18),
                               ),
                               IconButton(
@@ -209,6 +234,7 @@ final class _FindReplaceOverlayStatefulState
                         onChanged: (value) {
                           controller.setPattern(value);
                           controller.setReplacement(_replaceField.text);
+                          _scheduleRecompute();
                         },
                         onSubmitted: (_) => controller.next(),
                       ),
@@ -263,6 +289,9 @@ final class _FindReplaceOverlayStatefulState
     }
     _writeBack(result.text, result.cursor);
     _lastEditVersion = widget.editorController.editVersion;
+    // 写回会 bump editVersion 触发 _handleEditorChanged 排一个延迟重算，
+    // 这里已经同步重算过，把那个冗余的异步重算取消掉。
+    _recomputeTimer?.cancel();
     widget.findController.recompute(result.text);
   }
 
@@ -272,12 +301,13 @@ final class _FindReplaceOverlayStatefulState
     );
     _writeBack(newText, null);
     _lastEditVersion = widget.editorController.editVersion;
+    _recomputeTimer?.cancel();
     widget.findController.recompute(newText);
   }
 
   void _writeBack(String text, int? cursor) {
-    widget.editorController.value = TextEditingValue(
-      text: text,
+    widget.editorController.replaceAllText(
+      text,
       selection: TextSelection.collapsed(
         offset: (cursor ?? text.length).clamp(0, text.length),
       ),

@@ -373,7 +373,10 @@ final class WorkspaceTabsStore {
     TextSelection? selection,
     double scrollOffset = 0,
   }) {
-    final controller = LoreTextController(text: snapshot.text);
+    final LoreDocumentController controller =
+        snapshot.ref.format == DocumentFormat.text
+        ? LoreLargeTextController(text: snapshot.text)
+        : LoreTextController(text: snapshot.text);
     if (selection != null) {
       controller.selection = TextSelection(
         baseOffset: selection.baseOffset.clamp(0, snapshot.text.length),
@@ -387,7 +390,7 @@ final class WorkspaceTabsStore {
         initialScrollOffset: scrollOffset < 0 ? 0 : scrollOffset,
       ),
     );
-    document.characterCount = _characterCount(controller.text);
+    document.characterCount = controller.characterCount;
     var observedVersion = controller.editVersion;
     controller.addListener(() {
       if (_disposed) {
@@ -463,7 +466,7 @@ final class WorkspaceTabsStore {
       if (_disposed) {
         return;
       }
-      final next = _characterCount(document.editorController.text);
+      final next = document.editorController.characterCount;
       final delta = next - document.characterCount;
       if (delta == 0) {
         return;
@@ -694,10 +697,6 @@ final class WorkspaceTabsStore {
       '.md' => DocumentFormat.markdown,
       _ => null,
     };
-  }
-
-  int _characterCount(String text) {
-    return text.replaceAll(RegExp(r'\s+'), '').runes.length;
   }
 
   void dispose() {

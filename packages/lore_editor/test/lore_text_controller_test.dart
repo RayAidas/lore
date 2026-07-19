@@ -22,4 +22,16 @@ void main() {
     expect(controller.text, '磁盘版本');
     expect(controller.hasUnsavedChanges, isFalse);
   });
+
+  test('markSaved notifies listeners so save status can refresh', () {
+    final controller = LoreTextController(text: '甲');
+    addTearDown(controller.dispose);
+    controller.text = '${controller.text}乙';
+    expect(controller.hasUnsavedChanges, isTrue);
+    var notifications = 0;
+    controller.addListener(() => notifications += 1);
+    controller.markSaved(controller.editVersion);
+    expect(controller.hasUnsavedChanges, isFalse);
+    expect(notifications, 1);
+  });
 }

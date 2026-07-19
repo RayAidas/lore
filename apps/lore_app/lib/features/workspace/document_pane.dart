@@ -148,13 +148,24 @@ final class DocumentPane extends ConsumerWidget {
                       height: height,
                     ),
                   )
-                : LoreTextEditor(
-                    key: ValueKey(document.relativePath),
-                    controller: document.editorController,
-                    scrollController: document.scrollController,
-                    style: editorStyle,
-                    autofocus: true,
-                  ),
+                : switch (document.editorController) {
+                    LoreLargeTextController largeController =>
+                      LoreLargeTextEditor(
+                        key: ValueKey(document.relativePath),
+                        controller: largeController,
+                        scrollController: document.scrollController,
+                        style: editorStyle,
+                        autofocus: true,
+                      ),
+                    LoreTextController textController => LoreTextEditor(
+                      key: ValueKey(document.relativePath),
+                      controller: textController,
+                      scrollController: document.scrollController,
+                      style: editorStyle,
+                      autofocus: true,
+                    ),
+                    _ => const SizedBox.shrink(),
+                  },
           ),
         ),
         Container(

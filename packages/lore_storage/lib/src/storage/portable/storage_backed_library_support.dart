@@ -894,18 +894,6 @@ mixin _StorageBackedLibrarySupport {
     return signatures.join('|');
   }
 
-  LineEnding _lineEnding(String text) {
-    final crlf = RegExp(r'\r\n').allMatches(text).length;
-    final lf = RegExp(r'(?<!\r)\n').allMatches(text).length;
-    if (crlf > 0 && lf > 0) return LineEnding.mixed;
-    return crlf > 0 ? LineEnding.crlf : LineEnding.lf;
-  }
-
-  String _applyLineEnding(String text, LineEnding ending) =>
-      ending == LineEnding.crlf
-      ? text.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n')
-      : text;
-
   int? _chapterNumber(String relativePath) {
     final name = LogicalPath.parse(relativePath).name;
     final stem = name.substring(0, name.length - _extension(name).length);

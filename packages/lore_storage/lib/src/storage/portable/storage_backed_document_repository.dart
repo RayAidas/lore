@@ -18,15 +18,9 @@ mixin _StorageBackedDocumentRepository on _StorageBackedLibrarySupport
       final bytes = await storage.readBytes(path);
       final after = await storage.stat(path);
       if (after?.revision != before!.revision) continue;
-      final hasBom =
-          bytes.length >= 3 &&
-          bytes[0] == 0xEF &&
-          bytes[1] == 0xBB &&
-          bytes[2] == 0xBF;
-      final content = hasBom ? bytes.sublist(3) : bytes;
-      String text;
+      ({String text, bool hasBom, LineEnding lineEnding}) decoded;
       try {
-        text = utf8.decode(content);
+        decoded = await Isolate.run(() => _decodeDocument(bytes));
       } on FormatException {
         throw const LibraryOperationException(
           LibraryFailure(
@@ -37,9 +31,9 @@ mixin _StorageBackedDocumentRepository on _StorageBackedLibrarySupport
       }
       return DocumentSnapshot(
         ref: ref,
-        text: text.replaceAll('\r\n', '\n'),
-        encoding: hasBom ? TextEncoding.utf8Bom : TextEncoding.utf8,
-        lineEnding: _lineEnding(text),
+        text: decoded.text,
+        encoding: decoded.hasBom ? TextEncoding.utf8Bom : TextEncoding.utf8,
+        lineEnding: decoded.lineEnding,
         revision: DocumentRevision(after!.revision!),
       );
     }
@@ -58,12 +52,8 @@ mixin _StorageBackedDocumentRepository on _StorageBackedLibrarySupport
     required String text,
   }) async {
     final storage = await storageFactory.open(access);
-    final normalized = _applyLineEnding(text, original.lineEnding);
-    final encoded = utf8.encode(normalized);
-    final bytes = Uint8List.fromList(
-      original.encoding == TextEncoding.utf8Bom
-          ? [0xEF, 0xBB, 0xBF, ...encoded]
-          : encoded,
+    final bytes = await Isolate.run(
+      () => _encodeDocument(text, original.lineEnding, original.encoding),
     );
     final result = await storage.replaceFile(
       _publicPath(original.ref.relativePath),
@@ -109,4 +99,42 @@ mixin _StorageBackedDocumentRepository on _StorageBackedLibrarySupport
       }
     }
   }
+}
+
+({String text, bool hasBom, LineEnding lineEnding}) _decodeDocument(
+  Uint8List bytes,
+) {
+  final hasBom =
+      bytes.length >= 3 &&
+      bytes[0] == 0xEF &&
+      bytes[1] == 0xBB &&
+      bytes[2] == 0xBF;
+  final content = hasBom ? bytes.sublist(3) : bytes;
+  final rawText = utf8.decode(content);
+  final crlf = RegExp(r'\r\n').allMatches(rawText).length;
+  final lf = RegExp(r'(?<!\r)\n').allMatches(rawText).length;
+  final lineEnding = crlf > 0 && lf > 0
+      ? LineEnding.mixed
+      : crlf > 0
+      ? LineEnding.crlf
+      : LineEnding.lf;
+  return (
+    text: rawText.replaceAll('\r\n', '\n'),
+    hasBom: hasBom,
+    lineEnding: lineEnding,
+  );
+}
+
+Uint8List _encodeDocument(
+  String text,
+  LineEnding lineEnding,
+  TextEncoding encoding,
+) {
+  final normalized = lineEnding == LineEnding.crlf
+      ? text.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n')
+      : text;
+  final encoded = utf8.encode(normalized);
+  return Uint8List.fromList(
+    encoding == TextEncoding.utf8Bom ? [0xEF, 0xBB, 0xBF, ...encoded] : encoded,
+  );
 }

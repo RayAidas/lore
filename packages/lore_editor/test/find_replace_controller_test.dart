@@ -70,4 +70,16 @@ void main() {
       ..recompute('12-34');
     expect(controller.applyReplaceAll('12-34'), '34-12');
   });
+
+  test('recomputeAsync stays quiet when disposed before it resolves', () async {
+    final controller = FindReplaceController()..setPattern('a');
+    var notifications = 0;
+    controller.addListener(() => notifications += 1);
+    // 启动异步重算后立刻 dispose：返回时既不能写过期数据，更不能 notifyListeners
+    // （否则会在已 dispose 的 ChangeNotifier 上抛断言）。
+    final done = controller.recomputeAsync('banana');
+    controller.dispose();
+    await done;
+    expect(notifications, 0);
+  });
 }

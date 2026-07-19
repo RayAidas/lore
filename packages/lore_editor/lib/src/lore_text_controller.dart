@@ -1,34 +1,50 @@
 import 'package:flutter/widgets.dart';
 
-final class EditorTextSnapshot {
-  const EditorTextSnapshot({required this.text, required this.version});
+import 'document_controller.dart';
 
-  final String text;
-  final int version;
-}
-
-final class LoreTextController extends TextEditingController {
+final class LoreTextController extends TextEditingController
+    implements LoreDocumentController {
   LoreTextController({required String text}) : super(text: text);
 
   var _editVersion = 0;
   var _savedVersion = 0;
 
+  @override
   int get editVersion => _editVersion;
 
+  @override
   int get savedVersion => _savedVersion;
 
+  @override
   bool get hasUnsavedChanges => _editVersion != _savedVersion;
 
+  @override
+  int get characterCount => text.replaceAll(RegExp(r'\s+'), '').runes.length;
+
+  @override
+  int get length => text.length;
+
+  @override
+  bool get canUndo => false;
+
+  @override
+  bool get canRedo => false;
+
+  @override
   EditorTextSnapshot buildSnapshot() {
     return EditorTextSnapshot(text: text, version: _editVersion);
   }
 
+  @override
   void markSaved(int version) {
     if (version > _savedVersion) {
       _savedVersion = version;
+      // 与 LoreLargeTextController 对齐：保存成功后让监听方刷新"已保存"标记。
+      notifyListeners();
     }
   }
 
+  @override
   void replaceFromDisk(
     String text, {
     TextSelection? selection,
@@ -46,6 +62,23 @@ final class LoreTextController extends TextEditingController {
       selection: _clampSelection(nextSelection, text.length),
     );
   }
+
+  @override
+  void replaceAllText(String text, {TextSelection? selection}) {
+    value = TextEditingValue(
+      text: text,
+      selection: _clampSelection(
+        selection ?? TextSelection.collapsed(offset: text.length),
+        text.length,
+      ),
+    );
+  }
+
+  @override
+  void undo() {}
+
+  @override
+  void redo() {}
 
   @override
   set value(TextEditingValue newValue) {

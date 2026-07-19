@@ -41,7 +41,7 @@ final class OpenDocument extends WorkspaceTab {
   });
 
   DocumentSnapshot snapshot;
-  final LoreTextController editorController;
+  final LoreDocumentController editorController;
   final ScrollController scrollController;
   DocumentSaveStatus saveStatus = DocumentSaveStatus.clean;
   DocumentSnapshot? conflictSnapshot;

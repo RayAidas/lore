@@ -1,3 +1,5 @@
+import 'dart:isolate';
+
 import 'package:flutter/foundation.dart';
 
 import 'search_query.dart';
@@ -31,7 +33,8 @@ final class FindReplaceController extends ChangeNotifier {
 
   List<FindMatch> _matches = const [];
   int _currentIndex = -1;
-  String _lastText = '';
+  int _searchGeneration = 0;
+  bool _disposed = false;
 
   String get pattern => _pattern;
   String get replacement => _replacement;
@@ -54,7 +57,8 @@ final class FindReplaceController extends ChangeNotifier {
 
   void setPattern(String value) {
     _pattern = value;
-    recompute(_lastText);
+    _searchGeneration += 1;
+    notifyListeners();
   }
 
   void setReplacement(String value) {
@@ -64,17 +68,19 @@ final class FindReplaceController extends ChangeNotifier {
 
   void setCaseSensitive(bool value) {
     _caseSensitive = value;
-    recompute(_lastText);
+    _searchGeneration += 1;
+    notifyListeners();
   }
 
   void setUseRegex(bool value) {
     _useRegex = value;
-    recompute(_lastText);
+    _searchGeneration += 1;
+    notifyListeners();
   }
 
   /// 用当前查询条件在 [text] 上重算匹配，并保持游标在合法范围内。
   void recompute(String text) {
-    _lastText = text;
+    _searchGeneration += 1;
     _matches = _searchQuery.findAllIn(text);
     if (_matches.isEmpty) {
       _currentIndex = -1;
@@ -82,6 +88,31 @@ final class FindReplaceController extends ChangeNotifier {
       _currentIndex = 0;
     }
     notifyListeners();
+  }
+
+  Future<void> recomputeAsync(String text) async {
+    final generation = ++_searchGeneration;
+    final query = _searchQuery;
+    final matches = await Isolate.run(() => query.findAllIn(text));
+    // 异步返回时 controller 可能已被 dispose：既不能写过期数据，更不能
+    // 在 dispose 后调用 notifyListeners（会抛断言）。generation 守卫只防
+    // 过期数据，dispose 守卫防崩溃。
+    if (_disposed || generation != _searchGeneration) {
+      return;
+    }
+    _matches = matches;
+    if (_matches.isEmpty) {
+      _currentIndex = -1;
+    } else if (_currentIndex < 0 || _currentIndex >= _matches.length) {
+      _currentIndex = 0;
+    }
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   void next() {
