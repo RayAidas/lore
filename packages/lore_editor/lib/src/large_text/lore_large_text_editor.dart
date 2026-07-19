@@ -5,12 +5,19 @@ import 'package:flutter/services.dart';
 import '../editor_style.dart';
 import 'lore_large_text_controller.dart';
 
+/// 段首两字缩进（U+3000 × 2）。挂载首段注入与 [_AutoIndentFormatter] 回车开新段
+/// 共用此单一来源，避免魔法字符串重复定义。
+const String _paragraphIndent = '　　';
+
 final class LoreLargeTextEditor extends StatefulWidget {
   const LoreLargeTextEditor({
     required this.controller,
     required this.scrollController,
     this.style = const EditorStyle.defaults(),
     this.autofocus = false,
+    this.topPadding = 42,
+    this.focusNode,
+    this.indentFirstParagraph = false,
     super.key,
   });
 
@@ -18,6 +25,21 @@ final class LoreLargeTextEditor extends StatefulWidget {
   final ScrollController scrollController;
   final EditorStyle style;
   final bool autofocus;
+
+  /// 是否为正文首段自动补两字缩进（与回车开新段的 [_AutoIndentFormatter] 一致）。
+  /// 章节文档（标题与正文分离）开启：挂载时若首段为空就注入 `　　`，使「点进
+  /// 首段」或「标题回车进入」时缩进已就位。仅在 [EditorStyle.firstLineIndent]
+  /// 开启时生效。
+  final bool indentFirstParagraph;
+
+  /// 列表顶部的垂直留白（底部固定 42）。章节文档在上方挂标题栏时，传入较小
+  /// 值（如 0），让标题与正文的间距由标题栏自身的底 padding 统一控制，
+  /// 避免两段留白叠加。
+  final double topPadding;
+
+  /// 外部聚焦入口：当此节点获得焦点时，把焦点转交给首个段落块并把光标置于
+  /// 正文开头。供章节标题栏按回车后「跳到正文」使用。
+  final FocusNode? focusNode;
 
   @override
   State<LoreLargeTextEditor> createState() => _LoreLargeTextEditorState();
@@ -28,12 +50,23 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
   int? _pointerSelectionAnchor;
   var _globalSelectionDrag = false;
   late int _observedBlocksRevision;
+  bool _transferringExternalFocus = false;
+
+  /// 段首两字缩进，与 [_AutoIndentFormatter._indent] 共用 [_paragraphIndent]。
+  static const String _indent = _paragraphIndent;
 
   @override
   void initState() {
     super.initState();
     _observedBlocksRevision = widget.controller.blocksRevision;
     widget.controller.addListener(_handleControllerChanged);
+    widget.focusNode?.addListener(_handleExternalFocus);
+    // 章节正文首段挂载即补缩进：使「点进首段」「标题回车进入」时缩进已就位。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _ensureFirstParagraphIndent();
+      }
+    });
   }
 
   @override
@@ -42,6 +75,10 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_handleControllerChanged);
       widget.controller.addListener(_handleControllerChanged);
+    }
+    if (oldWidget.focusNode != widget.focusNode) {
+      oldWidget.focusNode?.removeListener(_handleExternalFocus);
+      widget.focusNode?.addListener(_handleExternalFocus);
     }
     // 打字机模式从关闭切到开启时立即校准一次，无需等下一次按键。
     if (!oldWidget.style.typewriterMode && widget.style.typewriterMode) {
@@ -54,7 +91,53 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
   @override
   void dispose() {
     widget.controller.removeListener(_handleControllerChanged);
+    widget.focusNode?.removeListener(_handleExternalFocus);
     super.dispose();
+  }
+
+  /// 外部 [FocusNode] 自身成为主焦点时，把焦点转交给首个段落块并把光标置于
+  /// 正文开头。用于章节标题栏按回车后跳入正文。
+  ///
+  /// 关键：用 [FocusNode.hasPrimaryFocus] 而非 `hasFocus` 守卫——后者在任意
+  /// 后代（如首个段落块自动聚焦）获焦时也为真，会在每次挂载时误触发并把光标
+  /// 重置到开头。仅当外部节点**自身**为主焦点（即被 [FocusNode.requestFocus]
+  /// 显式请求）时才转交。block 0 获得主焦点后本节点自动降为祖先，无需手动
+  /// unfocus。
+  void _handleExternalFocus() {
+    final node = widget.focusNode;
+    if (node == null || !node.hasPrimaryFocus || _transferringExternalFocus) {
+      return;
+    }
+    _transferringExternalFocus = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        _transferringExternalFocus = false;
+        return;
+      }
+      _ensureFirstParagraphIndent();
+      // 光标置于首段缩进之后（若有），落到真正可输入位置而非缩进空格里。
+      final firstText = widget.controller.blocks.isEmpty
+          ? ''
+          : widget.controller.blocks.first.text;
+      final caretOffset = firstText.startsWith(_indent) ? _indent.length : 0;
+      widget.controller.selection = TextSelection.collapsed(
+        offset: caretOffset,
+      );
+      _blockRegistry.focusBlock(0, widget.controller);
+      _transferringExternalFocus = false;
+    });
+  }
+
+  /// 章节正文首段若为空且开启了首行缩进，注入两字缩进。幂等：首段已有内容则不动。
+  void _ensureFirstParagraphIndent() {
+    if (!widget.indentFirstParagraph || !widget.style.firstLineIndent) {
+      return;
+    }
+    final blocks = widget.controller.blocks;
+    if (blocks.isEmpty || blocks.first.text.isNotEmpty) {
+      return;
+    }
+    widget.controller.replaceRange(0, 0, _indent);
   }
 
   void _handleControllerChanged() {
@@ -94,15 +177,18 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
     // 专注模式：仅含光标的段落保持全不透明，其余淡化。选区无效时回退为
     // "不淡化任何段"，避免出现整篇被淡化的破损观感。
     final focusMode = widget.style.focusMode;
-    final selectionValid =
-        focusMode && widget.controller.selection.isValid;
+    final selectionValid = focusMode && widget.controller.selection.isValid;
     final activeBlockIndex = selectionValid
         ? widget.controller.blockIndexForOffset(
             widget.controller.selection.extentOffset,
           )
         : -1;
     return Focus(
-      canRequestFocus: false,
+      // 把外部 focusNode 挂到焦点树并允许其被请求焦点：章节标题栏按回车后
+      // requestFocus 此节点，监听器再把焦点转交给首个段落块。无外部节点时
+      // 维持原行为（不可聚焦的纯按键宿主）。
+      focusNode: widget.focusNode,
+      canRequestFocus: widget.focusNode != null,
       onKeyEvent: (_, event) => _handleRootKey(event),
       child: CallbackShortcuts(
         bindings: {
@@ -132,10 +218,7 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
               onPointerCancel: _handlePointerEnd,
               child: ListView.builder(
                 controller: widget.scrollController,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 52,
-                  vertical: 42,
-                ),
+                padding: EdgeInsets.fromLTRB(52, widget.topPadding, 52, 42),
                 itemCount: widget.controller.blocks.length,
                 itemBuilder: (context, index) {
                   final block = widget.controller.blocks[index];
@@ -946,7 +1029,7 @@ final class _BlockGeometryRegistry {
 final class _AutoIndentFormatter extends TextInputFormatter {
   const _AutoIndentFormatter();
 
-  static const String _indent = '　　'; // U+3000 × 2
+  static const String _indent = _paragraphIndent; // U+3000 × 2
 
   @override
   TextEditingValue formatEditUpdate(

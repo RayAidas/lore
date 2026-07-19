@@ -586,36 +586,37 @@ void main() {
     expect(controller.blocks[1].text, '　　新段二');
   });
 
-  testWidgets('does not double-indent when Enter lands before an existing indent', (
-    tester,
-  ) async {
-    // 第二段已带缩进；在其缩进之前（offset 0）插入换行，不应再补一组缩进。
-    final controller = LoreLargeTextController(text: '甲\n　　乙');
-    final scrollController = ScrollController();
-    addTearDown(controller.dispose);
-    addTearDown(scrollController.dispose);
+  testWidgets(
+    'does not double-indent when Enter lands before an existing indent',
+    (tester) async {
+      // 第二段已带缩进；在其缩进之前（offset 0）插入换行，不应再补一组缩进。
+      final controller = LoreLargeTextController(text: '甲\n　　乙');
+      final scrollController = ScrollController();
+      addTearDown(controller.dispose);
+      addTearDown(scrollController.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Material(
-          child: SizedBox(
-            width: 800,
-            height: 500,
-            child: LoreLargeTextEditor(
-              controller: controller,
-              scrollController: scrollController,
-              autofocus: true,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: SizedBox(
+              width: 800,
+              height: 500,
+              child: LoreLargeTextEditor(
+                controller: controller,
+                scrollController: scrollController,
+                autofocus: true,
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.enterText(find.byType(TextField).at(1), '\n　　乙');
-    await tester.pump();
+      );
+      await tester.enterText(find.byType(TextField).at(1), '\n　　乙');
+      await tester.pump();
 
-    expect(controller.text, isNot(contains('　　　　')));
-    expect(controller.text, contains('　　乙'));
-  });
+      expect(controller.text, isNot(contains('　　　　')));
+      expect(controller.text, contains('　　乙'));
+    },
+  );
 
   testWidgets('adds paragraph spacing only after paragraph-ending blocks', (
     tester,
@@ -658,5 +659,94 @@ void main() {
     // 第一段 hasLineBreak → 段末有段间距 Padding；末段无。
     expect(spacerAround(0).evaluate(), isNotEmpty);
     expect(spacerAround(1).evaluate(), isEmpty);
+  });
+
+  testWidgets('indents the empty first paragraph on mount for chapter bodies', (
+    tester,
+  ) async {
+    // 模拟章节正文：挂载时为空。开启首行缩进 + indentFirstParagraph。
+    final controller = LoreLargeTextController(text: '');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              indentFirstParagraph: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // 首段被注入两字缩进；这样「点进首段」或「标题回车进入」时缩进已就位。
+    expect(controller.text, '　　');
+  });
+
+  testWidgets('does not indent first paragraph when firstLineIndent is off', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              style: const EditorStyle.defaults().copyWith(
+                firstLineIndent: false,
+              ),
+              indentFirstParagraph: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(controller.text, '');
+  });
+
+  testWidgets('does not indent first paragraph that already has content', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '已有正文');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              indentFirstParagraph: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(controller.text, '已有正文');
   });
 }

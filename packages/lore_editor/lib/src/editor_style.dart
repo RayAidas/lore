@@ -39,6 +39,10 @@ final class EditorStyle {
     this.focusMode = false,
     this.firstLineIndent = true,
     this.paragraphSpacing = 18,
+    this.titleScale = 1.3,
+    this.titleFontWeight = FontWeight.w700,
+    this.titleLineHeight = 1.2,
+    this.titleBottomSpacing = 12,
   });
 
   const EditorStyle.defaults()
@@ -49,7 +53,11 @@ final class EditorStyle {
       typewriterMode = false,
       focusMode = false,
       firstLineIndent = true,
-      paragraphSpacing = 12;
+      paragraphSpacing = 12,
+      titleScale = 1.3,
+      titleFontWeight = FontWeight.w700,
+      titleLineHeight = 1.2,
+      titleBottomSpacing = 12;
 
   final double lineHeight;
   final double fontSize;
@@ -68,6 +76,21 @@ final class EditorStyle {
   /// 段落之间的额外间距（逻辑像素，仅 TXT 编辑器消费）。
   final double paragraphSpacing;
 
+  /// 章节标题字号相对 [fontSize] 的倍数（仅章节标题栏消费）。
+  final double titleScale;
+
+  /// 章节标题字重（仅章节标题栏消费）。
+  final FontWeight titleFontWeight;
+
+  /// 章节标题行高（仅章节标题栏消费，通常比正文略紧）。
+  final double titleLineHeight;
+
+  /// 章节标题与正文之间的间距（逻辑像素，仅章节标题栏消费）。
+  final double titleBottomSpacing;
+
+  /// 章节标题字号 = [fontSize] × [titleScale]。
+  double get titleFontSize => fontSize * titleScale;
+
   EditorStyle copyWith({
     double? lineHeight,
     double? fontSize,
@@ -77,6 +100,10 @@ final class EditorStyle {
     bool? focusMode,
     bool? firstLineIndent,
     double? paragraphSpacing,
+    double? titleScale,
+    FontWeight? titleFontWeight,
+    double? titleLineHeight,
+    double? titleBottomSpacing,
   }) {
     return EditorStyle(
       lineHeight: lineHeight ?? this.lineHeight,
@@ -87,6 +114,10 @@ final class EditorStyle {
       focusMode: focusMode ?? this.focusMode,
       firstLineIndent: firstLineIndent ?? this.firstLineIndent,
       paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
+      titleScale: titleScale ?? this.titleScale,
+      titleFontWeight: titleFontWeight ?? this.titleFontWeight,
+      titleLineHeight: titleLineHeight ?? this.titleLineHeight,
+      titleBottomSpacing: titleBottomSpacing ?? this.titleBottomSpacing,
     );
   }
 }
