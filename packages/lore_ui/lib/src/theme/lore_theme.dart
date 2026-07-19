@@ -101,9 +101,7 @@ abstract final class LoreTheme {
         insetPadding: const EdgeInsets.all(24),
         clipBehavior: Clip.antiAlias,
         constraints: const BoxConstraints(minWidth: 320, maxWidth: 400),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         actionsPadding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         titleTextStyle: TextStyle(
           color: colorScheme.onSurface,

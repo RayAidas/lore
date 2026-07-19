@@ -229,8 +229,7 @@ final class LoreLargeTextController extends ChangeNotifier
       return;
     }
     final edit = _undoStack.removeLast();
-    _undoStackCharacters -=
-        edit.insertedText.length + edit.removedText.length;
+    _undoStackCharacters -= edit.insertedText.length + edit.removedText.length;
     _replaceRangeAndRebuildBlocks(
       edit.start,
       edit.start + edit.insertedText.length,
@@ -254,8 +253,7 @@ final class LoreLargeTextController extends ChangeNotifier
       edit.insertedText,
     );
     _undoStack.add(edit);
-    _undoStackCharacters +=
-        edit.insertedText.length + edit.removedText.length;
+    _undoStackCharacters += edit.insertedText.length + edit.removedText.length;
     _editVersion += 1;
     _selection = _clampSelection(edit.afterSelection);
     notifyListeners();

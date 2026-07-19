@@ -37,10 +37,7 @@ final class LoreConfirmDialog extends StatelessWidget {
           onPressed: confirmEnabled
               ? () => Navigator.of(context).pop(true)
               : null,
-          style: loreDialogPrimaryButton(
-            colorScheme,
-            destructive: destructive,
-          ),
+          style: loreDialogPrimaryButton(colorScheme, destructive: destructive),
           child: Text(confirmLabel),
         ),
       ],

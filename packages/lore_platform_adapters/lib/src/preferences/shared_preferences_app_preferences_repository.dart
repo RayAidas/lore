@@ -57,17 +57,17 @@ final class SharedPreferencesAppPreferencesRepository
       }
       // 沉浸写作开关是后加字段，老 blob 里可能没有——容错读取，缺失/类型
       // 不符时取 false，且不纳入上面的严格失败守卫，避免老用户升级丢偏好。
-      final typewriterMode =
-          value['typewriterMode'] is bool ? value['typewriterMode']! as bool : false;
-      final focusMode =
-          value['focusMode'] is bool ? value['focusMode']! as bool : false;
+      final typewriterMode = value['typewriterMode'] is bool
+          ? value['typewriterMode']! as bool
+          : false;
+      final focusMode = value['focusMode'] is bool
+          ? value['focusMode']! as bool
+          : false;
       // 段落排版同理：首行缩进缺失取 true（默认开），段间距缺失取 18。
-      final firstLineIndent =
-          value['firstLineIndent'] is bool
+      final firstLineIndent = value['firstLineIndent'] is bool
           ? value['firstLineIndent']! as bool
           : true;
-      final paragraphSpacing =
-          value['paragraphSpacing'] is num
+      final paragraphSpacing = value['paragraphSpacing'] is num
           ? (value['paragraphSpacing']! as num).toDouble()
           : 18.0;
       return AppPreferences(

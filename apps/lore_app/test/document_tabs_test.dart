@@ -14,8 +14,7 @@ import 'package:lore_app/features/workspace/workspace_controller.dart';
 /// - 激活标签暴露 selected 语义。
 void main() {
   const shortName = '短.md';
-  const longName =
-      '这是一个非常非常非常非常非常非常非常长的小说章节文件名.md';
+  const longName = '这是一个非常非常非常非常非常非常非常长的小说章节文件名.md';
 
   final session = LibrarySession(
     access: const LibraryAccess(
@@ -45,10 +44,7 @@ void main() {
   Widget harness(WorkspaceController controller) {
     return MaterialApp(
       home: Scaffold(
-        body: DocumentTabs(
-          controller: controller,
-          onClose: (_) async {},
-        ),
+        body: DocumentTabs(controller: controller, onClose: (_) async {}),
       ),
     );
   }
@@ -69,26 +65,27 @@ void main() {
     expect(find.byTooltip('关闭'), findsNWidgets(2));
   });
 
-  testWidgets('short tab is narrower than long tab; both stay within max width', (
-    tester,
-  ) async {
-    final controller = buildController(_FakeRepository());
-    addTearDown(controller.dispose);
-    await controller.openPath(shortName);
-    await controller.openPath(longName);
+  testWidgets(
+    'short tab is narrower than long tab; both stay within max width',
+    (tester) async {
+      final controller = buildController(_FakeRepository());
+      addTearDown(controller.dispose);
+      await controller.openPath(shortName);
+      await controller.openPath(longName);
 
-    await tester.pumpWidget(harness(controller));
-    await tester.pump();
+      await tester.pumpWidget(harness(controller));
+      await tester.pump();
 
-    final shortRect = tester.getRect(find.byTooltip(shortName));
-    final longRect = tester.getRect(find.byTooltip(longName));
+      final shortRect = tester.getRect(find.byTooltip(shortName));
+      final longRect = tester.getRect(find.byTooltip(longName));
 
-    // 随内容撑开：短名标签比长名标签窄。
-    expect(shortRect.width, greaterThan(0));
-    expect(shortRect.width, lessThan(longRect.width));
-    // 有上限约束：长名标签不会无限撑开（maxWidth 220 + 左右内边距 14）。
-    expect(longRect.width, lessThanOrEqualTo(240));
-  });
+      // 随内容撑开：短名标签比长名标签窄。
+      expect(shortRect.width, greaterThan(0));
+      expect(shortRect.width, lessThan(longRect.width));
+      // 有上限约束：长名标签不会无限撑开（maxWidth 220 + 左右内边距 14）。
+      expect(longRect.width, lessThanOrEqualTo(240));
+    },
+  );
 
   testWidgets('marks the active tab as selected for semantics', (tester) async {
     final handle = tester.ensureSemantics();
