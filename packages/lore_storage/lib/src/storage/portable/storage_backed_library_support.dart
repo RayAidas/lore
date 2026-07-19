@@ -605,7 +605,8 @@ mixin _StorageBackedLibrarySupport {
         raw['parentId'] is! String ||
         raw['path'] is! String ||
         raw['order'] is! int ||
-        (raw['number'] != null && raw['number'] is! int)) {
+        (raw['number'] != null && raw['number'] is! int) ||
+        (raw['characterCount'] != null && raw['characterCount'] is! int)) {
       throw const FormatException('Invalid content node.');
     }
     final type = switch (raw['type']) {
@@ -628,6 +629,7 @@ mixin _StorageBackedLibrarySupport {
       order: raw['order']! as int,
       number: raw['number'] as int?,
       role: role,
+      characterCount: raw['characterCount'] as int?,
     );
   }
 
@@ -644,6 +646,7 @@ mixin _StorageBackedLibrarySupport {
             'path': node.relativePath,
             'order': node.order,
             'number': node.number,
+            'characterCount': node.characterCount,
             'role': node.role.name,
           },
         )

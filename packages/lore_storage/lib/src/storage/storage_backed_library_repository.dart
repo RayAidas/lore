@@ -631,11 +631,54 @@ final class StorageBackedLibraryRepository
       order: _nextOrder(snapshot.contentTree.childrenOf(parentId)),
       number: number - 1,
       role: ContentRole.normal,
+      // 种子字数：characterCountOf 来自 lore_domain，填入避免新建章节即 null。
+      characterCount: characterCountOf(seedText),
     );
     return _commitNodes(storage, snapshot, [
       ...snapshot.contentTree.nodes,
       node,
     ], node);
+  }
+
+  @override
+  Future<NovelStructureMutation> updateChapterCharacterCounts(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required Map<ContentId, int> characterCounts,
+  }) async {
+    final storage = await storageFactory.open(access);
+    final snapshot = await _loadNovel(
+      storage,
+      await _registration(storage, novelId),
+    );
+    final nodes = snapshot.contentTree.nodes
+        .map((node) {
+          if (node.type == ContentNodeType.chapter) {
+            final count = characterCounts[node.id];
+            if (count != null) {
+              return node.copyWith(characterCount: count);
+            }
+          }
+          return node;
+        })
+        .toList(growable: false);
+    final tree = ContentTree(
+      schemaVersion: 2,
+      novelId: snapshot.metadata.id,
+      revision: snapshot.contentTree.revision + 1,
+      nodes: nodes,
+    );
+    await _replaceJson(
+      storage,
+      LogicalPath.parse('${snapshot.rootPath}/.lore/content.json'),
+      _contentToJson(tree),
+    );
+    final updated = NovelSnapshot(
+      rootPath: snapshot.rootPath,
+      metadata: snapshot.metadata,
+      contentTree: tree,
+    );
+    return NovelStructureMutation(snapshot: updated);
   }
 
   @override

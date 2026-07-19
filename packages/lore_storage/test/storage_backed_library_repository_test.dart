@@ -44,12 +44,12 @@ void main() {
     final txtDoc = await repository.readDocument(
       access,
       DocumentRef(
-        relativePath: txtChapter.entry.relativePath,
+        relativePath: txtChapter.entry!.relativePath,
         format: DocumentFormat.text,
       ),
     );
     expect(txtDoc.text, '第1章\n');
-    expect(txtChapter.entry.name, '第1章.txt');
+    expect(txtChapter.entry!.name, '第1章.txt');
 
     // Markdown：首行 `# 第1章` + 换行（预览即标题）。
     final mdNovel = await repository.createNovel(
@@ -64,7 +64,7 @@ void main() {
     final mdDoc = await repository.readDocument(
       access,
       DocumentRef(
-        relativePath: mdChapter.entry.relativePath,
+        relativePath: mdChapter.entry!.relativePath,
         format: DocumentFormat.markdown,
       ),
     );
@@ -78,12 +78,12 @@ void main() {
     final secondDoc = await repository.readDocument(
       access,
       DocumentRef(
-        relativePath: secondChapter.entry.relativePath,
+        relativePath: secondChapter.entry!.relativePath,
         format: DocumentFormat.text,
       ),
     );
     expect(secondDoc.text, '第2章\n');
-    expect(secondChapter.entry.name, '第2章.txt');
+    expect(secondChapter.entry!.name, '第2章.txt');
   });
 
   test('completes the portable novel writing and trash loop', () async {
@@ -95,7 +95,7 @@ void main() {
     );
     final chapter = chapterMutation.snapshot.contentTree.nodes.single;
     final documentRef = DocumentRef(
-      relativePath: chapterMutation.entry.relativePath,
+      relativePath: chapterMutation.entry!.relativePath,
       format: DocumentFormat.markdown,
     );
     final original = await repository.readDocument(access, documentRef);

@@ -11,6 +11,7 @@ final class ContentNode {
     required this.order,
     required this.number,
     required this.role,
+    this.characterCount,
   });
 
   final ContentId id;
@@ -21,6 +22,10 @@ final class ContentNode {
   final int? number;
   final ContentRole role;
 
+  /// 章节正文字数（含标题行，去空白 rune 计数）。`null` 表示尚未计算（旧
+  /// content.json 或新建未保存），由上层懒算回填；`0` 表示空章节。
+  final int? characterCount;
+
   ContentNode copyWith({
     ContentId? parentId,
     String? relativePath,
@@ -28,6 +33,8 @@ final class ContentNode {
     int? number,
     bool clearNumber = false,
     ContentRole? role,
+    int? characterCount,
+    bool clearCharacterCount = false,
   }) {
     return ContentNode(
       id: id,
@@ -37,6 +44,9 @@ final class ContentNode {
       order: order ?? this.order,
       number: clearNumber ? null : number ?? this.number,
       role: role ?? this.role,
+      characterCount: clearCharacterCount
+          ? null
+          : characterCount ?? this.characterCount,
     );
   }
 }

@@ -214,6 +214,7 @@ final class _TrashRecord {
           order: node['order']! as int,
           number: node['number'] as int?,
           role: ContentRole.values.byName(node['role']! as String),
+          characterCount: node['characterCount'] as int?,
         );
       }).toList(),
     );
@@ -238,6 +239,7 @@ final class _TrashRecord {
             'path': node.relativePath,
             'order': node.order,
             'number': node.number,
+            'characterCount': node.characterCount,
             'role': node.role.name,
           },
         )

@@ -123,6 +123,32 @@ final class NovelOverviewService {
     );
   }
 
+  /// 批量读取小说所有章节正文字数（含标题行），用于 content.json 的
+  /// `characterCount` 字段回填（旧书库首开、新文件注册）。
+  Future<Map<ContentId, int>> chapterCharacterCounts(
+    LibrarySession session, {
+    required NovelId novelId,
+  }) async {
+    final snapshot = await novelRepository.loadNovel(
+      session.access,
+      novelId: novelId,
+    );
+    final counts = <ContentId, int>{};
+    for (final node in snapshot.contentTree.nodes) {
+      if (node.type == ContentNodeType.chapter) {
+        final count = await _readChapterCountOrNull(
+          session,
+          snapshot.rootPath,
+          node,
+        );
+        if (count != null) {
+          counts[node.id] = count;
+        }
+      }
+    }
+    return counts;
+  }
+
   Future<int> _readChapterCount(
     LibrarySession session,
     String rootPath,
@@ -144,6 +170,30 @@ final class NovelOverviewService {
     }
   }
 
+  /// 与 [_readChapterCount] 同算法，但读失败返回 `null`（而非 0），供回填
+  /// 使用——读不出的章节应保留 `characterCount == null`（下次再试），不能
+  /// 被误记为 0（空章节）。
+  Future<int?> _readChapterCountOrNull(
+    LibrarySession session,
+    String rootPath,
+    ContentNode node,
+  ) async {
+    final isText = node.relativePath.toLowerCase().endsWith('.txt');
+    final ref = DocumentRef(
+      relativePath: _joinPath(rootPath, node.relativePath),
+      format: isText ? DocumentFormat.text : DocumentFormat.markdown,
+    );
+    try {
+      final snapshot = await documentRepository.readDocument(
+        session.access,
+        ref,
+      );
+      return _characterCount(snapshot.text);
+    } on LibraryOperationException {
+      return null;
+    }
+  }
+
   /// application 层不依赖 path 包：书库内相对路径统一使用 `/`，用字符串拼接。
   String _joinPath(String root, String relative) {
     if (root.isEmpty) {
@@ -157,7 +207,5 @@ final class NovelOverviewService {
     return index == -1 ? relativePath : relativePath.substring(index + 1);
   }
 
-  int _characterCount(String text) {
-    return text.replaceAll(RegExp(r'\s+'), '').runes.length;
-  }
+  int _characterCount(String text) => characterCountOf(text);
 }

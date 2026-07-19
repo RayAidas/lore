@@ -1,4 +1,5 @@
 export 'src/content/chapter_title.dart';
+export 'src/content/character_count.dart';
 export 'src/content/content_id.dart';
 export 'src/content/content_tree.dart';
 export 'src/content/content_tree_rules.dart';

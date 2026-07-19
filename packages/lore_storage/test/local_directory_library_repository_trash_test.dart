@@ -37,7 +37,7 @@ void main() {
     final novel = await repository.createNovel(access, title: 'TestNovel');
     final novelId = novel.snapshot.metadata.id;
     final chapter = await repository.createChapter(access, novelId: novelId);
-    final chapterNodeId = ContentId(chapter.entry.semanticId!);
+    final chapterNodeId = ContentId(chapter.entry!.semanticId!);
     final chapterPath = p.join(root.path, 'TestNovel', '正文', '第1章.md');
     expect(await File(chapterPath).exists(), isTrue);
 
@@ -64,7 +64,7 @@ void main() {
     final novel = await repository.createNovel(access, title: 'TestNovel');
     final novelId = novel.snapshot.metadata.id;
     final volume = await repository.createVolume(access, novelId: novelId);
-    final volumeNodeId = ContentId(volume.entry.semanticId!);
+    final volumeNodeId = ContentId(volume.entry!.semanticId!);
     await repository.createChapter(
       access,
       novelId: novelId,
@@ -86,7 +86,7 @@ void main() {
     final novel = await repository.createNovel(access, title: 'TestNovel');
     final novelId = novel.snapshot.metadata.id;
     final chapter = await repository.createChapter(access, novelId: novelId);
-    final chapterNodeId = ContentId(chapter.entry.semanticId!);
+    final chapterNodeId = ContentId(chapter.entry!.semanticId!);
     final chapterPath = p.join(root.path, 'TestNovel', '正文', '第1章.md');
     final result = await repository.deleteNode(
       access,
@@ -112,7 +112,7 @@ void main() {
     final novel = await repository.createNovel(access, title: 'TestNovel');
     final novelId = novel.snapshot.metadata.id;
     final chapter = await repository.createChapter(access, novelId: novelId);
-    final chapterNodeId = ContentId(chapter.entry.semanticId!);
+    final chapterNodeId = ContentId(chapter.entry!.semanticId!);
     final deletion = await repository.deleteNode(
       access,
       novelId: novelId,
@@ -143,13 +143,13 @@ void main() {
     final novel = await repository.createNovel(access, title: 'TestNovel');
     final novelId = novel.snapshot.metadata.id;
     final volume = await repository.createVolume(access, novelId: novelId);
-    final volumeNodeId = ContentId(volume.entry.semanticId!);
+    final volumeNodeId = ContentId(volume.entry!.semanticId!);
     final chapter = await repository.createChapter(
       access,
       novelId: novelId,
       volumeId: volumeNodeId,
     );
-    final chapterNodeId = ContentId(chapter.entry.semanticId!);
+    final chapterNodeId = ContentId(chapter.entry!.semanticId!);
     final deletion = await repository.deleteNode(
       access,
       novelId: novelId,
@@ -201,7 +201,7 @@ void main() {
       final novel = await repository.createNovel(access, title: 'TestNovel');
       final novelId = novel.snapshot.metadata.id;
       final chapter = await repository.createChapter(access, novelId: novelId);
-      final chapterNodeId = ContentId(chapter.entry.semanticId!);
+      final chapterNodeId = ContentId(chapter.entry!.semanticId!);
       final originalPath = p.join(root.path, 'TestNovel', '正文', '第1章.md');
       final result = await repository.deleteNode(
         access,
@@ -232,7 +232,7 @@ void main() {
     final novel = await repository.createNovel(access, title: 'TestNovel');
     final novelId = novel.snapshot.metadata.id;
     final chapter = await repository.createChapter(access, novelId: novelId);
-    final chapterNodeId = ContentId(chapter.entry.semanticId!);
+    final chapterNodeId = ContentId(chapter.entry!.semanticId!);
     final result = await repository.deleteNode(
       access,
       novelId: novelId,

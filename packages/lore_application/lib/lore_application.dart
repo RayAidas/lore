@@ -16,6 +16,7 @@ export 'src/ports/document_repository.dart';
 export 'src/ports/id_generator.dart';
 export 'src/ports/library_access_gateway.dart';
 export 'src/ports/library_file_operations_gateway.dart';
+export 'src/ports/library_reveal_gateway.dart';
 export 'src/ports/library_repository.dart';
 export 'src/ports/library_storage.dart';
 export 'src/ports/library_tree_repository.dart';

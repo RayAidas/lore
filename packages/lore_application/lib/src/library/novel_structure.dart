@@ -28,12 +28,16 @@ final class PathChange {
 final class NovelStructureMutation {
   const NovelStructureMutation({
     required this.snapshot,
-    required this.entry,
+    this.entry,
     this.pathChanges = const [],
   });
 
   final NovelSnapshot snapshot;
-  final LibraryEntry entry;
+
+  /// 结构操作（建卷/章、重命名、移动）选中并暴露的目标条目；字数更新等不
+  /// 改变选中的操作传 `null`，[_applyStructureMutation] 据此跳过选中。
+  final LibraryEntry? entry;
+
   final List<PathChange> pathChanges;
 }
 
@@ -156,6 +160,21 @@ final class NovelStructureService {
         session.access,
         novelId: novelId,
         volumeId: volumeId,
+      ),
+    );
+  }
+
+  Future<NovelStructureMutation> updateChapterCharacterCounts(
+    LibrarySession session, {
+    required NovelId novelId,
+    required Map<ContentId, int> characterCounts,
+  }) {
+    return _mutate(
+      session,
+      () => contentTreeRepository.updateChapterCharacterCounts(
+        session.access,
+        novelId: novelId,
+        characterCounts: characterCounts,
       ),
     );
   }

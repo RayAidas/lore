@@ -37,6 +37,15 @@ abstract interface class ContentTreeRepository {
     required int newIndex,
   });
 
+  /// 批量更新章节正文字数并写回 content.json（revision 自增）。仅更新
+  /// [characterCounts] 中出现的章节节点；其余节点不变。返回更新后的快照，
+  /// `entry` 为 `null`（字数更新不改选中）。
+  Future<NovelStructureMutation> updateChapterCharacterCounts(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required Map<ContentId, int> characterCounts,
+  });
+
   Future<DeletionResult> deleteNode(
     LibraryAccess access, {
     required NovelId novelId,

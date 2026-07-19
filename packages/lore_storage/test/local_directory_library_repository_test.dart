@@ -475,14 +475,14 @@ void main() {
     final reordered = await repository.reorderNode(
       access,
       novelId: novel.snapshot.metadata.id,
-      nodeId: ContentId(second.entry.semanticId!),
+      nodeId: ContentId(second.entry!.semanticId!),
       newIndex: 0,
     );
     final moved = await repository.moveChapter(
       access,
       novelId: novel.snapshot.metadata.id,
-      chapterId: ContentId(first.entry.semanticId!),
-      volumeId: ContentId(volume.entry.semanticId!),
+      chapterId: ContentId(first.entry!.semanticId!),
+      volumeId: ContentId(volume.entry!.semanticId!),
     );
 
     expect(
@@ -491,11 +491,11 @@ void main() {
           .first
           .id
           .value,
-      second.entry.semanticId,
+      second.entry!.semanticId,
     );
-    expect(moved.entry.semanticId, first.entry.semanticId);
+    expect(moved.entry!.semanticId, first.entry!.semanticId);
     expect(
-      await File(p.join(root.path, moved.entry.relativePath)).exists(),
+      await File(p.join(root.path, moved.entry!.relativePath)).exists(),
       isTrue,
     );
   });
@@ -528,7 +528,7 @@ void main() {
     expect(renamedBody.snapshot.metadata.body.relativePath, '故事正文');
     expect(
       renamedBody.snapshot.contentTree.nodes.single.id.value,
-      chapter.entry.semanticId,
+      chapter.entry!.semanticId,
     );
     expect(
       await File(
@@ -584,7 +584,7 @@ void main() {
       expect(recovered.metadata.body.relativePath, '故事正文');
       expect(
         recovered.contentTree.nodes.single.id.value,
-        chapter.entry.semanticId,
+        chapter.entry!.semanticId,
       );
       expect(await pending.exists(), isFalse);
     },
@@ -690,7 +690,7 @@ void main() {
       access,
       novelId: novel.snapshot.metadata.id,
     );
-    final sourcePath = chapter.entry.relativePath;
+    final sourcePath = chapter.entry!.relativePath;
     final targetPath = p.join(p.dirname(sourcePath), '改名后.md');
     final pending = File(
       p.join(root.path, '.lore', 'recovery', 'pending-operation.json'),
@@ -716,7 +716,7 @@ void main() {
     expect(recovered.contentTree.nodes, hasLength(1));
     expect(
       recovered.contentTree.nodes.single.id.value,
-      chapter.entry.semanticId,
+      chapter.entry!.semanticId,
     );
     expect(
       recovered.contentTree.nodes.single.relativePath,
@@ -741,11 +741,11 @@ void main() {
     final chapter = await repository.createChapter(
       access,
       novelId: novel.snapshot.metadata.id,
-      volumeId: ContentId(volume.entry.semanticId!),
+      volumeId: ContentId(volume.entry!.semanticId!),
     );
     final renamedVolumePath = p.join('外部改名', '正文', '新卷名');
     await Directory(
-      p.join(root.path, volume.entry.relativePath),
+      p.join(root.path, volume.entry!.relativePath),
     ).rename(p.join(root.path, renamedVolumePath));
 
     final result = await repository.reconcile(
@@ -756,15 +756,15 @@ void main() {
     expect(result.issues, isEmpty);
     expect(result.snapshot.contentTree.nodes, hasLength(2));
     final recoveredVolume = result.snapshot.contentTree.nodeById(
-      ContentId(volume.entry.semanticId!),
+      ContentId(volume.entry!.semanticId!),
     );
     final recoveredChapter = result.snapshot.contentTree.nodeById(
-      ContentId(chapter.entry.semanticId!),
+      ContentId(chapter.entry!.semanticId!),
     );
     expect(recoveredVolume?.relativePath, p.join('正文', '新卷名'));
     expect(
       recoveredChapter?.relativePath,
-      p.join('正文', '新卷名', p.basename(chapter.entry.relativePath)),
+      p.join('正文', '新卷名', p.basename(chapter.entry!.relativePath)),
     );
   });
 
@@ -781,6 +781,46 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('persists and reloads chapter character counts', () async {
+    await repository.initialize(access);
+    final novel = await repository.createNovel(access, title: '新书');
+    final novelId = novel.snapshot.metadata.id;
+    final chapter = await repository.createChapter(access, novelId: novelId);
+    final chapterId = ContentId(chapter.entry!.semanticId!);
+
+    // 写入字数：revision 自增、entry 为 null（字数更新不改选中）。
+    final updated = await repository.updateChapterCharacterCounts(
+      access,
+      novelId: novelId,
+      characterCounts: {chapterId: 1234},
+    );
+    expect(updated.entry, isNull);
+    expect(
+      updated.snapshot.contentTree.revision,
+      chapter.snapshot.contentTree.revision + 1,
+    );
+    expect(
+      updated.snapshot.contentTree.nodeById(chapterId)?.characterCount,
+      1234,
+    );
+
+    // 重读 content.json 验证持久化。
+    final reloaded = await repository.loadNovel(access, novelId: novelId);
+    expect(reloaded.contentTree.nodeById(chapterId)?.characterCount, 1234);
+
+    // 旧 content.json（无 characterCount 字段）→ 反序列化为 null。
+    final contentFile = File(p.join(root.path, '新书', '.lore', 'content.json'));
+    final raw =
+        jsonDecode(await contentFile.readAsString()) as Map<String, Object?>;
+    for (final node
+        in (raw['nodes']! as List<Object?>).cast<Map<String, Object?>>()) {
+      node.remove('characterCount');
+    }
+    await contentFile.writeAsString(jsonEncode(raw));
+    final legacy = await repository.loadNovel(access, novelId: novelId);
+    expect(legacy.contentTree.nodeById(chapterId)?.characterCount, isNull);
   });
 }
 
