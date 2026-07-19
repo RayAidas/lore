@@ -784,6 +784,10 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
             minLines: 1,
             keyboardType: TextInputType.multiline,
             style: textStyle,
+            cursorColor: EditorCaret.color(Theme.of(context).colorScheme),
+            cursorWidth: EditorCaret.width,
+            cursorRadius: EditorCaret.radius,
+            cursorHeight: EditorCaret.heightFor(widget.style.fontSize),
             decoration: const InputDecoration(
               border: InputBorder.none,
               enabledBorder: InputBorder.none,

@@ -1,3 +1,29 @@
+import 'package:flutter/material.dart';
+
+/// 编辑器光标（caret）样式。
+///
+/// 取代 Material 默认的饱和 primary 蓝色锐角竖条：改用与正文同色系的中性
+/// 细条、端部微圆，跟随 light/dark/sepia 主题自适应，在暖纸与极简主题下
+/// 更协调、不抢眼。
+abstract final class EditorCaret {
+  const EditorCaret._();
+
+  static const double width = 1.6;
+
+  static const Radius radius = Radius.circular(1.0);
+
+  /// 光标高度随字号缩放，但与行距解耦：默认行高 1.95 会让 Material 默认
+  /// 光标贯穿整个行盒（约 1.95× 字号）显得过高；1.2× 字号约等于字身高度
+  /// 加少量边距，光标贴合文字、不再撑满整行。用户调整行高时光标保持稳定。
+  static const double heightFactor = 1.2;
+
+  static double heightFor(double fontSize) => fontSize * heightFactor;
+
+  static Color color(ColorScheme colorScheme) {
+    return colorScheme.onSurface.withValues(alpha: 0.82);
+  }
+}
+
 /// 编辑器正文的行为与排版参数。
 ///
 /// 由上层从应用偏好派生并注入编辑器组件，使字号、行高、行宽与字距能在

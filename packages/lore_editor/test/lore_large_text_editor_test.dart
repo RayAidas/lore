@@ -519,4 +519,36 @@ void main() {
     expect(dimmedAround(1).evaluate(), isNotEmpty);
     expect(dimmedAround(2).evaluate(), isEmpty);
   });
+
+  testWidgets('applies the shared EditorCaret metrics to each block field', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '第一段\n第二段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+    const style = EditorStyle.defaults();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              style: style,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final field = tester.widget<TextField>(find.byType(TextField).first);
+    expect(field.cursorWidth, EditorCaret.width);
+    expect(field.cursorHeight, EditorCaret.heightFor(style.fontSize));
+    expect(field.cursorRadius, EditorCaret.radius);
+    expect(field.cursorColor, isNotNull);
+  });
 }
