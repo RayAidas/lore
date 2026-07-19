@@ -101,6 +101,41 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets('markdown chapter title splits and recomposes with # heading', (
+    tester,
+  ) async {
+    final repository = _MemoryWorkspaceRepository()..diskText = '# 第1章\n正文段';
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+
+    await controller.initialize();
+    await controller.openPath('第1章.md');
+    final document = controller.activeDocument!;
+    // 首行 `# 第1章` 被识别为标题：编辑器只持有正文，副标题独立存储。
+    expect(document.isMarkdown, isTrue);
+    expect(document.chapterNumber, 1);
+    expect(document.chapterTitleSubtitle, '');
+    expect(document.editorController.text, '正文段');
+
+    controller.updateChapterTitleSubtitle(document, '甜蜜的家');
+    await tester.pump(const Duration(milliseconds: 900)); // 自动保存(800ms)
+    await tester.pump(
+      const Duration(milliseconds: 700),
+    ); // 标题同步(1000ms) + 会话保存(1300ms)
+    await tester.pump();
+
+    // 落盘首行仍以 `# ` 写作 Markdown H1。
+    expect(repository.savedTexts.last, '# 第1章 甜蜜的家\n正文段');
+  });
+
   testWidgets('subtitle edited during save is not lost', (tester) async {
     final repository = _MemoryWorkspaceRepository();
     final controller = WorkspaceController(

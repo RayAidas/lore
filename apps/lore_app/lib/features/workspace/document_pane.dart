@@ -179,42 +179,44 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
         Expanded(
           child: ColoredBox(
             color: colorScheme.surface,
-            child: document.showPreview && document.isMarkdown
-                ? LoreMarkdownPreview(
-                    data: document.editorController.text,
-                    imageBuilder: (uri, width, height) => LocalMarkdownImage(
-                      session: session,
-                      assetService: ref.watch(libraryAssetServiceProvider),
-                      documentPath: document.relativePath,
-                      uri: uri,
-                      width: width,
-                      height: height,
-                    ),
-                  )
-                : Column(
-                    children: [
-                      if (hasTitle)
-                        ChapterTitleBar(
-                          // 按文档实例（identity）作 key：副标题→文件名重命名会改变
-                          // relativePath，按路径作 key 会整体重挂载、副标题失焦；
-                          // 按实例作 key 仅在切文档（不同实例）时重挂载。标题栏与
-                          // 编辑器是不同 widget 类型，可共用同一 key 值。
-                          key: ValueKey(document),
-                          chapterNumber: document.chapterNumber!,
-                          subtitle: document.chapterTitleSubtitle,
-                          style: editorStyle,
-                          autofocusSubtitle:
-                              document.editorController.text.isEmpty,
-                          onChanged: (value) => controller
-                              .updateChapterTitleSubtitle(document, value),
-                          onEnter: () {
-                            document.editorController.selection =
-                                const TextSelection.collapsed(offset: 0);
-                            _bodyFocusNode.requestFocus();
-                          },
-                        ),
-                      Expanded(
-                        child: switch (document.editorController) {
+            child: Column(
+              children: [
+                if (hasTitle)
+                  ChapterTitleBar(
+                    // 按文档实例（identity）作 key：副标题→文件名重命名会改变
+                    // relativePath，按路径作 key 会整体重挂载、副标题失焦；
+                    // 按实例作 key 仅在切文档（不同实例）时重挂载。标题栏与
+                    // 编辑器是不同 widget 类型，可共用同一 key 值。
+                    key: ValueKey(document),
+                    chapterNumber: document.chapterNumber!,
+                    subtitle: document.chapterTitleSubtitle,
+                    style: editorStyle,
+                    autofocusSubtitle: document.editorController.text.isEmpty,
+                    onChanged: (value) =>
+                        controller.updateChapterTitleSubtitle(document, value),
+                    onEnter: () {
+                      document.editorController.selection =
+                          const TextSelection.collapsed(offset: 0);
+                      _bodyFocusNode.requestFocus();
+                    },
+                  ),
+                Expanded(
+                  child: document.showPreview && document.isMarkdown
+                      ? LoreMarkdownPreview(
+                          data: document.editorController.text,
+                          imageBuilder: (uri, width, height) =>
+                              LocalMarkdownImage(
+                                session: session,
+                                assetService: ref.watch(
+                                  libraryAssetServiceProvider,
+                                ),
+                                documentPath: document.relativePath,
+                                uri: uri,
+                                width: width,
+                                height: height,
+                              ),
+                        )
+                      : switch (document.editorController) {
                           LoreLargeTextController largeController =>
                             LoreLargeTextEditor(
                               // 按文档实例作 key：仅在切换文档（不同实例）时重挂载，
@@ -237,15 +239,17 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                             controller: textController,
                             scrollController: document.scrollController,
                             style: editorStyle,
+                            // 章节标题文档：标题栏回车后聚焦正文字段。
+                            focusNode: hasTitle ? _bodyFocusNode : null,
                             autofocus:
                                 !hasTitle ||
                                 document.editorController.text.isNotEmpty,
                           ),
                           _ => const SizedBox.shrink(),
                         },
-                      ),
-                    ],
-                  ),
+                ),
+              ],
+            ),
           ),
         ),
         Container(

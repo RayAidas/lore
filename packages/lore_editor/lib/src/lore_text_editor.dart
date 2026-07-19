@@ -9,6 +9,7 @@ final class LoreTextEditor extends StatelessWidget {
     required this.scrollController,
     this.style = const EditorStyle.defaults(),
     this.autofocus = false,
+    this.focusNode,
     super.key,
   });
 
@@ -16,6 +17,10 @@ final class LoreTextEditor extends StatelessWidget {
   final ScrollController scrollController;
   final EditorStyle style;
   final bool autofocus;
+
+  /// 外部聚焦入口：章节标题栏按回车后 requestFocus 此节点可直接聚焦正文字段
+  /// （Markdown 编辑器是单个 TextField，无需像大文本编辑器那样转交 block）。
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +43,7 @@ final class LoreTextEditor extends StatelessWidget {
               ),
               child: TextField(
                 controller: controller,
+                focusNode: focusNode,
                 scrollController: scrollController,
                 autofocus: autofocus,
                 expands: true,

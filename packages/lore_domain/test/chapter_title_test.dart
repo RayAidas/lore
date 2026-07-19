@@ -116,4 +116,44 @@ void main() {
       );
     });
   });
+
+  group('ChapterTitleText Markdown 标题', () {
+    test('tryParse 识别带 `# ` 前缀的 H1 标题', () {
+      final parsed = ChapterTitleText.tryParse('# 第3章 甜蜜的家\n正文');
+      expect(parsed, isNotNull);
+      expect(parsed!.number, 3);
+      expect(parsed.subtitle, '甜蜜的家');
+
+      final noSubtitle = ChapterTitleText.tryParse('# 第3章\n正文');
+      expect(noSubtitle!.number, 3);
+      expect(noSubtitle.subtitle, '');
+    });
+
+    test('`#` 与数字之间允许零或多个空格', () {
+      expect(ChapterTitleText.tryParse('#第3章 X\n')!.subtitle, 'X');
+      expect(ChapterTitleText.tryParse('#  第3章 X\n')!.subtitle, 'X');
+    });
+
+    test('compose 以 markdown:true 写出 H1 首行', () {
+      expect(
+        ChapterTitleText.compose(3, '甜蜜的家', '正文', markdown: true),
+        '# 第3章 甜蜜的家\n正文',
+      );
+      expect(ChapterTitleText.compose(3, '', '', markdown: true), '# 第3章\n');
+    });
+
+    test('TXT 与 MD 往返各自一致', () {
+      const mdFull = '# 第5章 终章\n尾声段';
+      final parsed = ChapterTitleText.tryParse(mdFull)!;
+      expect(
+        ChapterTitleText.compose(
+          parsed.number,
+          parsed.subtitle,
+          ChapterTitleText.bodyOf(mdFull),
+          markdown: true,
+        ),
+        mdFull,
+      );
+    });
+  });
 }

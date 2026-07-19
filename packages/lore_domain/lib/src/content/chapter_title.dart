@@ -7,7 +7,9 @@
 abstract final class ChapterTitleText {
   const ChapterTitleText._();
 
-  static final _prefixPattern = RegExp(r'^第(\d+)章');
+  /// 首行标题识别：`第N章`（TXT）或 `# 第N章`（Markdown H1）。
+  /// 可选的 `#` + 空白使两种格式共用同一解析，UI 侧据此渲染锁定前缀。
+  static final _prefixPattern = RegExp(r'^#?[ \t]*第(\d+)章');
 
   /// 文件名非法字符：路径分隔符、各平台保留符号、ASCII 控制字符。
   /// 公开供输入过滤器与 [sanitizeForFilename] 共用，确保「文件首行」与
@@ -63,8 +65,19 @@ abstract final class ChapterTitleText {
 
   /// 重组完整文件文本：标题行 + 换行 + 正文。正文为空时仍保留标题后的换行，
   /// 使「标题 / 正文」结构稳定，光标自然落在空正文段。
-  static String compose(int number, String subtitle, String body) {
-    return '${titleLine(number, subtitle)}\n$body';
+  ///
+  /// [markdown] 为真时标题行以 `# ` 前缀写作 Markdown H1（文件首行保持 Markdown
+  /// 语义）；文件名与标题栏显示均不含 `#`（仅磁盘首行有）。
+  static String compose(
+    int number,
+    String subtitle,
+    String body, {
+    bool markdown = false,
+  }) {
+    final head = markdown
+        ? '# ${titleLine(number, subtitle)}'
+        : titleLine(number, subtitle);
+    return '$head\n$body';
   }
 }
 

@@ -208,9 +208,7 @@ final class WorkspaceTabsStore {
     String fullText, {
     TextSelection? selection,
   }) {
-    final parsed = document.format == DocumentFormat.text
-        ? ChapterTitleText.tryParse(fullText)
-        : null;
+    final parsed = ChapterTitleText.tryParse(fullText);
     if (parsed == null) {
       document.chapterNumber = null;
       document.chapterTitleSubtitle = '';
@@ -263,6 +261,7 @@ final class WorkspaceTabsStore {
               document.chapterNumber!,
               ChapterTitleText.sanitizeForFilename(subtitleSnapshot),
               editorSnapshot.text,
+              markdown: document.isMarkdown,
             );
       document.saveStatus = DocumentSaveStatus.saving;
       document.failure = null;
@@ -383,6 +382,7 @@ final class WorkspaceTabsStore {
             document.chapterNumber!,
             ChapterTitleText.sanitizeForFilename(document.chapterTitleSubtitle),
             document.editorController.text,
+            markdown: document.isMarkdown,
           );
     final entry = await service.createDocument(
       session,
@@ -458,11 +458,9 @@ final class WorkspaceTabsStore {
     TextSelection? selection,
     double scrollOffset = 0,
   }) {
-    // TXT 章节文档把首行 `第N章 [副标题]` 拆为标题栏状态，编辑器只持有正文；
-    // 其余文档（散文件、Markdown 章节）保持「编辑器持有完整正文」的旧行为。
-    final parsed = snapshot.ref.format == DocumentFormat.text
-        ? ChapterTitleText.tryParse(snapshot.text)
-        : null;
+    // 章节文档（TXT 或 Markdown）把首行 `第N章 [副标题]`（MD 可带 `# `）拆为
+    // 标题栏状态，编辑器只持有正文；非章节文档保持「编辑器持有完整正文」的旧行为。
+    final parsed = ChapterTitleText.tryParse(snapshot.text);
     final controllerText = parsed == null
         ? snapshot.text
         : ChapterTitleText.bodyOf(snapshot.text);
