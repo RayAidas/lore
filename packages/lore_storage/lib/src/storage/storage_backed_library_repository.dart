@@ -615,7 +615,14 @@ final class StorageBackedLibraryRepository
       );
       number += 1;
     } while (await storage.stat(target) != null);
-    await storage.createFile(target, Uint8List(0));
+    // 写入初始标题行，使新建章节不再是空文件：
+    // TXT 首行为 `第N章`，Markdown 首行为 `# 第N章`（预览即标题）。
+    // 编号取循环最终选定的那个（循环结束时 number 已自增过，故 -1）。
+    final chapterNumber = number - 1;
+    final seedText = snapshot.metadata.chapterFormat == ChapterFormat.text
+        ? '${ChapterTitleText.titleLine(chapterNumber, '')}\n'
+        : '# ${ChapterTitleText.prefix(chapterNumber)}\n';
+    await storage.createFile(target, Uint8List.fromList(utf8.encode(seedText)));
     final node = ContentNode(
       id: ContentId(idGenerator.generate()),
       type: ContentNodeType.chapter,

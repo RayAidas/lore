@@ -28,6 +28,64 @@ void main() {
 
   tearDown(() => root.delete(recursive: true));
 
+  test('createChapter seeds the chapter title as the first line', () async {
+    await repository.initialize(access);
+
+    // TXT：首行 `第1章` + 换行。
+    final txtNovel = await repository.createNovel(
+      access,
+      title: 'TXT 小说',
+      chapterFormat: ChapterFormat.text,
+    );
+    final txtChapter = await repository.createChapter(
+      access,
+      novelId: txtNovel.snapshot.metadata.id,
+    );
+    final txtDoc = await repository.readDocument(
+      access,
+      DocumentRef(
+        relativePath: txtChapter.entry.relativePath,
+        format: DocumentFormat.text,
+      ),
+    );
+    expect(txtDoc.text, '第1章\n');
+    expect(txtChapter.entry.name, '第1章.txt');
+
+    // Markdown：首行 `# 第1章` + 换行（预览即标题）。
+    final mdNovel = await repository.createNovel(
+      access,
+      title: 'MD 小说',
+      chapterFormat: ChapterFormat.markdown,
+    );
+    final mdChapter = await repository.createChapter(
+      access,
+      novelId: mdNovel.snapshot.metadata.id,
+    );
+    final mdDoc = await repository.readDocument(
+      access,
+      DocumentRef(
+        relativePath: mdChapter.entry.relativePath,
+        format: DocumentFormat.markdown,
+      ),
+    );
+    expect(mdDoc.text, '# 第1章\n');
+
+    // 连续编号：第二个 TXT 章节应为第 2 章。
+    final secondChapter = await repository.createChapter(
+      access,
+      novelId: txtNovel.snapshot.metadata.id,
+    );
+    final secondDoc = await repository.readDocument(
+      access,
+      DocumentRef(
+        relativePath: secondChapter.entry.relativePath,
+        format: DocumentFormat.text,
+      ),
+    );
+    expect(secondDoc.text, '第2章\n');
+    expect(secondChapter.entry.name, '第2章.txt');
+  });
+
   test('completes the portable novel writing and trash loop', () async {
     final library = await repository.initialize(access);
     final novelMutation = await repository.createNovel(access, title: '长夜行');
