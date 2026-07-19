@@ -264,6 +264,50 @@ void main() {
     },
   );
 
+  testWidgets('self-rename watch back-flow keeps the open doc clean', (
+    tester,
+  ) async {
+    // 重命名会触发存储层文件监听回流（delete 旧 + create 新）。开放文档不应因此
+    // 进入假冲突或被重载：_inspectExternalChange 在 revision 一致时早返回。
+    final snapshot = _chapterNovelSnapshot();
+    final novelRepo = _FakeNovelRepository(snapshot);
+    final repository = _MemoryWorkspaceRepository()..diskText = '第1章\n正文段';
+    // 把重命名的 watch 事件灌入文档仓储的 changes 流，模拟真实存储层回流。
+    final treeRepo = _FakeContentTreeRepository(
+      snapshot,
+      watchSink: repository.changes,
+    );
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+      novelStructureService: NovelStructureService(
+        novelRepository: novelRepo,
+        contentTreeRepository: treeRepo,
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+
+    await controller.initialize();
+    await controller.openPath('我的小说/正文/第1章.txt');
+    final document = controller.activeDocument!;
+    controller.updateChapterTitleSubtitle(document, '甜蜜的家');
+    // 跨过 自动保存(800) + 标题同步(1000) + 外部变更复检(180) + reconcile(180) + 会话保存(500)。
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pump();
+
+    expect(treeRepo.lastRenameNewName, '第1章 甜蜜的家');
+    expect(document.relativePath, '我的小说/正文/第1章 甜蜜的家.txt');
+    // 关键：回流未造成假冲突，也未重载——状态干净、正文原样。
+    expect(document.saveStatus, DocumentSaveStatus.clean);
+    expect(document.editorController.text, '正文段');
+  });
+
   testWidgets('editor does not remount on a path-only rename', (tester) async {
     // 副标题→文件名重命名只改 relativePath（文档实例不变）。编辑器若按路径作 key
     // 会整体重挂载、autofocus 抢走正文首段焦点。这里断言重命名前后编辑器元素
@@ -942,9 +986,14 @@ class _FakeNovelRepository implements NovelRepository {
 }
 
 class _FakeContentTreeRepository implements ContentTreeRepository {
-  _FakeContentTreeRepository(this.novel);
+  _FakeContentTreeRepository(this.novel, {this.watchSink});
 
   NovelSnapshot novel;
+
+  /// 若提供，重命名时向其推送 watch 事件（delete 旧路径 + create 新路径），
+  /// 模拟真实存储层文件监听在 storage.move 后的回流，供控制器 _handleDocumentChange 走通。
+  final StreamController<DocumentChange>? watchSink;
+
   String? lastRenameNewName;
   ContentId? lastRenameNodeId;
 
@@ -989,6 +1038,16 @@ class _FakeContentTreeRepository implements ContentTreeRepository {
     );
     final oldPath = p.join(novel.rootPath, oldRel);
     final newPath = p.join(novel.rootPath, newRel);
+    // 模拟真实存储层在 storage.move 后推送的文件监听事件（delete 旧 + create 新）。
+    final sink = watchSink;
+    if (sink != null && !sink.isClosed) {
+      sink.add(
+        DocumentChange(relativePath: oldPath, type: DocumentChangeType.deleted),
+      );
+      sink.add(
+        DocumentChange(relativePath: newPath, type: DocumentChangeType.created),
+      );
+    }
     return NovelStructureMutation(
       snapshot: novel,
       entry: LibraryEntry(
