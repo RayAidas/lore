@@ -119,19 +119,28 @@ void main() {
 
   group('ChapterTitleText Markdown 标题', () {
     test('tryParse 识别带 `# ` 前缀的 H1 标题', () {
-      final parsed = ChapterTitleText.tryParse('# 第3章 甜蜜的家\n正文');
+      final parsed = ChapterTitleText.tryParse(
+        '# 第3章 甜蜜的家\n正文',
+        markdown: true,
+      );
       expect(parsed, isNotNull);
       expect(parsed!.number, 3);
       expect(parsed.subtitle, '甜蜜的家');
 
-      final noSubtitle = ChapterTitleText.tryParse('# 第3章\n正文');
+      final noSubtitle = ChapterTitleText.tryParse('# 第3章\n正文', markdown: true);
       expect(noSubtitle!.number, 3);
       expect(noSubtitle.subtitle, '');
     });
 
-    test('`#` 与数字之间允许零或多个空格', () {
-      expect(ChapterTitleText.tryParse('#第3章 X\n')!.subtitle, 'X');
-      expect(ChapterTitleText.tryParse('#  第3章 X\n')!.subtitle, 'X');
+    test('`#` 后允许一个或多个空白', () {
+      expect(
+        ChapterTitleText.tryParse('#  第3章 X\n', markdown: true)!.subtitle,
+        'X',
+      );
+      expect(
+        ChapterTitleText.tryParse('#\t第3章 X\n', markdown: true)!.subtitle,
+        'X',
+      );
     });
 
     test('compose 以 markdown:true 写出 H1 首行', () {
@@ -142,9 +151,9 @@ void main() {
       expect(ChapterTitleText.compose(3, '', '', markdown: true), '# 第3章\n');
     });
 
-    test('TXT 与 MD 往返各自一致', () {
+    test('MD 往返一致', () {
       const mdFull = '# 第5章 终章\n尾声段';
-      final parsed = ChapterTitleText.tryParse(mdFull)!;
+      final parsed = ChapterTitleText.tryParse(mdFull, markdown: true)!;
       expect(
         ChapterTitleText.compose(
           parsed.number,
@@ -154,6 +163,26 @@ void main() {
         ),
         mdFull,
       );
+    });
+  });
+
+  group('ChapterTitleText 严格首行（防误判）', () {
+    test('TXT：列首 `第N章` 才匹配，前导空白拒绝', () {
+      expect(ChapterTitleText.tryParse('第3章 X\n'), isNotNull);
+      expect(ChapterTitleText.tryParse('  第3章 X\n'), isNull);
+      expect(ChapterTitleText.tryParse('\t第3章 X\n'), isNull);
+    });
+
+    test('MD：`#第N章`（无空白，非 CommonMark 标题）拒绝', () {
+      expect(ChapterTitleText.tryParse('#第3章 X\n', markdown: true), isNull);
+    });
+
+    test('MD：不带 `#` 的纯 `第N章` 拒绝（避免散文件误判后插入 `#`）', () {
+      expect(ChapterTitleText.tryParse('第3章 X\n', markdown: true), isNull);
+    });
+
+    test('TXT 默认规则不识别 MD 的 `# 第N章`（须显式 markdown:true）', () {
+      expect(ChapterTitleText.tryParse('# 第3章 X\n'), isNull);
     });
   });
 }

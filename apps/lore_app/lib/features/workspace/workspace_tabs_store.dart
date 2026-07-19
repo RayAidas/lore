@@ -208,7 +208,10 @@ final class WorkspaceTabsStore {
     String fullText, {
     TextSelection? selection,
   }) {
-    final parsed = ChapterTitleText.tryParse(fullText);
+    final parsed = ChapterTitleText.tryParse(
+      fullText,
+      markdown: document.isMarkdown,
+    );
     if (parsed == null) {
       document.chapterNumber = null;
       document.chapterTitleSubtitle = '';
@@ -458,9 +461,12 @@ final class WorkspaceTabsStore {
     TextSelection? selection,
     double scrollOffset = 0,
   }) {
-    // 章节文档（TXT 或 Markdown）把首行 `第N章 [副标题]`（MD 可带 `# `）拆为
+    // 章节文档（TXT 或 Markdown）把首行 `第N章 [副标题]`（MD 为 `# 第N章`）拆为
     // 标题栏状态，编辑器只持有正文；非章节文档保持「编辑器持有完整正文」的旧行为。
-    final parsed = ChapterTitleText.tryParse(snapshot.text);
+    final parsed = ChapterTitleText.tryParse(
+      snapshot.text,
+      markdown: snapshot.ref.format == DocumentFormat.markdown,
+    );
     final controllerText = parsed == null
         ? snapshot.text
         : ChapterTitleText.bodyOf(snapshot.text);

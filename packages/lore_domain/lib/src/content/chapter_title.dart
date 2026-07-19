@@ -7,9 +7,13 @@
 abstract final class ChapterTitleText {
   const ChapterTitleText._();
 
-  /// 首行标题识别：`第N章`（TXT）或 `# 第N章`（Markdown H1）。
-  /// 可选的 `#` + 空白使两种格式共用同一解析，UI 侧据此渲染锁定前缀。
-  static final _prefixPattern = RegExp(r'^#?[ \t]*第(\d+)章');
+  /// TXT 首行标题：列首 `第N章`（无前导空白、无 `#`）。
+  static final _txtPrefixPattern = RegExp(r'^第(\d+)章');
+
+  /// Markdown 首行标题：规范 H1 `# 第N章`（`#` 后至少一个空白）。
+  /// 拒绝 `#第N章`（非 CommonMark 标题）与不带 `#` 的纯 `第N章`——后者会令散落
+  /// 的 MD 文件被误判为章节、并在保存时被插入 `#`。
+  static final _mdPrefixPattern = RegExp(r'^#[ \t]+第(\d+)章');
 
   /// 文件名非法字符：路径分隔符、各平台保留符号、ASCII 控制字符。
   /// 公开供输入过滤器与 [sanitizeForFilename] 共用，确保「文件首行」与
@@ -38,13 +42,16 @@ abstract final class ChapterTitleText {
     return trimmed.isEmpty ? prefix(number) : '${prefix(number)} $trimmed';
   }
 
-  /// 由完整文件文本解析标题；首行不匹配 `第N章` 时返回 null（非章节标题）。
-  static ChapterTitleParts? tryParse(String fullText) {
+  /// 由完整文件文本按 [markdown] 对应的规则解析标题；首行不匹配返回 null
+  /// （非章节标题）。TXT 用列首 `第N章`；Markdown 用规范 H1 `# 第N章`。
+  static ChapterTitleParts? tryParse(String fullText, {bool markdown = false}) {
     final lineBreak = fullText.indexOf('\n');
     final firstLine = lineBreak < 0
         ? fullText
         : fullText.substring(0, lineBreak);
-    final match = _prefixPattern.firstMatch(firstLine);
+    final match = (markdown ? _mdPrefixPattern : _txtPrefixPattern).firstMatch(
+      firstLine,
+    );
     if (match == null) {
       return null;
     }
