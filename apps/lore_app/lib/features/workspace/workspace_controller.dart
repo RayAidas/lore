@@ -22,6 +22,7 @@ final class WorkspaceController extends ChangeNotifier {
     this.novelOverviewService,
     this.writingProgressRepository,
     this.trashRepository,
+    this.revealGateway,
   }) : _novelStore = WorkspaceNovelStore(
          service: novelStructureService,
          session: session,
@@ -33,6 +34,7 @@ final class WorkspaceController extends ChangeNotifier {
   final NovelOverviewService? novelOverviewService;
   final WritingProgressRepository? writingProgressRepository;
   final TrashRepository? trashRepository;
+  final LibraryRevealGateway? revealGateway;
 
   final WorkspaceNovelStore _novelStore;
   late final WorkspaceTabsStore _tabsStore = WorkspaceTabsStore(
@@ -46,12 +48,17 @@ final class WorkspaceController extends ChangeNotifier {
     expandedDirectoryPaths: () => _expandedDirectoryPaths.toList(),
     reportFailure: _setWorkspaceFailure,
     requestTitleSync: _syncChapterTitle,
+    onChapterSaved: (path, count) =>
+        unawaited(_refreshChapterCharacterCount(path, count)),
   );
 
   final Map<String, Timer> _structureChangeTimers = {};
   final Set<String> _expandedDirectoryPaths = {};
   StreamSubscription<DocumentChange>? _changeSubscription;
   int _treeRevision = 0;
+  String? _lastSavedChapterPath;
+  int _statsLabelCacheRevision = -1;
+  final Map<String, String?> _statsLabelCache = {};
   LibraryFailure? _workspaceFailure;
   bool _disposed = false;
   Future<void>? _foregroundReconciliation;
@@ -67,6 +74,73 @@ final class WorkspaceController extends ChangeNotifier {
   LibraryEntry? get selectedEntry => _tabsStore.selectedEntry;
 
   List<NovelSnapshot> get novels => _novelStore.novels;
+
+  /// 目录树节点尾标：章节字数（未计算返回 null）、卷/小说章节数；其余节点 null。
+  /// 结果按 [_treeRevision] 缓存——卷/小说分支要遍历 contentTree，目录树每次
+  /// 重建都会调，缓存避免重复 O(N) 扫描。
+  String? statsLabelFor(LibraryEntry entry) {
+    if (_statsLabelCacheRevision != _treeRevision) {
+      _statsLabelCache.clear();
+      _statsLabelCacheRevision = _treeRevision;
+    }
+    return _statsLabelCache.putIfAbsent(
+      entry.relativePath,
+      () => _computeStatsLabel(entry),
+    );
+  }
+
+  String? _computeStatsLabel(LibraryEntry entry) {
+    final novel = _novelStore.novelByEntryValue(entry.novelId);
+    if (novel == null) {
+      return null;
+    }
+    switch (entry.semanticKind) {
+      case LibraryEntrySemanticKind.chapter:
+        final semanticId = entry.semanticId;
+        if (semanticId == null) {
+          return null;
+        }
+        final node = novel.contentTree.nodeById(ContentId(semanticId));
+        if (node == null || node.type != ContentNodeType.chapter) {
+          return null;
+        }
+        final count = node.characterCount;
+        return count == null ? null : '$count 字';
+      case LibraryEntrySemanticKind.volume:
+        final semanticId = entry.semanticId;
+        if (semanticId == null) {
+          return null;
+        }
+        final chapterCount = novel.contentTree
+            .childrenOf(ContentId(semanticId))
+            .where((node) => node.type == ContentNodeType.chapter)
+            .length;
+        return '$chapterCount 章';
+      case LibraryEntrySemanticKind.novel:
+        final chapterCount = novel.contentTree.nodes
+            .where((node) => node.type == ContentNodeType.chapter)
+            .length;
+        return '$chapterCount 章';
+      case LibraryEntrySemanticKind.body:
+      case null:
+        return null;
+    }
+  }
+
+  /// 在系统文件管理器中显示条目（macOS Finder）。平台不支持时抛
+  /// [LibraryOperationException]（platformUnsupported）。
+  Future<void> revealEntry(String relativePath) async {
+    final gateway = revealGateway;
+    if (gateway == null) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.platformUnsupported,
+          message: '当前平台不支持在文件管理器中显示。',
+        ),
+      );
+    }
+    await gateway.reveal(session.access, relativePath: relativePath);
+  }
 
   List<ReconciliationIssue> get reconciliationIssues => _novelStore.issues;
 
@@ -123,6 +197,8 @@ final class WorkspaceController extends ChangeNotifier {
     if (loadFailure != null) {
       _workspaceFailure = loadFailure;
     }
+    // 冷启动回填：旧书库（content.json 无 characterCount）首开时异步补字数。
+    _prefillAfterLoad();
     _tabsStore.markInitialized();
     _notify();
     unawaited(_reconcileLoadedNovels());
@@ -245,7 +321,7 @@ final class WorkspaceController extends ChangeNotifier {
       volumeId: volumeId,
     );
     _applyStructureMutation(mutation);
-    await openPath(mutation.entry.relativePath);
+    await openPath(mutation.entry!.relativePath);
     return mutation;
   }
 
@@ -554,10 +630,113 @@ final class WorkspaceController extends ChangeNotifier {
       _tabsStore.updatePathsAfterRename(change.oldPath, change.newPath);
       _remapExpandedPaths(change.oldPath, change.newPath);
     }
-    _tabsStore.selectEntry(mutation.entry);
+    final entry = mutation.entry;
+    if (entry != null) {
+      _tabsStore.selectEntry(entry);
+    }
     _treeRevision += 1;
     _tabsStore.scheduleSessionSave();
     _notify();
+  }
+
+  /// 把字数写回 content.json 并刷新内存快照。字数更新是 best-effort 缓存，
+  /// 失败静默（下次保存/reconcile 修正）。counts 抛出的
+  /// [LibraryOperationException]（如读盘失败）同样被吞掉。
+  Future<void> _applyChapterCounts(
+    NovelId novelId,
+    Future<Map<ContentId, int>> counts,
+  ) async {
+    try {
+      final map = await counts;
+      if (map.isEmpty) {
+        return;
+      }
+      final mutation = await _requireNovelStructureService()
+          .updateChapterCharacterCounts(
+            session,
+            novelId: novelId,
+            characterCounts: map,
+          );
+      _applyStructureMutation(mutation);
+    } on LibraryOperationException {
+      // 字数更新失败：静默，下次保存/reconcile 修正。
+    }
+  }
+
+  /// 章节保存后把最新字数写回 content.json（仅注册章节；散文件/卷目录跳过）。
+  Future<void> _refreshChapterCharacterCount(
+    String relativePath,
+    int characterCount,
+  ) async {
+    // 标记自身保存：文件监听会把这次 .md 写入也当 modified 回流，跳过它
+    // 避免与本次回写重复写 content.json（onChapterSaved 同步先于 watch microtask）。
+    _lastSavedChapterPath = relativePath;
+    final hit = _novelStore.chapterNodeForPath(relativePath);
+    if (hit == null) {
+      return;
+    }
+    await _applyChapterCounts(
+      hit.novel.metadata.id,
+      Future.value({hit.node.id: characterCount}),
+    );
+  }
+
+  /// 外部编辑器修改章节后重算字数写回（覆盖持久化值，保证正确性）。
+  Future<void> _refreshChapterCharacterCountFromDisk(
+    String relativePath,
+  ) async {
+    final hit = _novelStore.chapterNodeForPath(relativePath);
+    if (hit == null) {
+      return;
+    }
+    final format = hit.novel.metadata.chapterFormat == ChapterFormat.text
+        ? DocumentFormat.text
+        : DocumentFormat.markdown;
+    await _applyChapterCounts(
+      hit.novel.metadata.id,
+      _readDiskChapterCount(relativePath, format, hit.node.id),
+    );
+  }
+
+  Future<Map<ContentId, int>> _readDiskChapterCount(
+    String relativePath,
+    DocumentFormat format,
+    ContentId nodeId,
+  ) async {
+    final doc = await service.readDocument(
+      session,
+      DocumentRef(relativePath: relativePath, format: format),
+    );
+    return {nodeId: characterCountOf(doc.text)};
+  }
+
+  /// 旧书库回填：novel 中 characterCount==null 的章节批量读文件算字数并写回。
+  /// 无 null 章节时跳过（正常启动零成本）；旧书库首开一次性。
+  Future<void> _prefillCharacterCounts(NovelId novelId) async {
+    final overviewService = novelOverviewService;
+    final novel = _novelStore.novelById(novelId);
+    if (overviewService == null || novel == null) {
+      return;
+    }
+    final hasNull = novel.contentTree.nodes.any(
+      (node) =>
+          node.type == ContentNodeType.chapter && node.characterCount == null,
+    );
+    if (!hasNull) {
+      return;
+    }
+    await _applyChapterCounts(
+      novelId,
+      overviewService.chapterCharacterCounts(session, novelId: novelId),
+    );
+  }
+
+  /// 加载小说结构后，对所有 novel 触发字数回填（旧书库 characterCount==null
+  /// 的章节异步读文件回填）。供 initialize 与 _loadNovelStructures 复用。
+  void _prefillAfterLoad() {
+    for (final novel in _novelStore.novels) {
+      unawaited(_prefillCharacterCounts(novel.metadata.id));
+    }
   }
 
   void _applyDeletionResult(DeletionResult result) {
@@ -604,6 +783,14 @@ final class WorkspaceController extends ChangeNotifier {
         changedDocument.failure?.code != LibraryFailureCode.notFound;
     if (treeChanged && !deferStructuralChange) {
       _recordStructuralChange(change.relativePath);
+    } else if (!treeChanged) {
+      if (change.relativePath == _lastSavedChapterPath) {
+        // 自身保存触发的 modified 回流：字数已由 onChapterSaved 写回，跳过。
+        _lastSavedChapterPath = null;
+      } else {
+        // 章节内容外部修改：重算字数写回（覆盖持久化值）。
+        unawaited(_refreshChapterCharacterCountFromDisk(change.relativePath));
+      }
     }
     _tabsStore.handleDocumentChange(
       change,
@@ -628,7 +815,10 @@ final class WorkspaceController extends ChangeNotifier {
     final failure = await _novelStore.load();
     if (failure != null) {
       _workspaceFailure = failure;
+      return;
     }
+    // 旧书库回填：characterCount==null 的章节异步读文件算字数写回 content.json。
+    _prefillAfterLoad();
   }
 
   Future<void> _reconcileLoadedNovels() async {

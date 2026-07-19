@@ -129,6 +129,7 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
                 onSelected: widget.onSelected,
                 onContextMenu: widget.onContextMenu,
                 depth: widget.depth,
+                statsLabel: widget.controller.statsLabelFor(entry),
               );
             }
             return _WorkspaceFileTile(
@@ -138,6 +139,7 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
               depth: widget.depth,
               onTap: () => widget.onSelected(entry),
               onContextMenu: widget.onContextMenu,
+              statsLabel: widget.controller.statsLabelFor(entry),
             );
           }),
         ];
@@ -162,6 +164,7 @@ final class _WorkspaceDirectoryTile extends StatefulWidget {
     required this.onSelected,
     this.onContextMenu,
     required this.depth,
+    this.statsLabel,
     super.key,
   });
 
@@ -172,6 +175,7 @@ final class _WorkspaceDirectoryTile extends StatefulWidget {
   final ValueChanged<LibraryEntry> onSelected;
   final ContextMenuCallback? onContextMenu;
   final int depth;
+  final String? statsLabel;
 
   @override
   State<_WorkspaceDirectoryTile> createState() =>
@@ -221,6 +225,7 @@ final class _WorkspaceDirectoryTileState
           icon: _expanded ? Icons.folder_open_outlined : Icons.folder_outlined,
           onTap: _toggleExpanded,
           onContextMenu: widget.onContextMenu,
+          statsLabel: widget.statsLabel,
         ),
         if (_expanded)
           WorkspaceDirectory(
@@ -251,6 +256,7 @@ final class _WorkspaceFileTile extends StatelessWidget {
     required this.depth,
     required this.onTap,
     this.onContextMenu,
+    this.statsLabel,
     super.key,
   });
 
@@ -259,6 +265,7 @@ final class _WorkspaceFileTile extends StatelessWidget {
   final int depth;
   final VoidCallback onTap;
   final ContextMenuCallback? onContextMenu;
+  final String? statsLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -270,11 +277,12 @@ final class _WorkspaceFileTile extends StatelessWidget {
       icon: entry.entryIcon,
       onTap: onTap,
       onContextMenu: onContextMenu,
+      statsLabel: statsLabel,
     );
   }
 }
 
-final class _TreeRow extends StatelessWidget {
+final class _TreeRow extends StatefulWidget {
   const _TreeRow({
     required this.entry,
     required this.selected,
@@ -284,6 +292,7 @@ final class _TreeRow extends StatelessWidget {
     required this.onTap,
     this.onContextMenu,
     this.expanded,
+    this.statsLabel,
   });
 
   final LibraryEntry entry;
@@ -294,15 +303,35 @@ final class _TreeRow extends StatelessWidget {
   final VoidCallback onTap;
   final ContextMenuCallback? onContextMenu;
   final bool? expanded;
+  final String? statsLabel;
+
+  @override
+  State<_TreeRow> createState() => _TreeRowState();
+}
+
+final class _TreeRowState extends State<_TreeRow> {
+  // 右键 down 时置位，防止 InkWell 桌面在鼠标事件上偶发把右键 up 也当
+  // onTap 触发，导致右键弹菜单的同时误打开条目。
+  bool _secondaryArmed = false;
 
   @override
   Widget build(BuildContext context) {
+    final entry = widget.entry;
+    final selected = widget.selected;
+    final depth = widget.depth;
+    final disclosure = widget.disclosure;
+    final icon = widget.icon;
+    final onTap = widget.onTap;
+    final onContextMenu = widget.onContextMenu;
+    final expanded = widget.expanded;
+    final statsLabel = widget.statsLabel;
     final colorScheme = Theme.of(context).colorScheme;
     final rowColor = selected
         ? colorScheme.primaryContainer.withValues(alpha: 0.52)
         : Colors.transparent;
     final displayName = _treeDisplayName(entry);
-    final textStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
+    final textStyle =
+        Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: colorScheme.onSurface.withValues(alpha: selected ? 1 : 0.88),
           fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
         ) ??
@@ -321,16 +350,27 @@ final class _TreeRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(7),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: onTap,
+            onTap: () {
+              if (!_secondaryArmed) {
+                onTap();
+              }
+              _secondaryArmed = false;
+            },
+            onSecondaryTapDown: (_) {
+              _secondaryArmed = true;
+            },
             onSecondaryTapUp: onContextMenu == null
                 ? null
-                : (details) => onContextMenu!(entry, details.globalPosition),
+                : (details) => onContextMenu(entry, details.globalPosition),
+            onSecondaryTapCancel: () {
+              _secondaryArmed = false;
+            },
             onLongPress: onContextMenu == null
                 ? null
                 : () {
                     final box = context.findRenderObject() as RenderBox?;
                     if (box != null) {
-                      onContextMenu!(entry, box.localToGlobal(Offset.zero));
+                      onContextMenu(entry, box.localToGlobal(Offset.zero));
                     }
                   },
             hoverColor: colorScheme.onSurface.withValues(alpha: 0.045),
@@ -378,6 +418,19 @@ final class _TreeRow extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (statsLabel != null)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: Text(
+                          statsLabel,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colorScheme.onSurfaceVariant.withValues(
+                              alpha: 0.6,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),

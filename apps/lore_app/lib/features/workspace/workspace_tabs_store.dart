@@ -37,6 +37,7 @@ final class WorkspaceTabsStore {
     required List<String> Function() expandedDirectoryPaths,
     required void Function(LibraryFailure failure) reportFailure,
     required Future<void> Function(OpenDocument document) requestTitleSync,
+    this.onChapterSaved,
   }) : _notify = notify,
        _novelIdForPath = novelIdForPath,
        _bumpTreeRevision = bumpTreeRevision,
@@ -55,6 +56,10 @@ final class WorkspaceTabsStore {
   final LibraryWorkspaceService service;
   final LibrarySession session;
   final WritingProgressRepository? writingProgressRepository;
+
+  /// 章节保存成功后回调控制器，把最新字数写回 content.json（仅注册章节）。
+  final void Function(String relativePath, int characterCount)? onChapterSaved;
+
   final void Function() _notify;
   final NovelId? Function(String) _novelIdForPath;
   final void Function() _bumpTreeRevision;
@@ -286,6 +291,14 @@ final class WorkspaceTabsStore {
             document.saveStatus = document.hasUnsavedChanges
                 ? DocumentSaveStatus.dirty
                 : DocumentSaveStatus.clean;
+            // 通知控制器把最新字数写回 content.json（仅注册章节生效）。
+            final callback = onChapterSaved;
+            if (callback != null) {
+              callback(
+                document.snapshot.ref.relativePath,
+                characterCountOf(fullText),
+              );
+            }
           case DocumentSaveConflict(:final diskSnapshot):
             document.conflictSnapshot = diskSnapshot;
             document.sourceMissing = false;

@@ -126,7 +126,8 @@ final class _LibraryWorkspacePageState
                   meta: true,
                   shift: true,
                 ): () {
-                  final current = ref.read(appPreferencesProvider).value ??
+                  final current =
+                      ref.read(appPreferencesProvider).value ??
                       AppPreferences.defaults();
                   ref
                       .read(appPreferencesProvider.notifier)

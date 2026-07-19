@@ -15,10 +15,12 @@ import 'workspace_directory_tree.dart';
 
 /// 目录树右键菜单的可选动作。
 enum _ContextMenuAction {
-  open,
   newFolder,
   newText,
   newMarkdown,
+  newVolume,
+  newChapter,
+  revealInFinder,
   rename,
   copyPath,
   delete,
@@ -303,12 +305,17 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
   List<PopupMenuEntry<_ContextMenuAction>> _buildMenuItems(LibraryEntry entry) {
     final isDir = entry.isDirectory;
     final isPlainDir = isDir && entry.semanticKind == null;
-    final canOpen = !isDir && entry.type != LibraryEntryType.otherFile;
     final canDelete = entry.semanticKind != LibraryEntrySemanticKind.body;
+    final canCreateVolume =
+        entry.semanticKind == LibraryEntrySemanticKind.novel ||
+        entry.semanticKind == LibraryEntrySemanticKind.body;
+    final canCreateChapter =
+        entry.semanticKind == LibraryEntrySemanticKind.volume;
     return <PopupMenuEntry<_ContextMenuAction>>[
-      if (canOpen) ...[
-        LorePopupMenuItem(value: _ContextMenuAction.open, label: '打开'),
-      ],
+      if (canCreateVolume)
+        LorePopupMenuItem(value: _ContextMenuAction.newVolume, label: '新建卷'),
+      if (canCreateChapter)
+        LorePopupMenuItem(value: _ContextMenuAction.newChapter, label: '新建章节'),
       if (isPlainDir) ...[
         LorePopupMenuItem(value: _ContextMenuAction.newFolder, label: '新建子文件夹'),
         LorePopupMenuItem(value: _ContextMenuAction.newText, label: '新建 TXT'),
@@ -319,6 +326,11 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
       ],
       LorePopupMenuItem(value: _ContextMenuAction.rename, label: '重命名'),
       LorePopupMenuItem(value: _ContextMenuAction.copyPath, label: '复制路径'),
+      if (widget.controller.revealGateway != null)
+        LorePopupMenuItem(
+          value: _ContextMenuAction.revealInFinder,
+          label: '在 Finder 中显示',
+        ),
       if (canDelete)
         LorePopupMenuItem(
           value: _ContextMenuAction.delete,
@@ -333,14 +345,29 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     LibraryEntry entry,
   ) async {
     switch (action) {
-      case _ContextMenuAction.open:
-        await _openPath(entry.relativePath);
       case _ContextMenuAction.newFolder:
         await _createDirectory();
       case _ContextMenuAction.newText:
         await _createDocument(DocumentFormat.text);
       case _ContextMenuAction.newMarkdown:
         await _createDocument(DocumentFormat.markdown);
+      case _ContextMenuAction.newVolume:
+        await _runMutation(
+          () => widget.controller.createVolume(NovelId(entry.novelId!)),
+        );
+      case _ContextMenuAction.newChapter:
+        await _runMutation(
+          () => widget.controller.createChapter(
+            NovelId(entry.novelId!),
+            volumeId: entry.semanticKind == LibraryEntrySemanticKind.volume
+                ? ContentId(entry.semanticId!)
+                : null,
+          ),
+        );
+      case _ContextMenuAction.revealInFinder:
+        await _runMutation(
+          () => widget.controller.revealEntry(entry.relativePath),
+        );
       case _ContextMenuAction.rename:
         await _renameSelected(entry);
       case _ContextMenuAction.delete:
@@ -355,6 +382,15 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
             ),
           );
         }
+    }
+  }
+
+  /// 执行结构操作/reveal 并统一把 [LibraryOperationException] 转成失败提示。
+  Future<void> _runMutation(Future<dynamic> Function() action) async {
+    try {
+      await action();
+    } on LibraryOperationException catch (error) {
+      _showFailure(error.failure);
     }
   }
 

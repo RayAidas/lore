@@ -214,9 +214,35 @@ final class LibraryAccessController {
       renameEntry(call: call, result: result)
     case "replaceLibraryDocument":
       replaceDocument(call: call, result: result)
+    case "revealLibraryEntry":
+      revealEntry(call: call, result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  private func revealEntry(
+    call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) {
+    guard let rootURL = activeURL else {
+      result(flutterError(
+        code: "access_denied",
+        message: "书库目录授权已失效。"))
+      return
+    }
+    guard
+      let arguments = call.arguments as? [String: Any],
+      let relativePath = arguments["relativePath"] as? String,
+      let fileURL = childURL(rootURL: rootURL, relativePath: relativePath)
+    else {
+      result(flutterError(
+        code: "invalid_location",
+        message: "路径超出了书库范围。"))
+      return
+    }
+    NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+    result(nil)
   }
 
   private func replaceDocument(

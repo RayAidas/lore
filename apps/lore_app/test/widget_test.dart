@@ -631,4 +631,13 @@ final class _FakeNovelRepository
   }) {
     throw UnimplementedError();
   }
+
+  @override
+  Future<NovelStructureMutation> updateChapterCharacterCounts(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required Map<ContentId, int> characterCounts,
+  }) {
+    throw UnimplementedError();
+  }
 }

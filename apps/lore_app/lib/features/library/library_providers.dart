@@ -101,6 +101,13 @@ final trashRepositoryProvider = Provider<TrashRepository>((ref) {
   return ref.watch(storageBackedLibraryRepositoryProvider);
 });
 
+final libraryRevealGatewayProvider = Provider<LibraryRevealGateway?>((ref) {
+  if (Platform.isMacOS) {
+    return MacOsLibraryRevealGateway();
+  }
+  return null;
+});
+
 final workspaceSessionRepositoryProvider = Provider<WorkspaceSessionRepository>(
   (ref) => const SharedPreferencesWorkspaceSessionRepository(),
 );
@@ -125,6 +132,7 @@ final workspaceControllerProvider = Provider.autoDispose
         novelOverviewService: ref.watch(novelOverviewServiceProvider),
         writingProgressRepository: ref.watch(writingProgressRepositoryProvider),
         trashRepository: ref.watch(trashRepositoryProvider),
+        revealGateway: ref.watch(libraryRevealGatewayProvider),
       );
       ref.onDispose(controller.dispose);
       return controller;

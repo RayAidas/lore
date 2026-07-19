@@ -774,6 +774,66 @@ void main() {
     );
     controller.dispose();
   });
+
+  test(
+    'revealEntry throws platformUnsupported without a reveal gateway',
+    () async {
+      final repository = _MemoryWorkspaceRepository();
+      final controller = WorkspaceController(
+        session: session,
+        service: LibraryWorkspaceService(
+          treeRepository: repository,
+          documentRepository: repository,
+          sessionRepository: _MemorySessionRepository(),
+        ),
+      );
+      addTearDown(repository.dispose);
+      addTearDown(controller.dispose);
+      await expectLater(
+        controller.revealEntry('foo'),
+        throwsA(
+          isA<LibraryOperationException>().having(
+            (error) => error.failure.code,
+            'code',
+            LibraryFailureCode.platformUnsupported,
+          ),
+        ),
+      );
+    },
+  );
+
+  testWidgets('saving a chapter writes its character count back', (
+    tester,
+  ) async {
+    final snapshot = _chapterNovelSnapshot();
+    final novelRepo = _FakeNovelRepository(snapshot);
+    final treeRepo = _FakeContentTreeRepository(snapshot);
+    final repository = _MemoryWorkspaceRepository()..diskText = '第1章\n正文段';
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+      novelStructureService: NovelStructureService(
+        novelRepository: novelRepo,
+        contentTreeRepository: treeRepo,
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.openPath('我的小说/正文/第1章.txt');
+    // 改正文让文档变脏，自动保存 800ms 防抖触发 _performSave → onChapterSaved →
+    // updateChapterCharacterCounts，字数写回 content.json。
+    controller.activeDocument!.editorController.text = '正文段改';
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pump();
+    expect(treeRepo.lastCharacterCounts, isNotNull);
+    expect(treeRepo.lastCharacterCounts![ContentId('chapter-1')], isNotNull);
+  });
 }
 
 final class _MemoryWorkspaceRepository
@@ -1031,6 +1091,7 @@ class _FakeContentTreeRepository implements ContentTreeRepository {
 
   String? lastRenameNewName;
   ContentId? lastRenameNodeId;
+  Map<ContentId, int>? lastCharacterCounts;
 
   @override
   Future<NovelStructureMutation> renameNode(
@@ -1103,6 +1164,33 @@ class _FakeContentTreeRepository implements ContentTreeRepository {
     LibraryAccess access, {
     required NovelId novelId,
   }) async => NovelReconciliationResult(snapshot: novel);
+
+  @override
+  Future<NovelStructureMutation> updateChapterCharacterCounts(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required Map<ContentId, int> characterCounts,
+  }) async {
+    lastCharacterCounts = characterCounts;
+    final newTree = ContentTree(
+      schemaVersion: novel.contentTree.schemaVersion,
+      novelId: novel.contentTree.novelId,
+      revision: novel.contentTree.revision + 1,
+      nodes: novel.contentTree.nodes
+          .map(
+            (node) => node.type == ContentNodeType.chapter
+                ? node.copyWith(characterCount: characterCounts[node.id])
+                : node,
+          )
+          .toList(growable: false),
+    );
+    novel = NovelSnapshot(
+      rootPath: novel.rootPath,
+      metadata: novel.metadata,
+      contentTree: newTree,
+    );
+    return NovelStructureMutation(snapshot: novel);
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
