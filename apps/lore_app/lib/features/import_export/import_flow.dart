@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -10,6 +9,7 @@ import 'package:lore_ui/lore_ui.dart';
 
 import '../workspace/library_failure_snackbar.dart';
 import '../workspace/workspace_controller.dart';
+import 'txt_decoding.dart';
 
 /// 导入 TXT 小说的完整流程：选文件 → 解码拆章 → 重名循环重命名 → 写入书库。
 ///
@@ -43,7 +43,10 @@ Future<void> importTxtNovelFlow(
     );
     return;
   }
-  final text = _decodeTxt(bytes);
+  final text = await decodeTxtBytes(bytes);
+  if (!context.mounted) {
+    return;
+  }
   final parsed = TxtNovelParser.parse(text: text, fileName: file.name);
   if (parsed.chapters.isEmpty) {
     _failure(
@@ -119,18 +122,6 @@ Future<Uint8List?> _readFileBytes(PlatformFile file) async {
     }
   }
   return file.bytes;
-}
-
-/// 解码 TXT：剥 UTF-8 BOM，容错解码非法字节。
-String _decodeTxt(Uint8List bytes) {
-  final body =
-      bytes.length >= 3 &&
-          bytes[0] == 0xEF &&
-          bytes[1] == 0xBB &&
-          bytes[2] == 0xBF
-      ? bytes.sublist(3)
-      : bytes;
-  return utf8.decode(body, allowMalformed: true);
 }
 
 String _stem(String fileName) {
