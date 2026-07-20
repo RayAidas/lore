@@ -53,6 +53,31 @@ void main() {
       expect(parsed.chapters[0].body, contains('风起正文'));
     });
 
+    test('splits combined volume+chapter headings (第N卷 卷名 第M章 标题)', () {
+      // 回归：莽荒纪等网文卷终章之后常出现「第六卷 破茧成蝶 第一章 水府四殿」
+      // 这类卷+章合并行；旧正则因行首是「第N卷」（卷不在 [章节回]）而漏判，
+      // 导致整卷被并入上一章（数十万字）。现在按其中的章节 token 切分，
+      // 卷名不进入副标题。
+      final parsed = TxtNovelParser.parse(
+        text:
+            '第二十六章 风雨欲来\n风雨正文\n'
+            '第六卷 破茧成蝶 第一章 水府四殿\n水府正文\n'
+            '第六卷 破茧成蝶 第二章 珍宝\n珍宝正文',
+      );
+      expect(parsed.chapters, hasLength(3));
+      expect(parsed.chapters[0].subtitle, '风雨欲来');
+      expect(parsed.chapters[1].subtitle, '水府四殿');
+      expect(parsed.chapters[1].body, '水府正文');
+      expect(parsed.chapters[2].subtitle, '珍宝');
+    });
+
+    test('splits combined heading without space before chapter token', () {
+      // 变体：卷名紧接章节号，如「破茧成蝶第十七章 …」。
+      final parsed = TxtNovelParser.parse(text: '第六卷 破茧成蝶第十七章 纪宁战童玉\n正文');
+      expect(parsed.chapters, hasLength(1));
+      expect(parsed.chapters[0].subtitle, '纪宁战童玉');
+    });
+
     test('falls back to a single chapter when no heading is found', () {
       final parsed = TxtNovelParser.parse(text: '  整段没有标题的文字。  \n第二行。');
       expect(parsed.chapters, hasLength(1));
