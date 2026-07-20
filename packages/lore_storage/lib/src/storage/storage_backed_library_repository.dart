@@ -725,7 +725,22 @@ final class StorageBackedLibraryRepository
     final nodes = snapshot.contentTree.nodes
         .map((candidate) {
           if (candidate.id == nodeId) {
-            return candidate.copyWith(relativePath: newRelative);
+            // 重命名后按新文件名同步重算 number，避免元数据与文件名不一致
+            // （否则「删第2章→第3章重命名为第2章→新建」会得到第4章）。
+            // 重命名为无编号名字（如「第3章」→「楔子」）时清空 number，
+            // 释放槽位，使下次新建回填该编号，避免幽灵槽位残留。
+            final parsed = node.type == ContentNodeType.volume
+                ? _volumeNumber(newRelative)
+                : _chapterNumber(newRelative);
+            return parsed == null
+                ? candidate.copyWith(
+                    relativePath: newRelative,
+                    clearNumber: true,
+                  )
+                : candidate.copyWith(
+                    relativePath: newRelative,
+                    number: parsed,
+                  );
           }
           if (node.type == ContentNodeType.volume &&
               candidate.relativePath.startsWith('$oldRelative/')) {

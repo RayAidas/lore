@@ -313,6 +313,123 @@ void main() {
 
     expect(renamed.relativePath, '新名.md');
   });
+
+  test(
+    'reuses freed chapter number after rename into the deleted slot',
+    () async {
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '长夜行');
+      final novelId = novel.snapshot.metadata.id;
+      await repository.createChapter(access, novelId: novelId); // 第1章
+      final second = await repository.createChapter(
+        access,
+        novelId: novelId,
+      ); // 第2章
+      final secondId = second.snapshot.contentTree.nodes.last.id;
+      final third = await repository.createChapter(
+        access,
+        novelId: novelId,
+      ); // 第3章
+      final thirdId = third.snapshot.contentTree.nodes.last.id;
+
+      // 删第2章，再把第3章重命名为「第2章」。
+      await repository.deleteNode(
+        access,
+        novelId: novelId,
+        nodeId: secondId,
+      );
+      await repository.renameNode(
+        access,
+        novelId: novelId,
+        nodeId: thirdId,
+        newName: '第2章.md',
+      );
+
+      // 新建章节应回填到第3章，而不是跳到第4章。
+      final created = await repository.createChapter(
+        access,
+        novelId: novelId,
+      );
+      expect(created.entry!.name, '第3章.md');
+    },
+  );
+
+  test(
+    'reuses freed volume number after rename into the deleted slot',
+    () async {
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '长夜行');
+      final novelId = novel.snapshot.metadata.id;
+      await repository.createVolume(access, novelId: novelId); // 第1卷
+      final second = await repository.createVolume(
+        access,
+        novelId: novelId,
+      ); // 第2卷
+      final secondId = second.snapshot.contentTree.nodes
+          .lastWhere((node) => node.type == ContentNodeType.volume)
+          .id;
+      final third = await repository.createVolume(
+        access,
+        novelId: novelId,
+      ); // 第3卷
+      final thirdId = third.snapshot.contentTree.nodes
+          .lastWhere((node) => node.type == ContentNodeType.volume)
+          .id;
+
+      // 删第2卷，再把第3卷重命名为「第2卷」。
+      await repository.deleteNode(access, novelId: novelId, nodeId: secondId);
+      await repository.renameNode(
+        access,
+        novelId: novelId,
+        nodeId: thirdId,
+        newName: '第2卷',
+      );
+
+      // 新建卷应回填到第3卷，而不是跳到第4卷。
+      final created = await repository.createVolume(
+        access,
+        novelId: novelId,
+      );
+      final createdVolume = created.snapshot.contentTree.nodes
+          .lastWhere((node) => node.type == ContentNodeType.volume);
+      expect(createdVolume.relativePath, '正文/第3卷');
+    },
+  );
+
+  test(
+    'frees the chapter number slot when renamed to a non-numbered name',
+    () async {
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '长夜行');
+      final novelId = novel.snapshot.metadata.id;
+      await repository.createChapter(access, novelId: novelId); // 第1章
+      await repository.createChapter(access, novelId: novelId); // 第2章
+      final third = await repository.createChapter(
+        access,
+        novelId: novelId,
+      ); // 第3章
+      final thirdId = third.snapshot.contentTree.nodes.last.id;
+
+      // 把第3章重命名为无编号名字「楔子」，应清空 number、释放编号 3。
+      final renamed = await repository.renameNode(
+        access,
+        novelId: novelId,
+        nodeId: thirdId,
+        newName: '楔子.md',
+      );
+      final renamedNode = renamed.snapshot.contentTree.nodes.firstWhere(
+        (node) => node.id == thirdId,
+      );
+      expect(renamedNode.number, isNull);
+
+      // 新建章节应回填到第3章，而不是跳到第4章。
+      final created = await repository.createChapter(
+        access,
+        novelId: novelId,
+      );
+      expect(created.entry!.name, '第3章.md');
+    },
+  );
 }
 
 Future<void> _writeJson(File file, Map<String, Object?> value) {
