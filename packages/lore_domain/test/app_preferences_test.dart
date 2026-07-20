@@ -34,5 +34,18 @@ void main() {
       expect(updated.editorFontFamily, AppFontFamily.kai);
       expect(updated.editorFontSize, 20);
     });
+
+    test('defaults to no grid lines', () {
+      expect(AppPreferences.defaults().gridLineMode, GridLineMode.none);
+    });
+
+    test('copyWith updates gridLineMode without touching other fields', () {
+      final base = AppPreferences.defaults();
+      final updated = base.copyWith(gridLineMode: GridLineMode.dashed);
+
+      expect(updated.gridLineMode, GridLineMode.dashed);
+      expect(base.gridLineMode, GridLineMode.none);
+      expect(updated.paragraphSpacing, base.paragraphSpacing);
+    });
   });
 }

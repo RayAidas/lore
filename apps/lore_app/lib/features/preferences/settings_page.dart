@@ -148,6 +148,21 @@ class _SettingsBody extends ConsumerWidget {
           format: (value) => value.toStringAsFixed(0),
           onChanged: controller.setParagraphSpacing,
         ),
+        ListTile(
+          leading: const Icon(Icons.grid_on_outlined),
+          title: const Text('网格线'),
+          trailing: DropdownButton<GridLineMode>(
+            value: prefs.gridLineMode,
+            onChanged: (value) {
+              if (value != null) controller.setGridLineMode(value);
+            },
+            items: const [
+              DropdownMenuItem(value: GridLineMode.none, child: Text('无')),
+              DropdownMenuItem(value: GridLineMode.solid, child: Text('实线')),
+              DropdownMenuItem(value: GridLineMode.dashed, child: Text('虚线')),
+            ],
+          ),
+        ),
         const Divider(),
         _SectionHeader('沉浸写作'),
         SwitchListTile(

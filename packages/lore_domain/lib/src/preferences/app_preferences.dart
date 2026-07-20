@@ -12,6 +12,13 @@ enum AppThemeMode { system, light, sepia, dark }
 /// fallback 链（由 app 层的字体注册表定义），保证总有合理渲染。
 enum AppFontFamily { system, wenkai, sans, serif, kai }
 
+/// 章节正文（TXT）每行下方的网格线模式。
+///
+/// `none` 不绘制；`solid` 实线；`dashed` 虚线。开启时段落内每行底部画线，
+/// 段落之间（空行）的底部即下一段顶部也画线，唯独全文第一段上方不画。
+/// 仅 TXT 编辑器消费。
+enum GridLineMode { none, solid, dashed }
+
 final class AppPreferences {
   const AppPreferences({
     required this.schemaVersion,
@@ -28,9 +35,10 @@ final class AppPreferences {
     required this.firstLineIndent,
     required this.paragraphSpacing,
     required this.editorFontFamily,
+    required this.gridLineMode,
   });
 
-  static const schemaVersionCurrent = 2;
+  static const schemaVersionCurrent = 3;
 
   /// 开箱默认：行高 1.45、段间距 14；标题→首段留白由 EditorStyle 派生
   ///（段间距 + 14）保证始终宽于段间距。
@@ -49,6 +57,7 @@ final class AppPreferences {
     firstLineIndent: true,
     paragraphSpacing: 14,
     editorFontFamily: AppFontFamily.wenkai,
+    gridLineMode: GridLineMode.none,
   );
 
   final int schemaVersion;
@@ -64,6 +73,9 @@ final class AppPreferences {
 
   /// 编辑器正文字体（作用于 txt 正文与 Markdown 预览）。
   final AppFontFamily editorFontFamily;
+
+  /// 章节正文每行下方的网格线模式（无/实线/虚线）。仅 TXT 编辑器生效。
+  final GridLineMode gridLineMode;
 
   /// 每日写作字数目标，0 表示禁用。
   final int dailyWordGoal;
@@ -99,6 +111,7 @@ final class AppPreferences {
     bool? firstLineIndent,
     double? paragraphSpacing,
     AppFontFamily? editorFontFamily,
+    GridLineMode? gridLineMode,
   }) {
     return AppPreferences(
       schemaVersion: schemaVersion,
@@ -115,6 +128,7 @@ final class AppPreferences {
       firstLineIndent: firstLineIndent ?? this.firstLineIndent,
       paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
       editorFontFamily: editorFontFamily ?? this.editorFontFamily,
+      gridLineMode: gridLineMode ?? this.gridLineMode,
     );
   }
 }

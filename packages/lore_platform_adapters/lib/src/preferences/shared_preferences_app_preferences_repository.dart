@@ -15,14 +15,13 @@ final class SharedPreferencesAppPreferencesRepository
   SharedPreferencesAppPreferencesRepository();
 
   static const _key = 'lore.app.preferences';
-  static const _schemaVersion = 2;
+  static const _schemaVersion = 3;
 
-  /// 上一版 schema：load 时接受 v1 并就地迁移到 v2（收紧行高/段间距默认）。
+  /// load 时接受的历史 schema 版本：v1、v2 均就地迁移到当前 v3。
   ///
-  /// 迁移按值匹配：仅替换仍等于 v1 默认（[_v1EditorLineHeight] /
-  /// [_v1ParagraphSpacing]）的排版值，保留用户自定义，故对同一输入幂等、
-  /// 可重复执行。若未来引入 v3，需把本常量扩为版本链并逐版串接每步变换。
-  static const _migratedFromSchemaVersion = 1;
+  /// v1→v2 收紧行高/段间距默认（按值匹配替换，保留用户自定义）；v2→v3 仅新增
+  /// 网格线字段（缺失取默认 none），不动既有排版值。两步迁移对同一输入幂等。
+  static const _legacySchemaVersions = {1, 2};
 
   /// v1 排版默认值：迁移时识别「仍停留在旧默认」的值，仅这些值被替换为 v2 默认。
   static const _v1EditorLineHeight = 1.5;
@@ -45,11 +44,13 @@ final class SharedPreferencesAppPreferencesRepository
       if (value is! Map<String, Object?>) {
         return null;
       }
-      // 接受 v1（旧版）或 v2（当前）；其它版本号视为损坏，整体回退默认值。
+      // 接受 v1/v2（旧版，就地迁移）或 v3（当前）；其它版本号视为损坏。
       final storedVersion = value['schemaVersion'];
-      final migrating = storedVersion == _migratedFromSchemaVersion;
+      final migratingFromV1 = storedVersion == 1;
+      final migratingFromLegacy =
+          storedVersion is int && _legacySchemaVersions.contains(storedVersion);
       if (storedVersion is! int ||
-          (!migrating && storedVersion != _schemaVersion)) {
+          (!migratingFromLegacy && storedVersion != _schemaVersion)) {
         return null;
       }
       final themeMode = _themeModeFromString(value['themeMode']);
@@ -91,14 +92,19 @@ final class SharedPreferencesAppPreferencesRepository
       final editorFontFamily =
           _fontFamilyFromString(value['editorFontFamily']) ??
           AppPreferences.defaults().editorFontFamily;
+      // 网格线模式是 v3 新增字段，v1/v2 blob 里没有——容错读取，缺失回落默认。
+      final gridLineMode =
+          _gridLineModeFromString(value['gridLineMode']) ??
+          AppPreferences.defaults().gridLineMode;
       // v1 → v2 迁移：仅当行高/段间距仍停留在 v1 默认时替换为 v2 默认（视觉
-      // 瘦身）；用户已自定义的值原样保留。按值匹配使迁移对同一输入幂等，
-      // 不会每次冷启动都把自定义抹回默认。
-      final resolvedLineHeight = migrating && lineHeight == _v1EditorLineHeight
+      // 瘦身）；用户已自定义的值原样保留。v2 blob 的排版值已是当前默认，无需
+      // 迁移。按值匹配使迁移对同一输入幂等，不会每次冷启动把自定义抹回默认。
+      final resolvedLineHeight =
+          migratingFromV1 && lineHeight == _v1EditorLineHeight
           ? AppPreferences.defaults().editorLineHeight
           : lineHeight.toDouble();
       final resolvedParagraphSpacing =
-          migrating && paragraphSpacing == _v1ParagraphSpacing
+          migratingFromV1 && paragraphSpacing == _v1ParagraphSpacing
           ? AppPreferences.defaults().paragraphSpacing
           : paragraphSpacing;
       return AppPreferences(
@@ -116,6 +122,7 @@ final class SharedPreferencesAppPreferencesRepository
         firstLineIndent: firstLineIndent,
         paragraphSpacing: resolvedParagraphSpacing,
         editorFontFamily: editorFontFamily,
+        gridLineMode: gridLineMode,
       );
     } on FormatException {
       return null;
@@ -148,6 +155,7 @@ final class SharedPreferencesAppPreferencesRepository
       'firstLineIndent': preferences.firstLineIndent,
       'paragraphSpacing': preferences.paragraphSpacing,
       'editorFontFamily': preferences.editorFontFamily.name,
+      'gridLineMode': preferences.gridLineMode.name,
     };
   }
 
@@ -185,6 +193,18 @@ final class SharedPreferencesAppPreferencesRepository
       'sans' => AppFontFamily.sans,
       'serif' => AppFontFamily.serif,
       'kai' => AppFontFamily.kai,
+      _ => null,
+    };
+  }
+
+  GridLineMode? _gridLineModeFromString(Object? value) {
+    if (value is! String) {
+      return null;
+    }
+    return switch (value) {
+      'none' => GridLineMode.none,
+      'solid' => GridLineMode.solid,
+      'dashed' => GridLineMode.dashed,
       _ => null,
     };
   }

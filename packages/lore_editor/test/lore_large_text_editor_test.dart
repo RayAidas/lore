@@ -1257,4 +1257,92 @@ void main() {
       expect(headerFocus.hasPrimaryFocus, isTrue);
     },
   );
+
+  testWidgets('renders grid lines per paragraph without breaking editing', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '第一段\n第二段\n第三段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              style: const EditorStyle.defaults().copyWith(
+                gridLineMode: GridLineMode.dashed,
+                firstLineIndent: false,
+              ),
+              autofocus: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.enterText(find.byType(TextField).first, '改第一段');
+    await tester.pump();
+
+    expect(controller.text, '改第一段\n第二段\n第三段');
+    // 每段 block 至少含一个网格线 CustomPaint 与一个选区 CustomPaint。
+    expect(find.byType(CustomPaint), findsWidgets);
+  });
+
+  testWidgets(
+    'grid line layer mounts only for non-none mode and skips first paragraph '
+    'top',
+    (tester) async {
+      // 直接定位网格 painter（私有类，按 runtimeType 匹配）；drawTopLine 经
+      // dynamic 读取——若类被重命名，本测试需同步更新。
+      Finder gridPainters() => find.byWidgetPredicate(
+        (widget) =>
+            widget is CustomPaint &&
+            widget.painter?.runtimeType.toString() == '_BlockGridLinePainter',
+      );
+
+      final controller = LoreLargeTextController(text: '第一段\n第二段');
+      final scrollController = ScrollController();
+      addTearDown(controller.dispose);
+      addTearDown(scrollController.dispose);
+
+      Widget build(GridLineMode mode) => MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              style: const EditorStyle.defaults().copyWith(
+                gridLineMode: mode,
+                firstLineIndent: false,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // none：网格层完全不挂载（`if (mode != none)` 守卫生效）。
+      await tester.pumpWidget(build(GridLineMode.none));
+      await tester.pumpAndSettle();
+      expect(gridPainters(), findsNothing);
+
+      // solid：每段一个网格 painter；首段顶部线关闭、第二段开启。
+      await tester.pumpWidget(build(GridLineMode.solid));
+      await tester.pumpAndSettle();
+      final painters = gridPainters();
+      expect(painters.evaluate().length, 2);
+      final firstPainter =
+          (tester.widget(painters.at(0)) as CustomPaint).painter as dynamic;
+      final secondPainter =
+          (tester.widget(painters.at(1)) as CustomPaint).painter as dynamic;
+      expect(firstPainter.drawTopLine, isFalse);
+      expect(secondPainter.drawTopLine, isTrue);
+    },
+  );
 }

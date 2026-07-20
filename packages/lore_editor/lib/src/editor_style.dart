@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lore_domain/lore_domain.dart';
 
 /// 编辑器光标（caret）样式。
 ///
@@ -41,6 +42,7 @@ final class EditorStyle {
     this.focusMode = false,
     this.firstLineIndent = true,
     this.paragraphSpacing = 14,
+    this.gridLineMode = GridLineMode.none,
     this.titleScale = 1.3,
     this.titleFontWeight = FontWeight.w700,
     this.titleLineHeight = 1.2,
@@ -59,6 +61,7 @@ final class EditorStyle {
       focusMode = false,
       firstLineIndent = true,
       paragraphSpacing = 14,
+      gridLineMode = GridLineMode.none,
       titleScale = 1.3,
       titleFontWeight = FontWeight.w700,
       titleLineHeight = 1.2;
@@ -85,6 +88,9 @@ final class EditorStyle {
 
   /// 段落之间的额外间距（逻辑像素，仅 TXT 编辑器消费）。
   final double paragraphSpacing;
+
+  /// 章节正文每行下方的网格线模式（仅 TXT 编辑器消费）。
+  final GridLineMode gridLineMode;
 
   /// 章节标题字号相对 [fontSize] 的倍数（仅章节标题栏消费）。
   final double titleScale;
@@ -123,6 +129,7 @@ final class EditorStyle {
     bool? focusMode,
     bool? firstLineIndent,
     double? paragraphSpacing,
+    GridLineMode? gridLineMode,
     double? titleScale,
     FontWeight? titleFontWeight,
     double? titleLineHeight,
@@ -138,6 +145,7 @@ final class EditorStyle {
       focusMode: focusMode ?? this.focusMode,
       firstLineIndent: firstLineIndent ?? this.firstLineIndent,
       paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
+      gridLineMode: gridLineMode ?? this.gridLineMode,
       titleScale: titleScale ?? this.titleScale,
       titleFontWeight: titleFontWeight ?? this.titleFontWeight,
       titleLineHeight: titleLineHeight ?? this.titleLineHeight,

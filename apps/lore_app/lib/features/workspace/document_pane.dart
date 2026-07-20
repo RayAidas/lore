@@ -72,6 +72,7 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
       focusMode: prefs.focusMode,
       firstLineIndent: prefs.firstLineIndent,
       paragraphSpacing: prefs.paragraphSpacing,
+      gridLineMode: prefs.gridLineMode,
     );
     final hasTitle = document.chapterNumber != null;
     // .txt 章节走 LoreLargeTextEditor：标题作为编辑器滚动视口的 header 随正文滚动。

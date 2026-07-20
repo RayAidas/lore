@@ -56,6 +56,8 @@ final class PreferencesController extends AsyncNotifier<AppPreferences> {
       _update((current) => current.copyWith(firstLineIndent: value));
   Future<void> setParagraphSpacing(double value) =>
       _update((current) => current.copyWith(paragraphSpacing: value));
+  Future<void> setGridLineMode(GridLineMode value) =>
+      _update((current) => current.copyWith(gridLineMode: value));
 
   Future<void> _update(AppPreferences Function(AppPreferences) apply) async {
     final service = ref.read(appPreferencesServiceProvider);

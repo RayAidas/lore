@@ -267,4 +267,47 @@ void main() {
 
     await subscription.cancel();
   });
+
+  test('round-trips gridLineMode through save and load', () async {
+    for (final mode in GridLineMode.values) {
+      final original = AppPreferences.defaults().copyWith(gridLineMode: mode);
+      await repository.save(original);
+      final loaded = await repository.load();
+      expect(loaded, isNotNull);
+      expect(loaded!.gridLineMode, mode, reason: 'mode=$mode');
+    }
+  });
+
+  test(
+    'loads v2 blob missing gridLineMode as none and bumps schema to v3',
+    () async {
+      // v2 blob（老用户）没有 gridLineMode 键：应迁移到 v3，网格线回落 none，
+      // 既有排版值原样保留（v2→v3 不做值迁移）。
+      SharedPreferences.setMockInitialValues({
+        'lore.app.preferences': jsonEncode({
+          'schemaVersion': 2,
+          'themeMode': 'sepia',
+          'defaultChapterFormat': 'text',
+          'editorLineHeight': 1.8,
+          'editorFontSize': 16,
+          'editorContentWidth': 900,
+          'dailyWordGoal': 1000,
+          'findMatchCase': false,
+          'findUseRegex': false,
+          'typewriterMode': true,
+          'focusMode': false,
+          'firstLineIndent': true,
+          'paragraphSpacing': 20,
+          'editorFontFamily': 'serif',
+        }),
+      });
+      final loaded = await repository.load();
+      expect(loaded, isNotNull);
+      expect(loaded!.schemaVersion, 3);
+      expect(loaded.gridLineMode, GridLineMode.none);
+      expect(loaded.editorLineHeight, 1.8);
+      expect(loaded.paragraphSpacing, 20);
+      expect(loaded.editorFontFamily, AppFontFamily.serif);
+    },
+  );
 }

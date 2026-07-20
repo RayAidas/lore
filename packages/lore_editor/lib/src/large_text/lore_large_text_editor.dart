@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
+import 'package:lore_domain/lore_domain.dart';
 
 import '../editor_style.dart';
 import 'lore_large_text_controller.dart';
@@ -250,6 +251,9 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
                           style: widget.style,
                           autofocus: widget.autofocus && index == 0,
                           dimmed: selectionValid && index != activeBlockIndex,
+                          drawTopGridLine:
+                              index > 0 &&
+                              widget.controller.blocks[index - 1].hasLineBreak,
                           onFocused: () {},
                         );
                         // 段落末块（hasLineBreak）下方加段间距；同段跨块保持贴合。
@@ -535,6 +539,7 @@ final class _LargeTextBlockField extends StatefulWidget {
     required this.style,
     required this.autofocus,
     required this.dimmed,
+    required this.drawTopGridLine,
     required this.onFocused,
     super.key,
   });
@@ -547,6 +552,12 @@ final class _LargeTextBlockField extends StatefulWidget {
   final EditorStyle style;
   final bool autofocus;
   final bool dimmed;
+
+  /// 是否在该段顶部多画一条网格线（代表上一段空行底部、即本段上方）。仅当
+  /// 本 block 是新段落首块（前一 block 的 [LargeTextBlock.hasLineBreak] 为真）
+  /// 且非全文首段时为 true——首段上方不画。
+  final bool drawTopGridLine;
+
   final VoidCallback onFocused;
 
   @override
@@ -1101,8 +1112,28 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
       scaler: textScaler,
       width: width,
     );
+    final gridLineMode = widget.style.gridLineMode;
     final content = Stack(
       children: [
+        if (gridLineMode != GridLineMode.none)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _BlockGridLinePainter(
+                  mode: gridLineMode,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.22),
+                  drawTopLine: widget.drawTopGridLine,
+                  text: widget.block.text,
+                  style: textStyle,
+                  textDirection: textDirection,
+                  textScaler: textScaler,
+                  layoutFor: layoutFor,
+                ),
+              ),
+            ),
+          ),
         Positioned.fill(
           child: IgnorePointer(
             child: CustomPaint(
@@ -1160,7 +1191,8 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
         widget.documentController,
       ),
       // 专注模式：淡化非当前段落。Opacity 不影响命中测试，点击淡化段落
-      // 仍可聚焦它，焦点移过去后该段恢复全不透明。
+      // 仍可聚焦它，焦点移过去后该段恢复全不透明。content 含网格线层，故网格
+      // 线随文字一并淡化（视觉一致：网格线属于段落而非全局辅助）。
       child: widget.dimmed ? Opacity(opacity: 0.28, child: content) : content,
     );
   }
@@ -1205,6 +1237,97 @@ final class _BlockSelectionPainter extends CustomPainter {
         oldDelegate.style != style ||
         oldDelegate.selection != selection ||
         oldDelegate.color != color ||
+        oldDelegate.textDirection != textDirection ||
+        oldDelegate.textScaler != textScaler;
+  }
+}
+
+/// 段落网格线：在每行文字底部画一条横线（实线/虚线）。[drawTopLine] 为真时
+/// 在 block 顶部 y=0 补一条，代表上一段空行底部——即本段上方的网格线；首段
+/// 不画。复用 [_LargeTextBlockFieldState._layoutPainterFor] 缓存的已 layout
+/// painter 取行高，使网格线与文字行底对齐。
+final class _BlockGridLinePainter extends CustomPainter {
+  _BlockGridLinePainter({
+    required this.mode,
+    required this.color,
+    required this.drawTopLine,
+    required this.text,
+    required this.style,
+    required this.textDirection,
+    required this.textScaler,
+    required this.layoutFor,
+  });
+
+  final GridLineMode mode;
+  final Color color;
+  final bool drawTopLine;
+  final String text;
+  // style/textDirection/textScaler 仅用于 shouldRepaint 比较——paint 不自己
+  // layout，而是通过 [layoutFor] 借用 state 缓存的已 layout painter。
+  final TextStyle? style;
+  final TextDirection textDirection;
+  final TextScaler textScaler;
+  final TextPainter Function(double width) layoutFor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (mode == GridLineMode.none || size.isEmpty) return;
+    final painter = layoutFor(size.width);
+    final lineHeight = painter.preferredLineHeight;
+    if (lineHeight <= 0) return;
+    // block 实际高度除以行高 → 视觉行数（TextField minLines:1 保证至少 1）。
+    // 上限 10000 远超单 block 现实行数——长段在 controller 层已按
+    // [ChunkedTextBuffer.targetChunkLength] 拆成多 block，此处仅防 lineHeight
+    // 趋近 0 的病态值把行数放大。
+    final rows = (size.height / lineHeight).round().clamp(1, 10000);
+    const strokeWidth = 0.6;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke;
+
+    // 收集所有横线的 y：顶部线（偏移半个线宽，避免描边上半被 canvas 顶部裁掉
+    // 而比行底线细一半）+ 每行底部（末行贴 block 底吸收 sub-pixel）。
+    final ys = <double>[
+      if (drawTopLine) strokeWidth / 2,
+      for (var i = 1; i <= rows; i += 1)
+        i == rows ? size.height : i * lineHeight,
+    ];
+
+    // 所有线段并入单个 [Path]、一次 [Canvas.drawPath] 提交。dashed 下尤其关键：
+    // 原先每行 × 每 dash 一次 [Canvas.drawLine]（900px × 20 行 ≈ 2.4k 次/块/帧），
+    // 合并后每 block 仅一次 draw 调用。
+    final path = Path();
+    if (mode == GridLineMode.dashed) {
+      const dash = 4.0;
+      const step = dash + 4.0; // dash + gap
+      for (final y in ys) {
+        for (var x = 0.0; x < size.width; x += step) {
+          final end = x + dash < size.width ? x + dash : size.width;
+          path.moveTo(x, y);
+          path.lineTo(end, y);
+        }
+      }
+    } else {
+      for (final y in ys) {
+        path.moveTo(0, y);
+        path.lineTo(size.width, y);
+      }
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BlockGridLinePainter oldDelegate) {
+    // 故意不比较 [layoutFor]：闭包无有意义的相等性，其输入已被
+    // text/style/textDirection/textScaler 覆盖，这些字段变自然重绘。
+    // 另未比较画布宽度：contentWidth 调整或窗口缩放改变 width 时，
+    // [RenderCustomPaint] 会因 size 变化触发重绘，故无需在此显式比较。
+    return oldDelegate.mode != mode ||
+        oldDelegate.color != color ||
+        oldDelegate.drawTopLine != drawTopLine ||
+        oldDelegate.text != text ||
+        oldDelegate.style != style ||
         oldDelegate.textDirection != textDirection ||
         oldDelegate.textScaler != textScaler;
   }
