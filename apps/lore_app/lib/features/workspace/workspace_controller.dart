@@ -307,16 +307,16 @@ final class WorkspaceController extends ChangeNotifier {
     return mutation;
   }
 
-  /// 由已解析章节导入整本 TXT 小说（见 [TxtNovelParser]）。重名时抛
+  /// 由已解析的卷/章区段导入整本 TXT 小说（见 [TxtNovelParser]）。重名时抛
   /// `LibraryFailureCode.alreadyExists`，由调用方负责重命名循环。
   Future<NovelStructureMutation> importNovel({
     required String title,
-    required List<NovelChapterImport> chapters,
+    required List<ParsedSection> sections,
   }) async {
     final mutation = await _requireNovelStructureService().importNovel(
       session,
       title: title,
-      chapters: chapters,
+      sections: sections,
     );
     _applyStructureMutation(mutation);
     return mutation;

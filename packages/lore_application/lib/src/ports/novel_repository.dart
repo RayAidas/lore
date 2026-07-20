@@ -18,13 +18,13 @@ abstract interface class NovelRepository {
     ChapterFormat chapterFormat = ChapterFormat.markdown,
   });
 
-  /// 由已解析的章节列表一次性创建小说（建目录、写各章文件、生成 content.json、
-  /// 注册），用于 TXT 导入。章节数据来自纯 domain 的 [TxtNovelParser]。
+  /// 由已解析的卷/章区段一次性创建小说（建卷目录、写各章文件、生成
+  /// content.json、注册），用于 TXT 导入。数据来自纯 domain 的 [TxtNovelParser]。
   /// 书名重复时抛 `LibraryFailureCode.alreadyExists`，由调用方负责重命名循环。
   Future<NovelStructureMutation> importNovel(
     LibraryAccess access, {
     required String title,
-    required List<NovelChapterImport> chapters,
+    required List<ParsedSection> sections,
     ChapterFormat chapterFormat = ChapterFormat.text,
   });
 

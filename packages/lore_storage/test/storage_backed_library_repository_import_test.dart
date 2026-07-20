@@ -28,18 +28,19 @@ void main() {
   tearDown(() => root.delete(recursive: true));
 
   test(
-    'importNovel writes chapter files, content.json and registration',
+    'importNovel writes flat root chapters, content.json and registration',
     () async {
       final mutation = await repository.importNovel(
         access,
         title: '导入小说',
-        chapters: const [
-          NovelChapterImport(subtitle: '起点', body: '起点正文。'),
-          NovelChapterImport(subtitle: '远行', body: '远行正文。\n第二段。'),
+        sections: [
+          ParsedRootChapters([
+            NovelChapterImport(subtitle: '起点', body: '起点正文。'),
+            NovelChapterImport(subtitle: '远行', body: '远行正文。\n第二段。'),
+          ]),
         ],
       );
 
-      // 目录结构：正文/第1章 起点.txt 与 第2章 远行.txt。
       expect(
         await File('${root.path}/导入小说/正文/第1章 起点.txt').readAsString(),
         '第1章 起点\n起点正文。',
@@ -48,8 +49,6 @@ void main() {
         await File('${root.path}/导入小说/正文/第2章 远行.txt').readAsString(),
         '第2章 远行\n远行正文。\n第二段。',
       );
-
-      // 元数据落盘 + 注册到 library.json。
       expect(await File('${root.path}/导入小说/.lore/novel.json').exists(), isTrue);
       expect(
         await File('${root.path}/导入小说/.lore/content.json').exists(),
@@ -58,51 +57,63 @@ void main() {
       final novels = await repository.listNovels(access);
       expect(novels.single.metadata.title, '导入小说');
 
-      // 扁平结构：两章都挂在正文下，顺序编号、role=normal、字数回填。
-      final snapshot = mutation.snapshot;
-      final chapters = snapshot.contentTree.nodes;
+      final chapters = mutation.snapshot.contentTree.nodes;
       expect(chapters, hasLength(2));
       expect(chapters[0].number, 1);
-      expect(chapters[0].role, ContentRole.normal);
-      expect(chapters[0].parentId, snapshot.metadata.body.id);
-      expect(chapters[0].characterCount, 5); // 「起点正文。」去标点空白后 5 runes
+      expect(chapters[0].parentId, mutation.snapshot.metadata.body.id);
+      expect(chapters[0].characterCount, 5);
       expect(chapters[1].number, 2);
-      expect(chapters[1].characterCount, 9); // 「远行正文。第二段。」= 9 runes
+      expect(chapters[1].characterCount, 9);
     },
   );
 
-  test(
-    'importNovel falls back to 第N章 filename when subtitle is empty',
-    () async {
-      final mutation = await repository.importNovel(
-        access,
-        title: '无副标题',
-        chapters: const [NovelChapterImport(subtitle: '', body: '只有正文。')],
-      );
-      expect(mutation.snapshot.contentTree.nodes.single.number, 1);
-      expect(
-        await File('${root.path}/无副标题/正文/第1章.txt').readAsString(),
-        '第1章\n只有正文。',
-      );
-    },
-  );
+  test('importNovel creates volume folders with nested chapters', () async {
+    final mutation = await repository.importNovel(
+      access,
+      title: '卷小说',
+      sections: [
+        ParsedRootChapters([NovelChapterImport(subtitle: '地府', body: '地府正文。')]),
+        ParsedVolume(
+          name: '破茧成蝶',
+          chapters: [
+            NovelChapterImport(subtitle: '水府四殿', body: '水府正文。'),
+            NovelChapterImport(subtitle: '珍宝', body: '珍宝正文。'),
+          ],
+        ),
+      ],
+    );
 
-  test(
-    'importNovel keeps distinct filenames via seq even with equal subtitles',
-    () async {
-      await repository.importNovel(
-        access,
-        title: '撞副标题',
-        chapters: const [
-          NovelChapterImport(subtitle: '同名', body: 'A'),
-          NovelChapterImport(subtitle: '同名', body: 'B'),
-        ],
-      );
-      // seq 不同（第1章 / 第2章）即天然区分，无需后缀。
-      expect(await File('${root.path}/撞副标题/正文/第1章 同名.txt').exists(), isTrue);
-      expect(await File('${root.path}/撞副标题/正文/第2章 同名.txt').exists(), isTrue);
-    },
-  );
+    // 根章节直接在正文下；卷章节在卷目录下。
+    expect(await File('${root.path}/卷小说/正文/第1章 地府.txt').exists(), isTrue);
+    expect(
+      await File('${root.path}/卷小说/正文/第1卷 破茧成蝶/第2章 水府四殿.txt').exists(),
+      isTrue,
+    );
+    expect(
+      await File('${root.path}/卷小说/正文/第1卷 破茧成蝶/第3章 珍宝.txt').exists(),
+      isTrue,
+    );
+    expect(await Directory('${root.path}/卷小说/正文/第1卷 破茧成蝶').exists(), isTrue);
+
+    final nodes = mutation.snapshot.contentTree.nodes;
+    final volumes = nodes
+        .where((n) => n.type == ContentNodeType.volume)
+        .toList();
+    final chapters = nodes
+        .where((n) => n.type == ContentNodeType.chapter)
+        .toList();
+    expect(volumes, hasLength(1));
+    expect(volumes.single.number, 1);
+    expect(chapters, hasLength(3));
+    // 章节编号全局连续 1..3。
+    expect(chapters.map((c) => c.number), [1, 2, 3]);
+    // 卷内章节挂在卷 id 下。
+    final volId = volumes.single.id;
+    expect(chapters[1].parentId, volId);
+    expect(chapters[2].parentId, volId);
+    // 根章节挂在正文 id 下。
+    expect(chapters[0].parentId, mutation.snapshot.metadata.body.id);
+  });
 
   test(
     'importNovel rejects a duplicate novel title with alreadyExists',
@@ -110,13 +121,17 @@ void main() {
       await repository.importNovel(
         access,
         title: '重名',
-        chapters: const [NovelChapterImport(subtitle: '', body: 'x')],
+        sections: [
+          ParsedRootChapters([NovelChapterImport(subtitle: '', body: 'x')]),
+        ],
       );
       await expectLater(
         repository.importNovel(
           access,
           title: '重名',
-          chapters: const [NovelChapterImport(subtitle: '', body: 'y')],
+          sections: [
+            ParsedRootChapters([NovelChapterImport(subtitle: '', body: 'y')]),
+          ],
         ),
         throwsA(
           isA<LibraryOperationException>().having(
@@ -134,7 +149,9 @@ void main() {
       access,
       title: 'MD 导入',
       chapterFormat: ChapterFormat.markdown,
-      chapters: const [NovelChapterImport(subtitle: '首章', body: '正文。')],
+      sections: [
+        ParsedRootChapters([NovelChapterImport(subtitle: '首章', body: '正文。')]),
+      ],
     );
     expect(mutation.snapshot.metadata.chapterFormat, ChapterFormat.markdown);
     expect(

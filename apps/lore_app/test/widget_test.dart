@@ -719,7 +719,7 @@ final class _FakeNovelRepository
   Future<NovelStructureMutation> importNovel(
     LibraryAccess access, {
     required String title,
-    required List<NovelChapterImport> chapters,
+    required List<ParsedSection> sections,
     ChapterFormat chapterFormat = ChapterFormat.text,
   }) {
     throw UnimplementedError();

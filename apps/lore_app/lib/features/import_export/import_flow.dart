@@ -48,7 +48,8 @@ Future<void> importTxtNovelFlow(
     return;
   }
   final parsed = TxtNovelParser.parse(text: text, fileName: file.name);
-  if (parsed.chapters.isEmpty) {
+  final count = _totalChapters(parsed);
+  if (count == 0) {
     _failure(
       context,
       const LibraryFailure(
@@ -94,9 +95,8 @@ Future<void> importTxtNovelFlow(
     return;
   }
 
-  final count = parsed.chapters.length;
   try {
-    await controller.importNovel(title: title, chapters: parsed.chapters);
+    await controller.importNovel(title: title, sections: parsed.sections);
   } on LibraryOperationException catch (error) {
     if (!context.mounted) {
       return;
@@ -110,6 +110,17 @@ Future<void> importTxtNovelFlow(
   ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text('已导入「$title」，共 $count 章。')));
+}
+
+int _totalChapters(ParsedTxtNovel parsed) {
+  var total = 0;
+  for (final section in parsed.sections) {
+    total += switch (section) {
+      ParsedRootChapters(:final chapters) => chapters.length,
+      ParsedVolume(:final chapters) => chapters.length,
+    };
+  }
+  return total;
 }
 
 Future<Uint8List?> _readFileBytes(PlatformFile file) async {
