@@ -135,6 +135,42 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final sidebar = find.byKey(const ValueKey('library-sidebar'));
+    final resizeHandle = find.byKey(
+      const ValueKey('library-sidebar-resize-handle'),
+    );
+    final collapseButton = find.byKey(
+      const ValueKey('library-sidebar-collapse'),
+    );
+    expect(tester.getSize(sidebar).width, 276);
+    expect(
+      find.descendant(of: sidebar, matching: collapseButton),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: find.byType(AppBar), matching: collapseButton),
+      findsNothing,
+    );
+
+    await tester.drag(resizeHandle, const Offset(80, 0));
+    await tester.pump();
+    expect(tester.getSize(sidebar).width, closeTo(356, 1));
+
+    await tester.tap(find.byTooltip('收起侧栏'));
+    await tester.pump();
+    expect(sidebar, findsNothing);
+    final expandButton = find.byKey(const ValueKey('library-sidebar-expand'));
+    expect(expandButton, findsOneWidget);
+    expect(
+      tester.getTopLeft(expandButton).dy,
+      closeTo(tester.getTopLeft(find.byType(DocumentTabs)).dy, 1),
+    );
+
+    await tester.tap(find.byTooltip('展开侧栏'));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(sidebar).width, closeTo(356, 1));
+    expect(expandButton, findsNothing);
+
     expect(find.text('/tmp/library'), findsOneWidget);
     expect(find.text('第一章.md'), findsOneWidget);
     expect(find.text('选择或新建文件开始写作'), findsOneWidget);

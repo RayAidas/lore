@@ -43,6 +43,8 @@ final class _LibraryWorkspacePageState
     extends ConsumerState<LibraryWorkspacePage>
     with WidgetsBindingObserver {
   bool _showInspector = true;
+  bool _showSidebar = true;
+  double _sidebarWidth = _defaultSidebarWidth;
   FindReplaceController? _findController;
   bool _findReplaceMode = false;
   WorkspaceTabDragData? _draggingTab;
@@ -274,18 +276,48 @@ final class _LibraryWorkspacePageState
                       Expanded(
                         child: Row(
                           children: [
-                            if (permanentSidebar)
+                            if (permanentSidebar && _showSidebar)
                               SizedBox(
-                                width: 276,
+                                key: const ValueKey('library-sidebar'),
+                                width: _sidebarWidth,
                                 child: LibrarySidebar(
                                   controller: controller,
                                   displayPath:
                                       widget.session.access.displayPath,
                                   onSelectLibrary: widget.onSelectLibrary,
+                                  onCollapse: () =>
+                                      setState(() => _showSidebar = false),
                                 ),
                               ),
-                            if (permanentSidebar)
-                              const VerticalDivider(width: 1),
+                            if (permanentSidebar && _showSidebar)
+                              GestureDetector(
+                                key: const ValueKey(
+                                  'library-sidebar-resize-handle',
+                                ),
+                                behavior: HitTestBehavior.opaque,
+                                onHorizontalDragUpdate: (details) {
+                                  setState(() {
+                                    _sidebarWidth =
+                                        (_sidebarWidth + details.delta.dx)
+                                            .clamp(
+                                              _minimumSidebarWidth,
+                                              _maximumSidebarWidth,
+                                            );
+                                  });
+                                },
+                                child: MouseRegion(
+                                  cursor: SystemMouseCursors.resizeColumn,
+                                  child: SizedBox(
+                                    width: _sidebarResizeHandleWidth,
+                                    child: Center(
+                                      child: VerticalDivider(
+                                        width: 1,
+                                        color: Theme.of(context).dividerColor,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             Expanded(
                               child: _buildContent(
                                 controller,
@@ -319,16 +351,23 @@ final class _LibraryWorkspacePageState
     WorkspaceController controller, {
     required bool desktop,
   }) {
+    final showSidebarExpander =
+        MediaQuery.sizeOf(context).width >= 760 && !_showSidebar;
     if (!controller.initialized) {
       return const Center(child: CircularProgressIndicator());
     }
     if (!desktop) {
-      return _buildEditorGroup(controller, WorkspaceEditorGroupId.primary);
+      return _buildEditorGroup(
+        controller,
+        WorkspaceEditorGroupId.primary,
+        showSidebarExpander: showSidebarExpander,
+      );
     }
     if (!controller.isSplit) {
       final editorGroup = _buildEditorGroup(
         controller,
         WorkspaceEditorGroupId.primary,
+        showSidebarExpander: showSidebarExpander,
       );
       if (_draggingTab == null) {
         return editorGroup;
@@ -386,7 +425,11 @@ final class _LibraryWorkspacePageState
         const minimumPaneWidth = 280.0;
         const dividerWidth = 9.0;
         if (constraints.maxWidth < minimumPaneWidth * 2 + dividerWidth) {
-          return _buildEditorGroup(controller, controller.focusedGroupId);
+          return _buildEditorGroup(
+            controller,
+            controller.focusedGroupId,
+            showSidebarExpander: showSidebarExpander,
+          );
         }
         final available = constraints.maxWidth - dividerWidth;
         final primaryWidth = (available * controller.splitRatio).clamp(
@@ -400,6 +443,7 @@ final class _LibraryWorkspacePageState
               child: _buildEditorGroup(
                 controller,
                 WorkspaceEditorGroupId.primary,
+                showSidebarExpander: showSidebarExpander,
               ),
             ),
             GestureDetector(
@@ -436,8 +480,9 @@ final class _LibraryWorkspacePageState
 
   Widget _buildEditorGroup(
     WorkspaceController controller,
-    WorkspaceEditorGroupId groupId,
-  ) {
+    WorkspaceEditorGroupId groupId, {
+    bool showSidebarExpander = false,
+  }) {
     final selectedEntry = controller.selectedEntry;
     final selectedNovel = controller.selectedNovel;
     final showStructure =
@@ -464,16 +509,37 @@ final class _LibraryWorkspacePageState
         ),
         child: Column(
           children: [
-            DocumentTabs(
-              controller: controller,
-              groupId: groupId,
-              onActivate: (tab) => _activateTab(controller, tab),
-              onMove: _discardFindReplace,
-              onDragStarted: _startTabDrag,
-              onDragEnded: _finishTabDrag,
-              onClose: (document) => _closeDocument(controller, document),
-              onContextMenu: (tab, offset) =>
-                  _showTabContextMenu(controller, tab, offset),
+            Row(
+              children: [
+                if (showSidebarExpander)
+                  ColoredBox(
+                    color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                    child: SizedBox(
+                      width: 44,
+                      height: DocumentTabs.barHeight,
+                      child: IconButton(
+                        key: const ValueKey('library-sidebar-expand'),
+                        tooltip: '展开侧栏',
+                        onPressed: () => setState(() => _showSidebar = true),
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.chevron_right_rounded),
+                      ),
+                    ),
+                  ),
+                Expanded(
+                  child: DocumentTabs(
+                    controller: controller,
+                    groupId: groupId,
+                    onActivate: (tab) => _activateTab(controller, tab),
+                    onMove: _discardFindReplace,
+                    onDragStarted: _startTabDrag,
+                    onDragEnded: _finishTabDrag,
+                    onClose: (document) => _closeDocument(controller, document),
+                    onContextMenu: (tab, offset) =>
+                        _showTabContextMenu(controller, tab, offset),
+                  ),
+                ),
+              ],
             ),
             const Divider(height: 1),
             Expanded(
@@ -806,3 +872,8 @@ final class _LibraryWorkspacePageState
     showLibraryFailure(context, failure);
   }
 }
+
+const double _defaultSidebarWidth = 276;
+const double _minimumSidebarWidth = 220;
+const double _maximumSidebarWidth = 420;
+const double _sidebarResizeHandleWidth = 9;

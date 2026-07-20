@@ -40,6 +40,7 @@ final class LibrarySidebar extends ConsumerStatefulWidget {
     required this.displayPath,
     required this.onSelectLibrary,
     this.drawerContext,
+    this.onCollapse,
     super.key,
   });
 
@@ -47,6 +48,7 @@ final class LibrarySidebar extends ConsumerStatefulWidget {
   final String displayPath;
   final VoidCallback onSelectLibrary;
   final BuildContext? drawerContext;
+  final VoidCallback? onCollapse;
 
   @override
   ConsumerState<LibrarySidebar> createState() => _LibrarySidebarState();
@@ -498,18 +500,16 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                     tooltip: '导入 TXT',
                     onPressed: () => unawaited(_importTxt()),
                     icon: const Icon(Icons.file_download_outlined, size: 20),
-                    style: IconButton.styleFrom(
-                      minimumSize: const Size.square(_sidebarMenuButtonSize),
-                      maximumSize: const Size.square(_sidebarMenuButtonSize),
-                      padding: EdgeInsets.zero,
-                      hoverColor: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.06),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
+                    style: _sidebarIconButtonStyle(colorScheme),
                   ),
+                  if (widget.onCollapse case final onCollapse?)
+                    IconButton(
+                      key: const ValueKey('library-sidebar-collapse'),
+                      tooltip: '收起侧栏',
+                      onPressed: onCollapse,
+                      style: _sidebarIconButtonStyle(colorScheme),
+                      icon: const Icon(Icons.chevron_left_rounded),
+                    ),
                 ],
               ),
             ),
@@ -632,15 +632,7 @@ final class _SidebarMenuButtonState extends State<_SidebarMenuButton> {
                 menuController.open();
               }
             },
-            style: IconButton.styleFrom(
-              minimumSize: const Size.square(_sidebarMenuButtonSize),
-              maximumSize: const Size.square(_sidebarMenuButtonSize),
-              padding: EdgeInsets.zero,
-              hoverColor: colorScheme.onSurface.withValues(alpha: 0.06),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
+            style: _sidebarIconButtonStyle(colorScheme),
             icon: AnimatedSwitcher(
               duration: const Duration(milliseconds: 160),
               switchInCurve: Curves.easeOutBack,
@@ -670,3 +662,13 @@ final class _SidebarMenuButtonState extends State<_SidebarMenuButton> {
 
 const double _sidebarMenuButtonSize = 36;
 const double _sidebarMenuWidth = 184;
+
+ButtonStyle _sidebarIconButtonStyle(ColorScheme colorScheme) {
+  return IconButton.styleFrom(
+    minimumSize: const Size.square(_sidebarMenuButtonSize),
+    maximumSize: const Size.square(_sidebarMenuButtonSize),
+    padding: EdgeInsets.zero,
+    hoverColor: colorScheme.onSurface.withValues(alpha: 0.06),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+  );
+}
