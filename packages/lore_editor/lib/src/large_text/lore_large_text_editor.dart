@@ -726,6 +726,8 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
       height: widget.style.lineHeight,
       fontSize: widget.style.fontSize,
       letterSpacing: widget.style.letterSpacing,
+      fontFamily: widget.style.fontFamily,
+      fontFamilyFallback: widget.style.fontFamilyFallback,
     );
     final painter = _layoutPainterFor(
       text: widget.block.text,
@@ -755,6 +757,8 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
       height: widget.style.lineHeight,
       fontSize: widget.style.fontSize,
       letterSpacing: widget.style.letterSpacing,
+      fontFamily: widget.style.fontFamily,
+      fontFamilyFallback: widget.style.fontFamilyFallback,
     );
     final painter = _layoutPainterFor(
       text: widget.block.text,
@@ -818,6 +822,8 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
       height: widget.style.lineHeight,
       fontSize: widget.style.fontSize,
       letterSpacing: widget.style.letterSpacing,
+      fontFamily: widget.style.fontFamily,
+      fontFamilyFallback: widget.style.fontFamilyFallback,
     );
     final blockStart = widget.documentController.blockStart(widget.blockIndex);
     final selection = widget.documentController.selection;

@@ -6,6 +6,7 @@ import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_editor/lore_editor.dart';
 
+import '../preferences/font_options.dart';
 import '../preferences/preferences_providers.dart';
 import '../library/library_providers.dart';
 import 'chapter_title_bar.dart';
@@ -60,10 +61,13 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
     final colorScheme = Theme.of(context).colorScheme;
     final prefs =
         ref.watch(appPreferencesProvider).value ?? AppPreferences.defaults();
+    final fontOption = AppFontOptions.resolve(prefs.editorFontFamily);
     final editorStyle = const EditorStyle.defaults().copyWith(
       lineHeight: prefs.editorLineHeight,
       fontSize: prefs.editorFontSize,
       contentWidth: prefs.editorContentWidth,
+      fontFamily: fontOption.fontFamily,
+      fontFamilyFallback: fontOption.fontFamilyFallback,
       typewriterMode: prefs.typewriterMode,
       focusMode: prefs.focusMode,
       firstLineIndent: prefs.firstLineIndent,
@@ -204,6 +208,10 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                   child: document.showPreview && document.isMarkdown
                       ? LoreMarkdownPreview(
                           data: document.editorController.text,
+                          fontFamily: fontOption.fontFamily,
+                          fontFamilyFallback: fontOption.fontFamilyFallback,
+                          fontSize: prefs.editorFontSize,
+                          lineHeight: prefs.editorLineHeight,
                           imageBuilder: (uri, width, height) =>
                               LocalMarkdownImage(
                                 session: session,

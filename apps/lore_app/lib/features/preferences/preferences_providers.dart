@@ -40,6 +40,8 @@ final class PreferencesController extends AsyncNotifier<AppPreferences> {
       _update((current) => current.copyWith(editorFontSize: value));
   Future<void> setEditorContentWidth(double value) =>
       _update((current) => current.copyWith(editorContentWidth: value));
+  Future<void> setEditorFontFamily(AppFontFamily value) =>
+      _update((current) => current.copyWith(editorFontFamily: value));
   Future<void> setDailyWordGoal(int value) =>
       _update((current) => current.copyWith(dailyWordGoal: value));
   Future<void> setFindMatchCase(bool value) =>

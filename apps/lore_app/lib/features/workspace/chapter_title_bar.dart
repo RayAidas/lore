@@ -80,11 +80,15 @@ final class _ChapterTitleBarState extends State<ChapterTitleBar> {
           fontWeight: widget.style.titleFontWeight,
           height: widget.style.titleLineHeight,
           letterSpacing: widget.style.letterSpacing,
+          fontFamily: widget.style.fontFamily,
+          fontFamilyFallback: widget.style.fontFamilyFallback,
           color: colorScheme.onSurface,
         ) ??
         TextStyle(
           fontSize: widget.style.titleFontSize,
           fontWeight: widget.style.titleFontWeight,
+          fontFamily: widget.style.fontFamily,
+          fontFamilyFallback: widget.style.fontFamilyFallback,
         );
     // 与正文编辑器同款宽度约束 + 水平内边距，使标题左缘与正文左缘对齐。
     return LayoutBuilder(

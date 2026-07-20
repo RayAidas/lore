@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_ui/lore_ui.dart';
 
+import 'font_options.dart';
 import 'preferences_providers.dart';
 
 final class SettingsPage extends ConsumerWidget {
@@ -71,6 +72,30 @@ class _SettingsBody extends ConsumerWidget {
                 child: Text('Markdown'),
               ),
               DropdownMenuItem(value: ChapterFormat.text, child: Text('TXT')),
+            ],
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.text_fields_outlined),
+          title: const Text('字体'),
+          trailing: DropdownButton<AppFontFamily>(
+            value: prefs.editorFontFamily,
+            onChanged: (value) {
+              if (value != null) controller.setEditorFontFamily(value);
+            },
+            items: [
+              for (final entry in AppFontOptions.options.entries)
+                DropdownMenuItem(
+                  value: entry.key,
+                  // 每个选项用自身字体渲染，点开即可直观对比各字体效果。
+                  child: Text(
+                    entry.value.label,
+                    style: TextStyle(
+                      fontFamily: entry.value.fontFamily,
+                      fontFamilyFallback: entry.value.fontFamilyFallback,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

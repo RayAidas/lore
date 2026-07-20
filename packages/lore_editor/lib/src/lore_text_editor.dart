@@ -59,6 +59,8 @@ final class LoreTextEditor extends StatelessWidget {
                   height: style.lineHeight,
                   fontSize: style.fontSize,
                   letterSpacing: style.letterSpacing,
+                  fontFamily: style.fontFamily,
+                  fontFamilyFallback: style.fontFamilyFallback,
                 ),
                 decoration: const InputDecoration(
                   border: InputBorder.none,

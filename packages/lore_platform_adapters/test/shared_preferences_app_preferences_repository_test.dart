@@ -33,6 +33,7 @@ void main() {
       focusMode: true,
       firstLineIndent: false,
       paragraphSpacing: 24,
+      editorFontFamily: AppFontFamily.serif,
     );
 
     await repository.save(original);
@@ -51,6 +52,7 @@ void main() {
     expect(loaded.focusMode, isTrue);
     expect(loaded.firstLineIndent, isFalse);
     expect(loaded.paragraphSpacing, 24);
+    expect(loaded.editorFontFamily, AppFontFamily.serif);
   });
 
   test(
@@ -83,6 +85,8 @@ void main() {
       expect(loaded.focusMode, isFalse);
       expect(loaded.firstLineIndent, isTrue);
       expect(loaded.paragraphSpacing, 18);
+      // editorFontFamily 是后加字段，旧 blob 缺该键应回落默认值（文楷）。
+      expect(loaded.editorFontFamily, AppFontFamily.wenkai);
     },
   );
 
@@ -111,6 +115,38 @@ void main() {
       expect(loaded!.themeMode, AppThemeMode.dark);
       expect(loaded.typewriterMode, isFalse);
       expect(loaded.focusMode, isFalse);
+    },
+  );
+
+  test(
+    'editorFontFamily tolerates wrong-typed or unknown values by falling back',
+    () async {
+      // editorFontFamily 是后加字段：无论值是错类型（int/bool/null）还是未知枚举
+      // 字符串，都应静默回落默认值（文楷），且不影响其它字段加载。
+      for (final bad in <Object?>[42, true, null, 'comic_sans']) {
+        SharedPreferences.setMockInitialValues({
+          'lore.app.preferences': jsonEncode({
+            'schemaVersion': 1,
+            'themeMode': 'system',
+            'defaultChapterFormat': 'text',
+            'editorLineHeight': 1.5,
+            'editorFontSize': 15,
+            'editorContentWidth': 900,
+            'dailyWordGoal': 2000,
+            'findMatchCase': false,
+            'findUseRegex': false,
+            'editorFontFamily': bad,
+          }),
+        });
+        final loaded = await repository.load();
+        expect(loaded, isNotNull, reason: 'bad editorFontFamily=$bad');
+        expect(
+          loaded!.editorFontFamily,
+          AppFontFamily.wenkai,
+          reason: 'bad=$bad',
+        );
+        expect(loaded.editorFontSize, 15, reason: 'bad=$bad');
+      }
     },
   );
 

@@ -34,3 +34,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  fonts:
+    # 霞鹜文楷 LXGW WenKai（OFL-1.1，见 fonts/OFL-LXGW.txt）：网文/长文阅读
+    # 公认最舒适的字体之一，系统不带，跨平台一致。仅内置 Regular；标题加粗
+    # 由 Flutter 合成。
+    - family: LXGWWenKai
+      fonts:
+        - asset: fonts/LXGWWenKai-Regular.ttf

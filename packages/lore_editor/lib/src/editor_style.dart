@@ -35,6 +35,8 @@ final class EditorStyle {
     required this.fontSize,
     required this.contentWidth,
     required this.letterSpacing,
+    this.fontFamily,
+    this.fontFamilyFallback,
     this.typewriterMode = false,
     this.focusMode = false,
     this.firstLineIndent = true,
@@ -50,6 +52,8 @@ final class EditorStyle {
       fontSize = 15,
       contentWidth = 900,
       letterSpacing = 0.2,
+      fontFamily = null,
+      fontFamilyFallback = null,
       typewriterMode = false,
       focusMode = false,
       firstLineIndent = true,
@@ -63,6 +67,12 @@ final class EditorStyle {
   final double fontSize;
   final double contentWidth;
   final double letterSpacing;
+
+  /// 正文字体 family（null = 跟随主题默认）。作用于 txt 正文与 Markdown 预览。
+  final String? fontFamily;
+
+  /// 字体 fallback 链：首选 family 缺字符时按序回退（CJK 跨平台必备）。
+  final List<String>? fontFamilyFallback;
 
   /// 打字机模式：键入/移动光标时把光标行滚动到视口垂直居中（仅 TXT 编辑器消费）。
   final bool typewriterMode;
@@ -96,6 +106,8 @@ final class EditorStyle {
     double? fontSize,
     double? contentWidth,
     double? letterSpacing,
+    String? fontFamily,
+    List<String>? fontFamilyFallback,
     bool? typewriterMode,
     bool? focusMode,
     bool? firstLineIndent,
@@ -110,6 +122,8 @@ final class EditorStyle {
       fontSize: fontSize ?? this.fontSize,
       contentWidth: contentWidth ?? this.contentWidth,
       letterSpacing: letterSpacing ?? this.letterSpacing,
+      fontFamily: fontFamily ?? this.fontFamily,
+      fontFamilyFallback: fontFamilyFallback ?? this.fontFamilyFallback,
       typewriterMode: typewriterMode ?? this.typewriterMode,
       focusMode: focusMode ?? this.focusMode,
       firstLineIndent: firstLineIndent ?? this.firstLineIndent,

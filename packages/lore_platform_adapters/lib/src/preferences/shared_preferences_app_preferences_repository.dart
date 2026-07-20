@@ -70,6 +70,10 @@ final class SharedPreferencesAppPreferencesRepository
       final paragraphSpacing = value['paragraphSpacing'] is num
           ? (value['paragraphSpacing']! as num).toDouble()
           : 18.0;
+      // 正文字体是后加字段，老 blob 里可能没有——容错读取，缺失回落默认值。
+      final editorFontFamily =
+          _fontFamilyFromString(value['editorFontFamily']) ??
+          AppPreferences.defaults().editorFontFamily;
       return AppPreferences(
         schemaVersion: _schemaVersion,
         themeMode: themeMode,
@@ -84,6 +88,7 @@ final class SharedPreferencesAppPreferencesRepository
         focusMode: focusMode,
         firstLineIndent: firstLineIndent,
         paragraphSpacing: paragraphSpacing,
+        editorFontFamily: editorFontFamily,
       );
     } on FormatException {
       return null;
@@ -115,6 +120,7 @@ final class SharedPreferencesAppPreferencesRepository
       'focusMode': preferences.focusMode,
       'firstLineIndent': preferences.firstLineIndent,
       'paragraphSpacing': preferences.paragraphSpacing,
+      'editorFontFamily': preferences.editorFontFamily.name,
     };
   }
 
@@ -138,6 +144,20 @@ final class SharedPreferencesAppPreferencesRepository
     return switch (value) {
       'text' => ChapterFormat.text,
       'markdown' => ChapterFormat.markdown,
+      _ => null,
+    };
+  }
+
+  AppFontFamily? _fontFamilyFromString(Object? value) {
+    if (value is! String) {
+      return null;
+    }
+    return switch (value) {
+      'system' => AppFontFamily.system,
+      'wenkai' => AppFontFamily.wenkai,
+      'sans' => AppFontFamily.sans,
+      'serif' => AppFontFamily.serif,
+      'kai' => AppFontFamily.kai,
       _ => null,
     };
   }

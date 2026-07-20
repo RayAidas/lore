@@ -6,6 +6,12 @@ import '../content/content_types.dart';
 /// 仍由 [NovelMetadata] 等小说级元数据承载。
 enum AppThemeMode { system, light, sepia, dark }
 
+/// 编辑器正文字体偏好。
+///
+/// `system` 走平台默认；其余按字体 family 名解析，宿主缺该字体时自动走
+/// fallback 链（由 app 层的字体注册表定义），保证总有合理渲染。
+enum AppFontFamily { system, wenkai, sans, serif, kai }
+
 final class AppPreferences {
   const AppPreferences({
     required this.schemaVersion,
@@ -21,6 +27,7 @@ final class AppPreferences {
     required this.focusMode,
     required this.firstLineIndent,
     required this.paragraphSpacing,
+    required this.editorFontFamily,
   });
 
   static const schemaVersionCurrent = 1;
@@ -40,6 +47,7 @@ final class AppPreferences {
     focusMode: false,
     firstLineIndent: true,
     paragraphSpacing: 12,
+    editorFontFamily: AppFontFamily.wenkai,
   );
 
   final int schemaVersion;
@@ -52,6 +60,9 @@ final class AppPreferences {
   final double editorLineHeight;
   final double editorFontSize;
   final double editorContentWidth;
+
+  /// 编辑器正文字体（作用于 txt 正文与 Markdown 预览）。
+  final AppFontFamily editorFontFamily;
 
   /// 每日写作字数目标，0 表示禁用。
   final int dailyWordGoal;
@@ -86,6 +97,7 @@ final class AppPreferences {
     bool? focusMode,
     bool? firstLineIndent,
     double? paragraphSpacing,
+    AppFontFamily? editorFontFamily,
   }) {
     return AppPreferences(
       schemaVersion: schemaVersion,
@@ -101,6 +113,7 @@ final class AppPreferences {
       focusMode: focusMode ?? this.focusMode,
       firstLineIndent: firstLineIndent ?? this.firstLineIndent,
       paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
+      editorFontFamily: editorFontFamily ?? this.editorFontFamily,
     );
   }
 }
