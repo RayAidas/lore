@@ -3,6 +3,7 @@
 .claude
 .omc
 .codex
+.worktrees/
 
 # Dart and Flutter
 **/.dart_tool/
