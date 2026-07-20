@@ -984,4 +984,98 @@ void main() {
     // 非扩展的↓先折叠到 extent（offset 2），不跨段；再按一次才会跨段。
     expect(controller.selection, const TextSelection.collapsed(offset: 2));
   });
+
+  testWidgets('arrow down into an off-screen paragraph scrolls it into view', (
+    tester,
+  ) async {
+    // 首段超长（远超视口 + cacheExtent），使其后的短段初始在视口外、未被
+    // ListView 构建——这正是 P3 的触发场景（model selection 移走但焦点脱节）。
+    final longFirst = List.filled(1500, '字').join();
+    final controller = LoreLargeTextController(text: '$longFirst\n第二段\n第三段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 聚焦首段末尾（末视觉行在视口下方），按↓应跨到第二段。
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = TextSelection.collapsed(offset: longFirst.length);
+    await tester.pumpAndSettle();
+    final offsetBefore = scrollController.offset;
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+
+    // model 与焦点都跟到第二段，无脱节。
+    expect(
+      controller.blockIndexForOffset(controller.selection.extentOffset),
+      1,
+    );
+    // 兜底粗滚触发：目标段原本未渲染，滚动使其构建，offset 增大。
+    expect(scrollController.offset, greaterThan(offsetBefore));
+  });
+
+  testWidgets(
+    'typewriter mode recenters the off-screen target after crossing',
+    (tester) async {
+      // 同样的超长首段场景，但开打字机模式。回归：focusAt 后必须用目标段
+      // caret 居中（而非依赖 focusAt 之前 _handleControllerChanged 的早 recenter
+      // 居中原段边缘），否则 typewriter「光标居中」语义在跨到未渲染段时失效。
+      final longFirst = List.filled(1500, '字').join();
+      final controller = LoreLargeTextController(text: '$longFirst\n第二段\n第三段');
+      final scrollController = ScrollController();
+      addTearDown(controller.dispose);
+      addTearDown(scrollController.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: SizedBox(
+              width: 800,
+              height: 500,
+              child: LoreLargeTextEditor(
+                controller: controller,
+                scrollController: scrollController,
+                style: const EditorStyle.defaults().copyWith(
+                  typewriterMode: true,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(TextField).first);
+      controller.selection = TextSelection.collapsed(offset: longFirst.length);
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+
+      // 跨到第二段（model 与焦点一致）；typewriter 模式下 focusAt 前后的两次
+      // recenter 不应破坏跨段或抛异常。
+      expect(
+        controller.blockIndexForOffset(controller.selection.extentOffset),
+        1,
+      );
+      // 目标段原本未渲染，跨段后粗滚 + 居中发生，offset 非零（光标被带入视口）。
+      expect(scrollController.offset, greaterThan(0));
+    },
+  );
 }

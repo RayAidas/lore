@@ -65,6 +65,7 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
     _observedBlocksRevision = widget.controller.blocksRevision;
     widget.controller.addListener(_handleControllerChanged);
     widget.focusNode?.addListener(_handleExternalFocus);
+    _blockRegistry.ensureBlockVisibleAndFocus = _ensureBlockVisibleAndFocus;
     // 章节正文首段挂载即补缩进：使「点进首段」「标题回车进入」时缩进已就位。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -96,6 +97,7 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
   void dispose() {
     widget.controller.removeListener(_handleControllerChanged);
     widget.focusNode?.removeListener(_handleExternalFocus);
+    _blockRegistry.ensureBlockVisibleAndFocus = null;
     super.dispose();
   }
 
@@ -381,6 +383,16 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
         !widget.scrollController.hasClients) {
       return;
     }
+    _scrollCaretToCenter();
+  }
+
+  /// 把聚焦光标行滚动到视口垂直居中（8px 死区避免微抖）。打字机模式与跨段
+  /// 兜底共用：前者由 [_recenterCaretIfNeeded] 守卫后调用，后者由
+  /// [_ensureBlockVisibleAndFocus] 在目标段构建后调用。
+  void _scrollCaretToCenter() {
+    if (!mounted || !widget.scrollController.hasClients) {
+      return;
+    }
     final editorBox = context.findRenderObject() as RenderBox?;
     final caretGlobalY = _blockRegistry.focusedCaretCenterY();
     if (editorBox == null || caretGlobalY == null) {
@@ -399,6 +411,62 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
         position.maxScrollExtent,
       ),
     );
+  }
+
+  /// 向 [targetIndex] 方向粗滚一个视口高度，强制 ListView 把目标段构建出来。
+  /// 方向由 targetIndex 与当前聚焦段 [focusedBlockIndex] 比较：目标在焦点段
+  /// 下方→向下滚，上方→向上滚；无聚焦段时按 targetIndex 是否大于 0 估算。
+  void _scrollToward(int targetIndex) {
+    final scrollController = widget.scrollController;
+    if (!scrollController.hasClients) {
+      return;
+    }
+    final position = scrollController.position;
+    final viewport = position.viewportDimension;
+    final focused = _blockRegistry.focusedBlockIndex;
+    final downward = focused == null ? targetIndex > 0 : targetIndex > focused;
+    final delta = downward ? viewport : -viewport;
+    scrollController.jumpTo(
+      (position.pixels + delta).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      ),
+    );
+  }
+
+  /// 跨段到未渲染段的兜底：方向性粗滚一个视口（让 ListView 构建目标段），
+  /// post-frame 重试聚焦；最多重试 5 次防极端死循环。聚焦成功后再把光标居中。
+  /// 用 [depth] 参数计数，避免递归经过 [focusBlock] 时重置。
+  void _ensureBlockVisibleAndFocus(
+    int index,
+    LoreLargeTextController controller, {
+    int depth = 0,
+  }) {
+    if (!mounted || !widget.scrollController.hasClients) {
+      return;
+    }
+    _scrollToward(index);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final state = _blockRegistry.stateFor(index);
+      if (state != null) {
+        state.focusAt(controller.selection);
+        // focusAt 后无条件居中：_handleControllerChanged 的 typewriter recenter
+        // 在 focusAt 之前跑，用的是原段 caret（原段已被粗滚出视口），会把视口
+        // 拉回原段、令目标光标不可见。这里用目标段 caret 覆盖，确保跨段后光标
+        // 落在视口内。
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _scrollCaretToCenter();
+          }
+        });
+      } else if (depth < 5) {
+        _ensureBlockVisibleAndFocus(index, controller, depth: depth + 1);
+      }
+      // depth 耗尽：放弃聚焦，保持 model selection（用户手动滚动后即恢复）。
+    });
   }
 
   Future<void> _copy() async {
@@ -1112,7 +1180,25 @@ final class _BlockSelectionPainter extends CustomPainter {
 final class _BlockGeometryRegistry {
   final Map<int, _LargeTextBlockFieldState> _states = {};
 
+  /// 目标段未渲染时由 editor state 实现：滚动使其被 ListView 构建，再重试聚焦。
+  /// 为 null（未注册）时退化为原静默行为。
+  void Function(int index, LoreLargeTextController controller)?
+  ensureBlockVisibleAndFocus;
+
   Iterable<int> get indices => _states.keys;
+
+  /// 目标段 state（未渲染时为 null）。供 editor state 在滚动后重试聚焦使用。
+  _LargeTextBlockFieldState? stateFor(int index) => _states[index];
+
+  /// 当前持有键盘焦点的段 index；无聚焦段时为 null。用于判定跨段滚动方向。
+  int? get focusedBlockIndex {
+    for (final entry in _states.entries) {
+      if (entry.value.hasFocus) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
 
   void register(int index, _LargeTextBlockFieldState state) {
     _states[index] = state;
@@ -1138,10 +1224,14 @@ final class _BlockGeometryRegistry {
 
   void focusBlock(int index, LoreLargeTextController controller) {
     final state = _states[index];
-    if (state == null) {
+    if (state != null) {
+      state.focusAt(controller.selection);
       return;
     }
-    state.focusAt(controller.selection);
+    // 目标段未渲染（在视口 + cacheExtent 之外）：交给 editor state 滚动使其被
+    // 构建，再 post-frame 重试聚焦。避免「model selection 已移走但焦点没跟上」
+    // 的脱节——否则后续按键会基于错误的 blockIndex 解读 selection。
+    ensureBlockVisibleAndFocus?.call(index, controller);
   }
 
   void applySelection(int index, LoreLargeTextController controller) {
