@@ -1164,4 +1164,97 @@ void main() {
       2,
     );
   });
+
+  testWidgets('header scrolls together with the body content', (tester) async {
+    // header 作为滚动视口首个 sliver 注入，应随正文一起滚动，而非固定钉顶。
+    final paragraphs = List.generate(80, (index) => '第$index段正文内容');
+    final controller = LoreLargeTextController(text: paragraphs.join('\n'));
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              header: const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 24),
+                child: Text('章节标题'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 标题初始可见、位于视口顶部，且在首个正文块之上（首个 sliver）。
+    final headerRectBefore = tester.getRect(find.text('章节标题'));
+    expect(headerRectBefore.top, greaterThanOrEqualTo(0));
+    expect(
+      headerRectBefore.center.dy,
+      lessThan(tester.getCenter(find.byType(TextField).first).dy),
+    );
+
+    // 向下滚动：标题应同步上移相同位移，证明它参与滚动（非固定 header）。
+    const delta = 40.0;
+    scrollController.jumpTo(delta);
+    await tester.pumpAndSettle();
+
+    final headerRectAfter = tester.getRect(find.text('章节标题'));
+    expect(headerRectAfter.top, lessThan(headerRectBefore.top));
+    // 位移量与滚动量一致（±2px 容差吸收亚像素取整）。
+    expect(
+      (headerRectBefore.top - headerRectAfter.top) - delta,
+      lessThanOrEqualTo(2),
+    );
+  });
+
+  testWidgets(
+    'header widget stays tappable through the editor pointer listener',
+    (tester) async {
+      // 编辑器用 translucent Listener 观察指针做选中拖拽；header 内的可聚焦控件
+      // （如副标题 TextField）不应被 Listener 吞掉点击，应正常获焦。
+      final controller = LoreLargeTextController(text: '正文段落一\n正文段落二');
+      final scrollController = ScrollController();
+      final headerController = TextEditingController();
+      final headerFocus = FocusNode();
+      addTearDown(controller.dispose);
+      addTearDown(scrollController.dispose);
+      addTearDown(headerController.dispose);
+      addTearDown(headerFocus.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: SizedBox(
+              width: 800,
+              height: 500,
+              child: LoreLargeTextEditor(
+                controller: controller,
+                scrollController: scrollController,
+                header: TextField(
+                  controller: headerController,
+                  focusNode: headerFocus,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(headerFocus.hasFocus, isFalse);
+      // header 的 TextField 是树序首个（首个 sliver）。
+      await tester.tap(find.byType(TextField).first);
+      await tester.pumpAndSettle();
+
+      expect(headerFocus.hasPrimaryFocus, isTrue);
+    },
+  );
 }

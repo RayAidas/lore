@@ -23,6 +23,7 @@ final class LoreLargeTextEditor extends StatefulWidget {
     this.topPadding = 42,
     this.focusNode,
     this.indentFirstParagraph = false,
+    this.header,
     super.key,
   });
 
@@ -30,6 +31,11 @@ final class LoreLargeTextEditor extends StatefulWidget {
   final ScrollController scrollController;
   final EditorStyle style;
   final bool autofocus;
+
+  /// 滚动视口顶部的固定式（随正文滚动）首块。挂载为 `CustomScrollView` 的首个
+  /// sliver，因此会随正文一起滚动——供章节文档把标题塞进编辑器滚动区使用。
+  /// 传入 `null` 时视口只有正文块。
+  final Widget? header;
 
   /// 是否为正文首段自动补两字缩进（与回车开新段的 [_AutoIndentFormatter] 一致）。
   /// 章节文档（标题与正文分离）开启：挂载时若首段为空就注入 `　　`，使「点进
@@ -223,34 +229,42 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
               onPointerMove: _handlePointerMove,
               onPointerUp: _handlePointerEnd,
               onPointerCancel: _handlePointerEnd,
-              child: ListView.builder(
+              child: CustomScrollView(
                 controller: widget.scrollController,
-                padding: EdgeInsets.fromLTRB(52, widget.topPadding, 52, 42),
-                itemCount: widget.controller.blocks.length,
-                itemBuilder: (context, index) {
-                  final block = widget.controller.blocks[index];
-                  final field = _LargeTextBlockField(
-                    key: ValueKey(index),
-                    block: block,
-                    blockIndex: index,
-                    documentController: widget.controller,
-                    registry: _blockRegistry,
-                    globalSelectionDrag: _globalSelectionDrag,
-                    style: widget.style,
-                    autofocus: widget.autofocus && index == 0,
-                    dimmed: selectionValid && index != activeBlockIndex,
-                    onFocused: () {},
-                  );
-                  // 段落末块（hasLineBreak）下方加段间距；同段跨块保持贴合。
-                  return block.hasLineBreak
-                      ? Padding(
-                          padding: EdgeInsets.only(
-                            bottom: widget.style.paragraphSpacing,
-                          ),
-                          child: field,
-                        )
-                      : field;
-                },
+                slivers: [
+                  if (widget.header case final header?)
+                    SliverToBoxAdapter(child: header),
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(52, widget.topPadding, 52, 42),
+                    sliver: SliverList.builder(
+                      itemCount: widget.controller.blocks.length,
+                      itemBuilder: (context, index) {
+                        final block = widget.controller.blocks[index];
+                        final field = _LargeTextBlockField(
+                          key: ValueKey(index),
+                          block: block,
+                          blockIndex: index,
+                          documentController: widget.controller,
+                          registry: _blockRegistry,
+                          globalSelectionDrag: _globalSelectionDrag,
+                          style: widget.style,
+                          autofocus: widget.autofocus && index == 0,
+                          dimmed: selectionValid && index != activeBlockIndex,
+                          onFocused: () {},
+                        );
+                        // 段落末块（hasLineBreak）下方加段间距；同段跨块保持贴合。
+                        return block.hasLineBreak
+                            ? Padding(
+                                padding: EdgeInsets.only(
+                                  bottom: widget.style.paragraphSpacing,
+                                ),
+                                child: field,
+                              )
+                            : field;
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

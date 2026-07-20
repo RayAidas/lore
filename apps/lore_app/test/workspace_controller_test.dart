@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_app/features/preferences/preferences_providers.dart';
 import 'package:lore_app/features/workspace/document_pane.dart';
+import 'package:lore_app/features/workspace/chapter_title_bar.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
 import 'package:lore_app/features/workspace/workspace_novel_store.dart';
 import 'package:lore_application/lore_application.dart';
@@ -408,6 +409,60 @@ void main() {
     // 打开文档时安排的会话保存定时器在这里落地，避免 teardown 报遗留。
     await tester.pump(const Duration(milliseconds: 600));
   });
+
+  testWidgets(
+    'chapter title is mounted inside the editor so it scrolls with the body',
+    (tester) async {
+      // .txt 章节走 LoreLargeTextController：标题应作为编辑器滚动视口的 header
+      // （编辑器后代）注入，而非外层 Column 的固定兄弟——否则标题不会随正文滚动。
+      final repository = _MemoryWorkspaceRepository()..diskText = '第1章\n正文段';
+      final controller = WorkspaceController(
+        session: session,
+        service: LibraryWorkspaceService(
+          treeRepository: repository,
+          documentRepository: repository,
+          sessionRepository: _MemorySessionRepository(),
+        ),
+      );
+      addTearDown(repository.dispose);
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      await controller.openPath('第1章.txt');
+      final document = controller.activeDocument!;
+      expect(document.chapterNumber, 1);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appPreferencesRepositoryProvider.overrideWith(
+              (ref) => _DefaultsPrefsRepository(),
+            ),
+          ],
+          child: MaterialApp(
+            home: Material(
+              child: DocumentPane(
+                controller: controller,
+                document: document,
+                session: session,
+                onReloadConflict: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 标题渲染为编辑器的后代（滚动视口 header），而非与编辑器并列的固定节点。
+      expect(
+        find.descendant(
+          of: find.byType(LoreLargeTextEditor),
+          matching: find.byType(ChapterTitleBar),
+        ),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+    },
+  );
 
   testWidgets('deleting and recreating an open document refreshes the tree', (
     tester,

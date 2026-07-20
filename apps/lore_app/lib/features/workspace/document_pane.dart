@@ -74,6 +74,31 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
       paragraphSpacing: prefs.paragraphSpacing,
     );
     final hasTitle = document.chapterNumber != null;
+    // .txt 章节走 LoreLargeTextEditor：标题作为编辑器滚动视口的 header 随正文滚动。
+    // 其余路径（.md 编辑/预览）的渲染器持有自己的内部滚动控制器，无法注入 header，
+    // 标题仍外挂在 Column 顶端（固定）。
+    final isLargeTextPath =
+        !document.showPreview &&
+        document.editorController is LoreLargeTextController;
+    ChapterTitleBar buildTitleBar() => ChapterTitleBar(
+      // 按文档实例（identity）作 key：副标题→文件名重命名会改变 relativePath，
+      // 按路径作 key 会整体重挂载、副标题失焦；按实例作 key 仅在切文档（不同
+      // 实例）时重挂载。.txt 路径下标题在编辑器 header 内、编辑器已带同款 key
+      // 控制重挂载，此 key 仅对 .md 外挂路径生效。
+      key: ValueKey(document),
+      chapterNumber: document.chapterNumber!,
+      subtitle: document.chapterTitleSubtitle,
+      style: editorStyle,
+      autofocusSubtitle: document.editorController.text.isEmpty,
+      onChanged: (value) =>
+          controller.updateChapterTitleSubtitle(document, value),
+      onEnter: () {
+        document.editorController.selection = const TextSelection.collapsed(
+          offset: 0,
+        );
+        _bodyFocusNode.requestFocus();
+      },
+    );
     return Column(
       children: [
         Container(
@@ -185,25 +210,7 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
             color: colorScheme.surface,
             child: Column(
               children: [
-                if (hasTitle)
-                  ChapterTitleBar(
-                    // 按文档实例（identity）作 key：副标题→文件名重命名会改变
-                    // relativePath，按路径作 key 会整体重挂载、副标题失焦；
-                    // 按实例作 key 仅在切文档（不同实例）时重挂载。标题栏与
-                    // 编辑器是不同 widget 类型，可共用同一 key 值。
-                    key: ValueKey(document),
-                    chapterNumber: document.chapterNumber!,
-                    subtitle: document.chapterTitleSubtitle,
-                    style: editorStyle,
-                    autofocusSubtitle: document.editorController.text.isEmpty,
-                    onChanged: (value) =>
-                        controller.updateChapterTitleSubtitle(document, value),
-                    onEnter: () {
-                      document.editorController.selection =
-                          const TextSelection.collapsed(offset: 0);
-                      _bodyFocusNode.requestFocus();
-                    },
-                  ),
+                if (hasTitle && !isLargeTextPath) buildTitleBar(),
                 Expanded(
                   child: document.showPreview && document.isMarkdown
                       ? LoreMarkdownPreview(
@@ -233,6 +240,8 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                               controller: largeController,
                               scrollController: document.scrollController,
                               style: editorStyle,
+                              // 章节标题作为滚动视口首个 sliver，随正文一起滚动。
+                              header: hasTitle ? buildTitleBar() : null,
                               // 有标题栏时去掉正文顶部留白，间距由标题栏底 padding 控制。
                               topPadding: hasTitle ? 0 : 42,
                               focusNode: hasTitle ? _bodyFocusNode : null,
