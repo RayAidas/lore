@@ -631,7 +631,8 @@ final class StorageBackedLibraryRepository
       order: _nextOrder(snapshot.contentTree.childrenOf(parentId)),
       number: number - 1,
       role: ContentRole.normal,
-      // 种子字数：characterCountOf 来自 lore_domain，填入避免新建章节即 null。
+      // 种子字数：新建章节仅含标题行、无正文，characterCountOf 计为 0；填入
+      // 避免新建章节即 null。
       characterCount: characterCountOf(seedText),
     );
     return _commitNodes(storage, snapshot, [

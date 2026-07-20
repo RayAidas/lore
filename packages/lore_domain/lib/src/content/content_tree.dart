@@ -22,7 +22,7 @@ final class ContentNode {
   final int? number;
   final ContentRole role;
 
-  /// 章节正文字数（含标题行，去空白 rune 计数）。`null` 表示尚未计算（旧
+  /// 章节正文字数（不含标题行，去空白 rune 计数）。`null` 表示尚未计算（旧
   /// content.json 或新建未保存），由上层懒算回填；`0` 表示空章节。
   final int? characterCount;
 

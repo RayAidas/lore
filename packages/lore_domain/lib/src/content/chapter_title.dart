@@ -64,6 +64,18 @@ abstract final class ChapterTitleText {
     return ChapterTitleParts(number: number, subtitle: subtitle);
   }
 
+  /// 首行是否为章节标题（TXT `第N章` 或 Markdown `# 第N章`），不解析编号
+  /// 与副标题。比 [tryParse] 轻量（无 `int.parse` 与对象分配），供只需判断
+  /// 无需解析的场景（如字数统计）使用。严格规则：TXT 列首无前导空白；
+  /// Markdown 的 `#` 后须至少一个空白（拒绝 `#第N章`）。
+  static bool hasTitlePrefix(String fullText) {
+    final lineBreak = fullText.indexOf('\n');
+    final firstLine =
+        lineBreak < 0 ? fullText : fullText.substring(0, lineBreak);
+    return _txtPrefixPattern.hasMatch(firstLine) ||
+        _mdPrefixPattern.hasMatch(firstLine);
+  }
+
   /// 正文部分：首个换行之后的内容；无换行时为空串。
   static String bodyOf(String fullText) {
     final lineBreak = fullText.indexOf('\n');

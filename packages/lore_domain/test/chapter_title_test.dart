@@ -185,4 +185,23 @@ void main() {
       expect(ChapterTitleText.tryParse('# 第3章 X\n'), isNull);
     });
   });
+
+  group('ChapterTitleText.hasTitlePrefix', () {
+    test('TXT 与 Markdown 标题首行均识别', () {
+      expect(ChapterTitleText.hasTitlePrefix('第3章\n正文'), isTrue);
+      expect(ChapterTitleText.hasTitlePrefix('# 第3章\n正文'), isTrue);
+      expect(ChapterTitleText.hasTitlePrefix('第3章'), isTrue); // 仅标题无换行
+    });
+
+    test('非章节首行返回 false', () {
+      expect(ChapterTitleText.hasTitlePrefix('序章\n'), isFalse);
+      expect(ChapterTitleText.hasTitlePrefix('随便正文'), isFalse);
+      expect(ChapterTitleText.hasTitlePrefix(''), isFalse);
+    });
+
+    test('严格规则：前导空白与 `#` 后无空白均拒绝', () {
+      expect(ChapterTitleText.hasTitlePrefix('  第3章\n'), isFalse);
+      expect(ChapterTitleText.hasTitlePrefix('#第3章\n'), isFalse);
+    });
+  });
 }
