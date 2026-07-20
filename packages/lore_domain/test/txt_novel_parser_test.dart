@@ -78,6 +78,37 @@ void main() {
       expect(parsed.chapters[0].subtitle, '纪宁战童玉');
     });
 
+    test('recognizes full-width digits in headings', () {
+      final parsed = TxtNovelParser.parse(text: '第１章 龙城\nA\n第２章 飞将\nB');
+      expect(parsed.chapters, hasLength(2));
+      expect(parsed.chapters[0].subtitle, '龙城');
+      expect(parsed.chapters[1].subtitle, '飞将');
+    });
+
+    test('tolerates internal spaces around the number', () {
+      final parsed = TxtNovelParser.parse(text: '第 1 章 龙城\nA\n第 2 章 飞将\nB');
+      expect(parsed.chapters, hasLength(2));
+      expect(parsed.chapters[0].subtitle, '龙城');
+      expect(parsed.chapters[1].subtitle, '飞将');
+    });
+
+    test(
+      'strips leading bracket decoration and closing bracket from subtitle',
+      () {
+        final parsed = TxtNovelParser.parse(text: '【第1章】龙城\nA\n《第二章》飞将\nB');
+        expect(parsed.chapters, hasLength(2));
+        expect(parsed.chapters[0].subtitle, '龙城');
+        expect(parsed.chapters[1].subtitle, '飞将');
+      },
+    );
+
+    test('recognizes classical 卷N volume prefix before chapter token', () {
+      final parsed = TxtNovelParser.parse(text: '卷一 第1章 开端\nA\n卷一 第2章 远行\nB');
+      expect(parsed.chapters, hasLength(2));
+      expect(parsed.chapters[0].subtitle, '开端');
+      expect(parsed.chapters[1].subtitle, '远行');
+    });
+
     test('falls back to a single chapter when no heading is found', () {
       final parsed = TxtNovelParser.parse(text: '  整段没有标题的文字。  \n第二行。');
       expect(parsed.chapters, hasLength(1));
