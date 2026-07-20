@@ -8,6 +8,7 @@ export 'src/library/library_workspace.dart';
 export 'src/library/deletion.dart';
 export 'src/library/novel_overview.dart';
 export 'src/library/novel_structure.dart';
+export 'src/library/semantic_library_entries.dart';
 export 'src/library/workspace_session.dart';
 export 'src/ports/app_preferences_repository.dart';
 export 'src/ports/clock.dart';

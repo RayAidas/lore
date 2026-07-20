@@ -24,6 +24,19 @@ void main() {
     ),
   );
 
+  test('controller uses the indexed directory fast path', () async {
+    final repository = _IndexedWorkspaceRepository();
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+
+    final entries = await controller.listChildren();
+
+    expect(entries.single.name, '快速路径.md');
+    expect(repository.indexedRequests, 1);
+    expect(repository.regularRequests, 0);
+  });
+
   testWidgets('keeps cached entries visible while refreshing', (tester) async {
     final refresh = Completer<List<LibraryEntry>>();
     final repository = _QueuedWorkspaceRepository([
@@ -329,6 +342,38 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 
+  testWidgets('deduplicates an in-flight directory load when reopened', (
+    tester,
+  ) async {
+    final childLoaded = Completer<List<LibraryEntry>>();
+    final repository = _QueuedWorkspaceRepository([
+      Future.value(const [
+        LibraryEntry(
+          name: '卷一',
+          relativePath: '卷一',
+          type: LibraryEntryType.directory,
+        ),
+      ]),
+      childLoaded.future,
+    ]);
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+    await tester.tap(find.text('卷一'));
+    await tester.pump();
+    await tester.tap(find.text('卷一'));
+    await tester.pump();
+    await tester.tap(find.text('卷一'));
+    await tester.pump();
+
+    expect(repository.requests.where((path) => path == '卷一'), hasLength(1));
+
+    childLoaded.complete(const []);
+    await tester.pump();
+  });
+
   testWidgets('clamps scrolling to avoid overscroll bounce', (tester) async {
     final repository = _PathWorkspaceRepository({
       '': const [
@@ -373,6 +418,219 @@ void main() {
     // 名字完整显示时不应挂 tooltip，避免 hover 弹出重复提示；
     // 仅在超长被截断时才显示（由 _OverflowTooltip 控制）。
     expect(find.byTooltip('卷一'), findsNothing);
+  });
+
+  testWidgets('virtualizes large directories to visible rows', (tester) async {
+    tester.view.physicalSize = const Size(400, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _PathWorkspaceRepository({
+      '': List.generate(
+        5000,
+        (index) => LibraryEntry(
+          name: '文件$index.md',
+          relativePath: '文件$index.md',
+          type: LibraryEntryType.markdownFile,
+        ),
+      ),
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+
+    expect(find.text('文件0.md'), findsOneWidget);
+    expect(find.text('文件4999.md'), findsNothing);
+    expect(find.byType(InkWell).evaluate().length, lessThan(100));
+
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+    await tester.pump();
+
+    expect(find.text('文件0.md'), findsNothing);
+    expect(find.text('文件4999.md'), findsOneWidget);
+  });
+
+  testWidgets('reuses loaded children after collapsing and reopening', (
+    tester,
+  ) async {
+    final repository = _CountingWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '卷一',
+          relativePath: '卷一',
+          type: LibraryEntryType.directory,
+        ),
+      ],
+      '卷一': const [
+        LibraryEntry(
+          name: '第一章.md',
+          relativePath: '卷一/第一章.md',
+          type: LibraryEntryType.markdownFile,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+    await tester.tap(find.text('卷一'));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('卷一'));
+    await tester.pump();
+    await tester.tap(find.text('卷一'));
+    await tester.pump();
+
+    expect(find.text('第一章.md'), findsOneWidget);
+    expect(repository.requests.where((path) => path == '卷一'), hasLength(1));
+  });
+
+  testWidgets('invalidates collapsed caches without refreshing them', (
+    tester,
+  ) async {
+    final repository = _CountingWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '卷一',
+          relativePath: '卷一',
+          type: LibraryEntryType.directory,
+        ),
+      ],
+      '卷一': const [
+        LibraryEntry(
+          name: '第一章.md',
+          relativePath: '卷一/第一章.md',
+          type: LibraryEntryType.markdownFile,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+    await tester.tap(find.text('卷一'));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('卷一'));
+    await tester.pump();
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 1));
+    await tester.pump();
+
+    expect(repository.requests.where((path) => path.isEmpty), hasLength(2));
+    expect(repository.requests.where((path) => path == '卷一'), hasLength(1));
+
+    await tester.tap(find.text('卷一'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(repository.requests.where((path) => path == '卷一'), hasLength(2));
+  });
+
+  testWidgets('bounds restored directory preload concurrency', (tester) async {
+    final repository = _ControlledWorkspaceRepository();
+    final controller = _controller(session, repository);
+    for (var index = 0; index < 12; index += 1) {
+      controller.setDirectoryExpanded('目录$index', true);
+    }
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+
+    expect(repository.requests, hasLength(6));
+    expect(repository.maximumActiveRequests, 6);
+
+    for (
+      var round = 0;
+      round < 3 && repository.requests.length < 13;
+      round += 1
+    ) {
+      repository.completeActiveRequests();
+      await tester.pump();
+    }
+    repository.completeActiveRequests();
+    await tester.pump();
+
+    expect(repository.requests.toSet(), hasLength(13));
+    expect(repository.maximumActiveRequests, 6);
+  });
+
+  testWidgets('prioritizes an expanded directory already queued for preload', (
+    tester,
+  ) async {
+    final entries = List.generate(
+      12,
+      (index) => LibraryEntry(
+        name: '目录$index',
+        relativePath: '目录$index',
+        type: LibraryEntryType.directory,
+      ),
+    );
+    final repository = _ControlledWorkspaceRepository(
+      immediateEntries: {'': entries},
+    );
+    final controller = _controller(session, repository);
+    for (final entry in entries) {
+      controller.setDirectoryExpanded(entry.relativePath, true);
+    }
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pump();
+
+    expect(
+      repository.requests,
+      containsAll(entries.take(6).map((e) => e.relativePath)),
+    );
+    expect(repository.requests, isNot(contains('目录11')));
+
+    await tester.tap(find.text('目录11'));
+    await tester.pump();
+    await tester.tap(find.text('目录11'));
+    await tester.pump();
+    repository.completePath('目录0');
+    await tester.pump();
+
+    expect(repository.requests.last, '目录11');
+    repository.completeActiveRequests();
+    await tester.pump();
+  });
+
+  testWidgets('keeps the load limit across controller generations', (
+    tester,
+  ) async {
+    final tracker = _DirectoryLoadTracker();
+    final firstRepository = _ControlledWorkspaceRepository(tracker: tracker);
+    final firstController = _controller(session, firstRepository);
+    for (var index = 0; index < 5; index += 1) {
+      firstController.setDirectoryExpanded('旧目录$index', true);
+    }
+    addTearDown(firstController.dispose);
+
+    await tester.pumpWidget(_tree(firstController, reloadToken: 0));
+    expect(tracker.activeRequestCount, 6);
+
+    final secondRepository = _ControlledWorkspaceRepository(tracker: tracker);
+    final secondController = _controller(session, secondRepository);
+    addTearDown(secondController.dispose);
+    await tester.pumpWidget(_tree(secondController, reloadToken: 0));
+
+    expect(secondRepository.requests, isEmpty);
+    expect(tracker.maximumActiveRequests, 6);
+
+    firstRepository.completePath('');
+    await tester.pump();
+
+    expect(secondRepository.requests, ['']);
+    expect(tracker.maximumActiveRequests, 6);
+    firstRepository.completeActiveRequests();
+    secondRepository.completeActiveRequests();
+    await tester.pump();
   });
 }
 
@@ -461,17 +719,19 @@ final class _QueuedWorkspaceRepository extends _WorkspaceRepository {
   _QueuedWorkspaceRepository(this.responses);
 
   final List<Future<List<LibraryEntry>>> responses;
+  final List<String> requests = [];
 
   @override
   Future<List<LibraryEntry>> listChildren(
     LibraryAccess access, {
     String relativePath = '',
   }) {
+    requests.add(relativePath);
     return responses.removeAt(0);
   }
 }
 
-final class _PathWorkspaceRepository extends _WorkspaceRepository {
+base class _PathWorkspaceRepository extends _WorkspaceRepository {
   _PathWorkspaceRepository(this.entries);
 
   final Map<String, List<LibraryEntry>> entries;
@@ -482,6 +742,117 @@ final class _PathWorkspaceRepository extends _WorkspaceRepository {
     String relativePath = '',
   }) async {
     return entries[relativePath] ?? const [];
+  }
+}
+
+final class _CountingWorkspaceRepository extends _PathWorkspaceRepository {
+  _CountingWorkspaceRepository(super.entries);
+
+  final List<String> requests = [];
+
+  @override
+  Future<List<LibraryEntry>> listChildren(
+    LibraryAccess access, {
+    String relativePath = '',
+  }) {
+    requests.add(relativePath);
+    return super.listChildren(access, relativePath: relativePath);
+  }
+}
+
+final class _IndexedWorkspaceRepository extends _WorkspaceRepository
+    implements IndexedLibraryTreeRepository {
+  int regularRequests = 0;
+  int indexedRequests = 0;
+
+  @override
+  Future<List<LibraryEntry>> listChildren(
+    LibraryAccess access, {
+    String relativePath = '',
+  }) async {
+    regularRequests += 1;
+    return const [];
+  }
+
+  @override
+  Future<List<LibraryEntry>> listChildrenWithSemanticEntries(
+    LibraryAccess access, {
+    required Map<String, LibraryEntry> semanticEntries,
+    String relativePath = '',
+  }) async {
+    indexedRequests += 1;
+    return const [
+      LibraryEntry(
+        name: '快速路径.md',
+        relativePath: '快速路径.md',
+        type: LibraryEntryType.markdownFile,
+      ),
+    ];
+  }
+}
+
+final class _ControlledWorkspaceRepository extends _WorkspaceRepository {
+  _ControlledWorkspaceRepository({
+    this.immediateEntries = const {},
+    _DirectoryLoadTracker? tracker,
+  }) : tracker = tracker ?? _DirectoryLoadTracker();
+
+  final Map<String, List<LibraryEntry>> immediateEntries;
+  final _DirectoryLoadTracker tracker;
+  final List<String> requests = [];
+  final Map<String, Completer<List<LibraryEntry>>> _activeRequests = {};
+
+  int get activeRequestCount => tracker.activeRequestCount;
+
+  int get maximumActiveRequests => tracker.maximumActiveRequests;
+
+  @override
+  Future<List<LibraryEntry>> listChildren(
+    LibraryAccess access, {
+    String relativePath = '',
+  }) {
+    requests.add(relativePath);
+    final immediate = immediateEntries[relativePath];
+    if (immediate != null) {
+      return Future.value(immediate);
+    }
+    tracker.start();
+    final completer = Completer<List<LibraryEntry>>();
+    _activeRequests[relativePath] = completer;
+    return completer.future.whenComplete(tracker.complete);
+  }
+
+  void completePath(String path) {
+    final completer = _activeRequests.remove(path);
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(const []);
+    }
+  }
+
+  void completeActiveRequests() {
+    final completers = _activeRequests.values.toList();
+    _activeRequests.clear();
+    for (final completer in completers) {
+      if (!completer.isCompleted) {
+        completer.complete(const []);
+      }
+    }
+  }
+}
+
+final class _DirectoryLoadTracker {
+  int activeRequestCount = 0;
+  int maximumActiveRequests = 0;
+
+  void start() {
+    activeRequestCount += 1;
+    if (activeRequestCount > maximumActiveRequests) {
+      maximumActiveRequests = activeRequestCount;
+    }
+  }
+
+  void complete() {
+    activeRequestCount -= 1;
   }
 }
 

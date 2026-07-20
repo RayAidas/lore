@@ -24,7 +24,17 @@ final class LibraryWorkspaceService {
   Future<List<LibraryEntry>> listChildren(
     LibrarySession session, {
     String relativePath = '',
+    Map<String, LibraryEntry>? semanticEntries,
   }) {
+    final repository = treeRepository;
+    if (semanticEntries != null && repository is IndexedLibraryTreeRepository) {
+      final indexedRepository = repository as IndexedLibraryTreeRepository;
+      return indexedRepository.listChildrenWithSemanticEntries(
+        session.access,
+        relativePath: relativePath,
+        semanticEntries: semanticEntries,
+      );
+    }
     return treeRepository.listChildren(
       session.access,
       relativePath: relativePath,

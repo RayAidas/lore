@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:path/path.dart' as p;
@@ -13,10 +15,16 @@ final class WorkspaceNovelStore {
   final LibrarySession session;
   final List<NovelSnapshot> _novels = [];
   final List<ReconciliationIssue> _issues = [];
+  final Map<String, LibraryEntry> _semanticEntryIndex = {};
+  final Map<String, Set<String>> _semanticPathsByNovelId = {};
+  late final Map<String, LibraryEntry> _semanticEntryIndexView =
+      UnmodifiableMapView(_semanticEntryIndex);
 
   List<NovelSnapshot> get novels => List.unmodifiable(_novels);
 
   List<ReconciliationIssue> get issues => List.unmodifiable(_issues);
+
+  Map<String, LibraryEntry> get semanticEntryIndex => _semanticEntryIndexView;
 
   NovelSnapshot? novelById(NovelId id) =>
       _novels.where((novel) => novel.metadata.id == id).firstOrNull;
@@ -69,7 +77,7 @@ final class WorkspaceNovelStore {
     return null;
   }
 
-  void replace(NovelSnapshot snapshot) {
+  void replace(NovelSnapshot snapshot, {bool semanticStructureChanged = true}) {
     final index = _novels.indexWhere(
       (novel) => novel.metadata.id == snapshot.metadata.id,
     );
@@ -78,10 +86,14 @@ final class WorkspaceNovelStore {
     } else {
       _novels[index] = snapshot;
     }
+    if (semanticStructureChanged) {
+      _replaceSemanticEntries(snapshot);
+    }
   }
 
   void remove(NovelId id) {
     _novels.removeWhere((novel) => novel.metadata.id == id);
+    _removeSemanticEntries(id.value);
   }
 
   /// 重新加载全部小说快照。成功返回 null，失败返回 [LibraryFailure]。
@@ -95,6 +107,7 @@ final class WorkspaceNovelStore {
       _novels
         ..clear()
         ..addAll(loaded);
+      _rebuildSemanticEntryIndex();
       return null;
     } on LibraryOperationException catch (error) {
       return error.failure;
@@ -128,6 +141,36 @@ final class WorkspaceNovelStore {
       return null;
     } on LibraryOperationException catch (error) {
       return error.failure;
+    }
+  }
+
+  void _rebuildSemanticEntryIndex() {
+    _semanticEntryIndex.clear();
+    _semanticPathsByNovelId.clear();
+    for (final novel in _novels) {
+      _addSemanticEntries(novel);
+    }
+  }
+
+  void _replaceSemanticEntries(NovelSnapshot snapshot) {
+    final novelId = snapshot.metadata.id.value;
+    _removeSemanticEntries(novelId);
+    _addSemanticEntries(snapshot);
+  }
+
+  void _addSemanticEntries(NovelSnapshot snapshot) {
+    final entries = buildSemanticLibraryEntryIndex([snapshot]);
+    _semanticEntryIndex.addAll(entries);
+    _semanticPathsByNovelId[snapshot.metadata.id.value] = entries.keys.toSet();
+  }
+
+  void _removeSemanticEntries(String novelId) {
+    final paths = _semanticPathsByNovelId.remove(novelId);
+    if (paths == null) {
+      return;
+    }
+    for (final path in paths) {
+      _semanticEntryIndex.remove(path);
     }
   }
 }

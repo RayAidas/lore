@@ -759,56 +759,14 @@ mixin _StorageBackedLibrarySupport {
     updatedAt: updatedAt ?? value.updatedAt,
   );
 
-  LibraryEntry _annotateEntry(LibraryEntry entry, List<NovelSnapshot> novels) {
-    for (final novel in novels) {
-      if (entry.relativePath == novel.rootPath) {
-        return _novelEntry(novel);
-      }
-      if (entry.relativePath ==
-          '${novel.rootPath}/${novel.metadata.body.relativePath}') {
-        return _bodyEntry(novel);
-      }
-      for (final node in novel.contentTree.nodes) {
-        if (entry.relativePath == '${novel.rootPath}/${node.relativePath}') {
-          return _contentEntry(novel, node);
-        }
-      }
-    }
-    return entry;
-  }
+  LibraryEntry _novelEntry(NovelSnapshot snapshot) =>
+      semanticNovelEntry(snapshot);
 
-  LibraryEntry _novelEntry(NovelSnapshot snapshot) => LibraryEntry(
-    name: snapshot.rootPath.split('/').last,
-    relativePath: snapshot.rootPath,
-    type: LibraryEntryType.directory,
-    semanticKind: LibraryEntrySemanticKind.novel,
-    semanticId: snapshot.metadata.id.value,
-    novelId: snapshot.metadata.id.value,
-  );
-
-  LibraryEntry _bodyEntry(NovelSnapshot snapshot) => LibraryEntry(
-    name: snapshot.metadata.body.relativePath.split('/').last,
-    relativePath: '${snapshot.rootPath}/${snapshot.metadata.body.relativePath}',
-    type: LibraryEntryType.directory,
-    semanticKind: LibraryEntrySemanticKind.body,
-    semanticId: snapshot.metadata.body.id.value,
-    novelId: snapshot.metadata.id.value,
-  );
+  LibraryEntry _bodyEntry(NovelSnapshot snapshot) =>
+      semanticNovelBodyEntry(snapshot);
 
   LibraryEntry _contentEntry(NovelSnapshot snapshot, ContentNode node) =>
-      LibraryEntry(
-        name: node.relativePath.split('/').last,
-        relativePath: '${snapshot.rootPath}/${node.relativePath}',
-        type: node.type == ContentNodeType.volume
-            ? LibraryEntryType.directory
-            : _libraryFileType(node.relativePath),
-        semanticKind: node.type == ContentNodeType.volume
-            ? LibraryEntrySemanticKind.volume
-            : LibraryEntrySemanticKind.chapter,
-        semanticId: node.id.value,
-        novelId: snapshot.metadata.id.value,
-        semanticOrder: node.order,
-      );
+      semanticContentEntry(snapshot, node);
 
   LibraryEntry _entry(LogicalPath path, StorageEntryType type) => LibraryEntry(
     name: path.name,

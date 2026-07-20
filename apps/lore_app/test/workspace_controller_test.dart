@@ -190,6 +190,31 @@ void main() {
     expect(store.chapterNodeForPath('散文件.txt'), isNull);
   });
 
+  test('character count updates preserve the semantic entry index', () {
+    final store = WorkspaceNovelStore(session: session);
+    store.replace(_chapterNovelSnapshot());
+    final entry = store.semanticEntryIndex['我的小说/正文/第1章.txt'];
+
+    store.replace(
+      _chapterNovelSnapshot(characterCount: 128),
+      semanticStructureChanged: false,
+    );
+
+    expect(
+      store
+          .novelById(const NovelId('novel-1'))!
+          .contentTree
+          .nodes
+          .single
+          .characterCount,
+      128,
+    );
+    expect(
+      identical(store.semanticEntryIndex['我的小说/正文/第1章.txt'], entry),
+      isTrue,
+    );
+  });
+
   testWidgets('subtitle change syncs the chapter filename', (tester) async {
     final snapshot = _chapterNovelSnapshot();
     final novelRepo = _FakeNovelRepository(snapshot);
@@ -1535,6 +1560,7 @@ class _DefaultsPrefsRepository implements AppPreferencesRepository {
 NovelSnapshot _chapterNovelSnapshot({
   String chapterRelativePath = '正文/第1章.txt',
   int chapterNumber = 1,
+  int? characterCount,
 }) {
   final novelId = NovelId('novel-1');
   final bodyId = ContentId('body');
@@ -1566,6 +1592,7 @@ NovelSnapshot _chapterNovelSnapshot({
           order: 1000,
           number: chapterNumber,
           role: ContentRole.normal,
+          characterCount: characterCount,
         ),
       ],
     ),

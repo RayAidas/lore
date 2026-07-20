@@ -1,5 +1,9 @@
+import 'dart:async';
+import 'dart:collection';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:lore_domain/lore_domain.dart';
 
 import 'library_entry_icons.dart';
@@ -9,7 +13,7 @@ import 'workspace_controller.dart';
 typedef ContextMenuCallback =
     void Function(LibraryEntry entry, Offset globalPosition);
 
-/// 侧栏目录树：递归列出书库条目，目录可展开懒加载。
+/// 侧栏目录树：扁平化并虚拟渲染可见条目，目录可展开懒加载。
 final class WorkspaceDirectory extends StatefulWidget {
   const WorkspaceDirectory({
     required this.controller,
@@ -35,245 +39,345 @@ final class WorkspaceDirectory extends StatefulWidget {
 }
 
 final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
-  late Future<List<LibraryEntry>> _entries;
-  List<LibraryEntry>? _cachedEntries;
+  final Map<String, List<LibraryEntry>> _childrenByPath = {};
+  final Map<String, Object> _loadErrors = {};
+  final Map<String, int> _requestVersions = {};
+  final Map<String, _DirectoryLoadRequest> _loadsByPath = {};
+  final Queue<_DirectoryLoadRequest> _loadQueue = Queue();
+  final List<_VisibleTreeItem> _visibleItems = [];
+  int _generation = 0;
+  int _runningLoadCount = 0;
+  bool _visibleRebuildScheduled = false;
 
   @override
   void initState() {
     super.initState();
-    _reload();
+    _loadInitialTree();
   }
 
   @override
   void didUpdateWidget(covariant WorkspaceDirectory oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.relativePath != widget.relativePath ||
-        oldWidget.reloadToken != widget.reloadToken) {
-      _reload();
+    if (oldWidget.controller != widget.controller ||
+        oldWidget.relativePath != widget.relativePath) {
+      _generation += 1;
+      _childrenByPath.clear();
+      _loadErrors.clear();
+      _requestVersions.clear();
+      _loadsByPath.clear();
+      _loadQueue.clear();
+      _visibleItems.clear();
+      _loadInitialTree();
+      return;
+    }
+    if (oldWidget.reloadToken != widget.reloadToken) {
+      _refreshLoadedTree();
     }
   }
 
-  void _reload() {
-    _entries = widget.controller.listChildren(
-      relativePath: widget.relativePath,
+  void _loadInitialTree() {
+    _loadPath(widget.relativePath, prioritize: true);
+    for (final path in widget.controller.expandedDirectoryPaths) {
+      if (_isWithinRoot(path)) {
+        _loadPath(path);
+      }
+    }
+  }
+
+  void _refreshLoadedTree() {
+    final paths = <String>{
+      widget.relativePath,
+      ...widget.controller.expandedDirectoryPaths.where(_isWithinRoot),
+    };
+    final stalePaths = <String>{
+      ..._childrenByPath.keys,
+      ..._loadErrors.keys,
+      ..._loadsByPath.keys,
+    }.difference(paths);
+    for (final path in stalePaths) {
+      _invalidatePath(path);
+    }
+    for (final path in paths) {
+      _loadPath(path, force: true, prioritize: path == widget.relativePath);
+    }
+  }
+
+  void _invalidatePath(String path) {
+    _childrenByPath.remove(path);
+    _loadErrors.remove(path);
+    _requestVersions[path] = (_requestVersions[path] ?? 0) + 1;
+    _loadsByPath.remove(path);
+  }
+
+  bool _isWithinRoot(String path) {
+    final root = widget.relativePath;
+    return root.isEmpty || path == root || path.startsWith('$root/');
+  }
+
+  void _loadPath(String path, {bool force = false, bool prioritize = false}) {
+    if (!force && _childrenByPath.containsKey(path)) {
+      return;
+    }
+    final existing = _loadsByPath[path];
+    if (existing != null) {
+      if (prioritize && !existing.started && _loadQueue.remove(existing)) {
+        _loadQueue.addFirst(existing);
+      }
+      if (force && existing.started) {
+        existing.refreshAfterCompletion = true;
+      }
+      return;
+    }
+    final generation = _generation;
+    final requestVersion = (_requestVersions[path] ?? 0) + 1;
+    _requestVersions[path] = requestVersion;
+    final request = _DirectoryLoadRequest(
+      path: path,
+      generation: generation,
+      version: requestVersion,
     );
+    _loadsByPath[path] = request;
+    if (prioritize) {
+      _loadQueue.addFirst(request);
+    } else {
+      _loadQueue.addLast(request);
+    }
+    _drainLoadQueue();
+  }
+
+  void _drainLoadQueue() {
+    if (!mounted) {
+      _loadQueue.clear();
+      return;
+    }
+    while (_runningLoadCount < _maximumConcurrentDirectoryLoads &&
+        _loadQueue.isNotEmpty) {
+      final request = _loadQueue.removeFirst();
+      if (_loadsByPath[request.path] != request) {
+        continue;
+      }
+      request.started = true;
+      _runningLoadCount += 1;
+      _startLoad(request);
+    }
+  }
+
+  void _startLoad(_DirectoryLoadRequest request) {
+    unawaited(
+      widget.controller
+          .listChildren(relativePath: request.path)
+          .then((entries) {
+            if (!_isCurrentRequest(request)) {
+              return;
+            }
+            _childrenByPath[request.path] = entries;
+            _loadErrors.remove(request.path);
+            _scheduleVisibleRebuild();
+            _loadExpandedChildren(entries);
+          })
+          .catchError((Object error) {
+            if (!_isCurrentRequest(request)) {
+              return;
+            }
+            _loadErrors[request.path] = error;
+            _scheduleVisibleRebuild();
+          })
+          .whenComplete(() {
+            _runningLoadCount -= 1;
+            if (_loadsByPath[request.path] == request) {
+              _loadsByPath.remove(request.path);
+              if (request.refreshAfterCompletion) {
+                _loadPath(request.path, force: true, prioritize: true);
+              }
+            }
+            _drainLoadQueue();
+          }),
+    );
+  }
+
+  bool _isCurrentRequest(_DirectoryLoadRequest request) {
+    return mounted &&
+        request.generation == _generation &&
+        _requestVersions[request.path] == request.version &&
+        _loadsByPath[request.path] == request;
+  }
+
+  void _scheduleVisibleRebuild() {
+    if (_visibleRebuildScheduled) {
+      return;
+    }
+    _visibleRebuildScheduled = true;
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
+      _visibleRebuildScheduled = false;
+      if (mounted) {
+        setState(_rebuildVisibleItems);
+      }
+    });
+  }
+
+  void _loadExpandedChildren(List<LibraryEntry> entries) {
+    for (final entry in entries) {
+      if (entry.isDirectory &&
+          widget.controller.isDirectoryExpanded(entry.relativePath)) {
+        _loadPath(entry.relativePath);
+      }
+    }
+  }
+
+  void _rebuildVisibleItems() {
+    _visibleItems.clear();
+    _appendVisibleChildren(widget.relativePath, widget.depth);
+  }
+
+  void _appendVisibleChildren(String path, int depth) {
+    if (_loadErrors.containsKey(path)) {
+      _visibleItems.add(_VisibleTreeItem.error(path: path, depth: depth));
+    }
+    final entries = _childrenByPath[path];
+    if (entries == null) {
+      return;
+    }
+    for (final entry in entries) {
+      _visibleItems.add(_VisibleTreeItem.entry(entry: entry, depth: depth));
+      if (entry.isDirectory &&
+          widget.controller.isDirectoryExpanded(entry.relativePath)) {
+        _appendVisibleChildren(entry.relativePath, depth + 1);
+      }
+    }
+  }
+
+  void _toggleExpanded(LibraryEntry entry) {
+    final expanded = !widget.controller.isDirectoryExpanded(entry.relativePath);
+    widget.controller.setDirectoryExpanded(entry.relativePath, expanded);
+    setState(_rebuildVisibleItems);
+    if (expanded) {
+      _loadPath(entry.relativePath, prioritize: true);
+    }
+    widget.onSelected(entry);
+  }
+
+  void _retryPath(String path) {
+    setState(() {
+      _loadErrors.remove(path);
+      _rebuildVisibleItems();
+    });
+    _loadPath(path, force: true, prioritize: true);
+  }
+
+  @override
+  void dispose() {
+    _loadQueue.clear();
+    _loadsByPath.clear();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<LibraryEntry>>(
-      future: _entries,
-      builder: (context, snapshot) {
-        if (snapshot.hasData) {
-          _cachedEntries = snapshot.data;
-        }
-        final entries = snapshot.data ?? _cachedEntries;
-        if (entries == null &&
-            snapshot.connectionState != ConnectionState.done) {
-          // 根目录首次加载用圆形进度反馈；子目录懒加载时不占位——空目录
-          // 最终也是 0 高度，加载态若占位会在切到空态时引起一次布局抖动
-          // （点击空文件夹展开会先挤出进度条再收回）。本地 FS 读取极快，
-          // 牺牲这一闪而过的进度条换取无抖动的展开体验。
-          return widget.relativePath.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : const SizedBox.shrink();
-        }
-        if (entries == null) {
-          return TextButton(
-            onPressed: () => setState(_reload),
-            child: const Text('目录加载失败，点击重试'),
-          );
-        }
-        if (entries.isEmpty && !snapshot.hasError) {
-          // 仅书库根为空时给出提示；展开的空文件夹保持静默，不再占位。
-          if (widget.relativePath.isNotEmpty) {
-            return const SizedBox.shrink();
-          }
-          return Padding(
-            padding: EdgeInsets.fromLTRB(
-              _treeHorizontalPadding +
-                  (widget.depth * _treeIndent) +
-                  _treeDisclosureWidth,
-              10,
-              _treeHorizontalPadding,
-              10,
-            ),
-            child: Text(
-              '书库为空',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          );
-        }
-        final children = <Widget>[
-          if (snapshot.hasError)
-            TextButton(
-              onPressed: () => setState(_reload),
+    final rootEntries = _childrenByPath[widget.relativePath];
+    if (rootEntries == null) {
+      if (_loadErrors.containsKey(widget.relativePath)) {
+        return TextButton(
+          onPressed: () => _retryPath(widget.relativePath),
+          child: const Text('目录加载失败，点击重试'),
+        );
+      }
+      return widget.relativePath.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : const SizedBox.shrink();
+    }
+    if (rootEntries.isEmpty && !_loadErrors.containsKey(widget.relativePath)) {
+      if (widget.relativePath.isNotEmpty) {
+        return const SizedBox.shrink();
+      }
+      return Padding(
+        padding: EdgeInsets.fromLTRB(
+          _treeHorizontalPadding +
+              (widget.depth * _treeIndent) +
+              _treeDisclosureWidth,
+          10,
+          _treeHorizontalPadding,
+          10,
+        ),
+        child: Text(
+          '书库为空',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
+      physics: const ClampingScrollPhysics(),
+      itemExtent: _treeRowExtent,
+      itemCount: _visibleItems.length,
+      itemBuilder: (context, index) {
+        final item = _visibleItems[index];
+        final errorPath = item.errorPath;
+        if (errorPath != null) {
+          return SizedBox(
+            height: _treeRowExtent,
+            child: TextButton(
+              onPressed: () => _retryPath(errorPath),
               child: const Text('目录刷新失败，点击重试'),
             ),
-          ...entries.map((entry) {
-            if (entry.isDirectory) {
-              return _WorkspaceDirectoryTile(
-                key: ValueKey(entry.relativePath),
-                entry: entry,
-                controller: widget.controller,
-                selectedPath: widget.selectedPath,
-                reloadToken: widget.reloadToken,
-                onSelected: widget.onSelected,
-                onContextMenu: widget.onContextMenu,
-                depth: widget.depth,
-                statsLabel: widget.controller.statsLabelFor(entry),
-              );
-            }
-            return _WorkspaceFileTile(
-              key: ValueKey(entry.relativePath),
-              entry: entry,
-              selected: widget.selectedPath == entry.relativePath,
-              depth: widget.depth,
-              onTap: () => widget.onSelected(entry),
-              onContextMenu: widget.onContextMenu,
-              statsLabel: widget.controller.statsLabelFor(entry),
-            );
-          }),
-        ];
-        return widget.relativePath.isEmpty
-            ? ListView(
-                padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
-                physics: const ClampingScrollPhysics(),
-                children: children,
-              )
-            : Column(mainAxisSize: MainAxisSize.min, children: children);
+          );
+        }
+        final entry = item.entry!;
+        final expanded = entry.isDirectory
+            ? widget.controller.isDirectoryExpanded(entry.relativePath)
+            : null;
+        return _TreeRow(
+          key: ValueKey(entry.relativePath),
+          entry: entry,
+          selected: widget.selectedPath == entry.relativePath,
+          depth: item.depth,
+          expanded: expanded,
+          disclosure: expanded == null
+              ? const SizedBox(width: _treeDisclosureWidth)
+              : AnimatedRotation(
+                  turns: expanded ? 0.25 : 0,
+                  duration: const Duration(milliseconds: 140),
+                  curve: Curves.easeOut,
+                  child: const Icon(Icons.chevron_right_rounded, size: 17),
+                ),
+          icon: expanded == true ? Icons.folder_open_outlined : entry.entryIcon,
+          onTap: entry.isDirectory
+              ? () => _toggleExpanded(entry)
+              : () => widget.onSelected(entry),
+          onContextMenu: widget.onContextMenu,
+          statsLabel: widget.controller.statsLabelFor(entry),
+        );
       },
     );
   }
 }
 
-final class _WorkspaceDirectoryTile extends StatefulWidget {
-  const _WorkspaceDirectoryTile({
-    required this.entry,
-    required this.controller,
-    required this.selectedPath,
-    required this.reloadToken,
-    required this.onSelected,
-    this.onContextMenu,
-    required this.depth,
-    this.statsLabel,
-    super.key,
+final class _DirectoryLoadRequest {
+  _DirectoryLoadRequest({
+    required this.path,
+    required this.generation,
+    required this.version,
   });
 
-  final LibraryEntry entry;
-  final WorkspaceController controller;
-  final String? selectedPath;
-  final int reloadToken;
-  final ValueChanged<LibraryEntry> onSelected;
-  final ContextMenuCallback? onContextMenu;
-  final int depth;
-  final String? statsLabel;
-
-  @override
-  State<_WorkspaceDirectoryTile> createState() =>
-      _WorkspaceDirectoryTileState();
+  final String path;
+  final int generation;
+  final int version;
+  bool started = false;
+  bool refreshAfterCompletion = false;
 }
 
-final class _WorkspaceDirectoryTileState
-    extends State<_WorkspaceDirectoryTile> {
-  late bool _expanded;
+final class _VisibleTreeItem {
+  const _VisibleTreeItem.entry({required this.entry, required this.depth})
+    : errorPath = null;
 
-  @override
-  void initState() {
-    super.initState();
-    _expanded = widget.controller.isDirectoryExpanded(
-      widget.entry.relativePath,
-    );
-  }
+  const _VisibleTreeItem.error({required String path, required this.depth})
+    : entry = null,
+      errorPath = path;
 
-  @override
-  void didUpdateWidget(covariant _WorkspaceDirectoryTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller != widget.controller ||
-        oldWidget.entry.relativePath != widget.entry.relativePath) {
-      _expanded = widget.controller.isDirectoryExpanded(
-        widget.entry.relativePath,
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final selected = widget.selectedPath == widget.entry.relativePath;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _TreeRow(
-          entry: widget.entry,
-          selected: selected,
-          depth: widget.depth,
-          expanded: _expanded,
-          disclosure: AnimatedRotation(
-            turns: _expanded ? 0.25 : 0,
-            duration: const Duration(milliseconds: 140),
-            curve: Curves.easeOut,
-            child: const Icon(Icons.chevron_right_rounded, size: 17),
-          ),
-          icon: _expanded ? Icons.folder_open_outlined : Icons.folder_outlined,
-          onTap: _toggleExpanded,
-          onContextMenu: widget.onContextMenu,
-          statsLabel: widget.statsLabel,
-        ),
-        if (_expanded)
-          WorkspaceDirectory(
-            controller: widget.controller,
-            relativePath: widget.entry.relativePath,
-            selectedPath: widget.selectedPath,
-            reloadToken: widget.reloadToken,
-            onSelected: widget.onSelected,
-            onContextMenu: widget.onContextMenu,
-            depth: widget.depth + 1,
-          ),
-      ],
-    );
-  }
-
-  void _toggleExpanded() {
-    final expanded = !_expanded;
-    setState(() => _expanded = expanded);
-    widget.controller.setDirectoryExpanded(widget.entry.relativePath, expanded);
-    widget.onSelected(widget.entry);
-  }
-}
-
-final class _WorkspaceFileTile extends StatelessWidget {
-  const _WorkspaceFileTile({
-    required this.entry,
-    required this.selected,
-    required this.depth,
-    required this.onTap,
-    this.onContextMenu,
-    this.statsLabel,
-    super.key,
-  });
-
-  final LibraryEntry entry;
-  final bool selected;
+  final LibraryEntry? entry;
+  final String? errorPath;
   final int depth;
-  final VoidCallback onTap;
-  final ContextMenuCallback? onContextMenu;
-  final String? statsLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    return _TreeRow(
-      entry: entry,
-      selected: selected,
-      depth: depth,
-      disclosure: const SizedBox(width: _treeDisclosureWidth),
-      icon: entry.entryIcon,
-      onTap: onTap,
-      onContextMenu: onContextMenu,
-      statsLabel: statsLabel,
-    );
-  }
 }
 
 final class _TreeRow extends StatefulWidget {
@@ -287,6 +391,7 @@ final class _TreeRow extends StatefulWidget {
     this.onContextMenu,
     this.expanded,
     this.statsLabel,
+    super.key,
   });
 
   final LibraryEntry entry;
@@ -449,6 +554,8 @@ const double _treeHorizontalPadding = 4;
 const double _treeIndent = 17;
 const double _treeDisclosureWidth = 18;
 const double _treeRowHeight = 30;
+const double _treeRowExtent = _treeRowHeight + 2;
+const int _maximumConcurrentDirectoryLoads = 6;
 
 const _txtExtension = '.txt';
 

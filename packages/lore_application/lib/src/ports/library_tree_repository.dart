@@ -34,3 +34,13 @@ abstract interface class LibraryTreeRepository {
     required String relativePath,
   });
 }
+
+/// Optional fast path for repositories that can reuse semantic entries
+/// already indexed by the application layer.
+abstract interface class IndexedLibraryTreeRepository {
+  Future<List<LibraryEntry>> listChildrenWithSemanticEntries(
+    LibraryAccess access, {
+    required Map<String, LibraryEntry> semanticEntries,
+    String relativePath = '',
+  });
+}

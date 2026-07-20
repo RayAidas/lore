@@ -44,7 +44,9 @@ final class _LibraryWorkspacePageState
     with WidgetsBindingObserver {
   bool _showInspector = true;
   bool _showSidebar = true;
-  double _sidebarWidth = _defaultSidebarWidth;
+  final ValueNotifier<double> _sidebarWidth = ValueNotifier(
+    _defaultSidebarWidth,
+  );
   FindReplaceController? _findController;
   bool _findReplaceMode = false;
   WorkspaceTabDragData? _draggingTab;
@@ -98,6 +100,7 @@ final class _LibraryWorkspacePageState
   @override
   void dispose() {
     _findController?.dispose();
+    _sidebarWidth.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -277,9 +280,8 @@ final class _LibraryWorkspacePageState
                         child: Row(
                           children: [
                             if (permanentSidebar && _showSidebar)
-                              SizedBox(
-                                key: const ValueKey('library-sidebar'),
-                                width: _sidebarWidth,
+                              ValueListenableBuilder<double>(
+                                valueListenable: _sidebarWidth,
                                 child: LibrarySidebar(
                                   controller: controller,
                                   displayPath:
@@ -287,6 +289,11 @@ final class _LibraryWorkspacePageState
                                   onSelectLibrary: widget.onSelectLibrary,
                                   onCollapse: () =>
                                       setState(() => _showSidebar = false),
+                                ),
+                                builder: (context, width, child) => SizedBox(
+                                  key: const ValueKey('library-sidebar'),
+                                  width: width,
+                                  child: child,
                                 ),
                               ),
                             if (permanentSidebar && _showSidebar)
@@ -296,14 +303,12 @@ final class _LibraryWorkspacePageState
                                 ),
                                 behavior: HitTestBehavior.opaque,
                                 onHorizontalDragUpdate: (details) {
-                                  setState(() {
-                                    _sidebarWidth =
-                                        (_sidebarWidth + details.delta.dx)
-                                            .clamp(
-                                              _minimumSidebarWidth,
-                                              _maximumSidebarWidth,
-                                            );
-                                  });
+                                  _sidebarWidth.value =
+                                      (_sidebarWidth.value + details.delta.dx)
+                                          .clamp(
+                                            _minimumSidebarWidth,
+                                            _maximumSidebarWidth,
+                                          );
                                 },
                                 child: MouseRegion(
                                   cursor: SystemMouseCursors.resizeColumn,

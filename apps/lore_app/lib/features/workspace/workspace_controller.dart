@@ -272,11 +272,18 @@ final class WorkspaceController extends ChangeNotifier {
   }
 
   Future<List<LibraryEntry>> listChildren({String relativePath = ''}) {
-    return service.listChildren(session, relativePath: relativePath);
+    return service.listChildren(
+      session,
+      relativePath: relativePath,
+      semanticEntries: initialized ? _novelStore.semanticEntryIndex : null,
+    );
   }
 
   bool isDirectoryExpanded(String relativePath) =>
       _expandedDirectoryPaths.contains(relativePath);
+
+  List<String> get expandedDirectoryPaths =>
+      List.unmodifiable(_expandedDirectoryPaths);
 
   void setDirectoryExpanded(String relativePath, bool expanded) {
     final changed = expanded
@@ -768,8 +775,14 @@ final class WorkspaceController extends ChangeNotifier {
     );
   }
 
-  void _applyStructureMutation(NovelStructureMutation mutation) {
-    _novelStore.replace(mutation.snapshot);
+  void _applyStructureMutation(
+    NovelStructureMutation mutation, {
+    bool semanticStructureChanged = true,
+  }) {
+    _novelStore.replace(
+      mutation.snapshot,
+      semanticStructureChanged: semanticStructureChanged,
+    );
     for (final change in mutation.pathChanges) {
       _tabsStore.updatePathsAfterRename(change.oldPath, change.newPath);
       _remapExpandedPaths(change.oldPath, change.newPath);
@@ -823,7 +836,7 @@ final class WorkspaceController extends ChangeNotifier {
             novelId: novelId,
             characterCounts: map,
           );
-      _applyStructureMutation(mutation);
+      _applyStructureMutation(mutation, semanticStructureChanged: false);
     } on LibraryOperationException {
       // 字数更新失败：静默，下次保存/reconcile 修正。
     }

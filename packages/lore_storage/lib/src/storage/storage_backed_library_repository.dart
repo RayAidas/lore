@@ -33,6 +33,7 @@ final class StorageBackedLibraryRepository
     implements
         LibraryRepository,
         LibraryTreeRepository,
+        IndexedLibraryTreeRepository,
         DocumentRepository,
         NovelRepository,
         ContentTreeRepository,
@@ -154,6 +155,35 @@ final class StorageBackedLibraryRepository
     String relativePath = '',
   }) async {
     final storage = await storageFactory.open(access);
+    final novels = await storage.stat(_libraryManifest) == null
+        ? const <NovelSnapshot>[]
+        : await listNovels(access);
+    return _listChildren(
+      storage,
+      relativePath: relativePath,
+      semanticEntries: buildSemanticLibraryEntryIndex(novels),
+    );
+  }
+
+  @override
+  Future<List<LibraryEntry>> listChildrenWithSemanticEntries(
+    LibraryAccess access, {
+    required Map<String, LibraryEntry> semanticEntries,
+    String relativePath = '',
+  }) async {
+    final storage = await storageFactory.open(access);
+    return _listChildren(
+      storage,
+      relativePath: relativePath,
+      semanticEntries: semanticEntries,
+    );
+  }
+
+  Future<List<LibraryEntry>> _listChildren(
+    LibraryStorageSession storage, {
+    required String relativePath,
+    required Map<String, LibraryEntry> semanticEntries,
+  }) async {
     final directory = _publicPath(relativePath);
     final entries = <LibraryEntry>[];
     for (final item in await storage.list(directory)) {
@@ -168,10 +198,9 @@ final class StorageBackedLibraryRepository
         ),
       );
     }
-    final novels = await storage.stat(_libraryManifest) == null
-        ? const <NovelSnapshot>[]
-        : await listNovels(access);
-    return entries.map((entry) => _annotateEntry(entry, novels)).toList()
+    return entries
+        .map((entry) => semanticEntries[entry.relativePath] ?? entry)
+        .toList()
       ..sort((left, right) {
         if (left.semanticOrder != null && right.semanticOrder != null) {
           return left.semanticOrder!.compareTo(right.semanticOrder!);
