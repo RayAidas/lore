@@ -723,6 +723,19 @@ final class StorageBackedLibraryRepository
     await storage.move(oldPath, newPath);
     final oldRelative = node.relativePath;
     final newRelative = newPath.value.substring(snapshot.rootPath.length + 1);
+    if (node.type == ContentNodeType.chapter) {
+      final newNumber = _chapterNumber(newRelative);
+      if (newNumber != null) {
+        // 同步磁盘首行编号到新文件名，维持「文件名号 == 首行号」不变量
+        // （与 createChapter 写种子首行对称）。无编号名（楔子/序章）时跳过。
+        await _syncChapterTitleLineNumber(
+          storage,
+          newPath,
+          newNumber: newNumber,
+          markdown: snapshot.metadata.chapterFormat != ChapterFormat.text,
+        );
+      }
+    }
     final nodes = snapshot.contentTree.nodes
         .map((candidate) {
           if (candidate.id == nodeId) {
@@ -748,6 +761,49 @@ final class StorageBackedLibraryRepository
       entry: mutation.entry,
       pathChanges: [PathChange(oldPath: oldPath.value, newPath: newPath.value)],
     );
+  }
+
+  /// 重命名章节后，按新文件名同步磁盘首行的锁定前缀编号，使「文件名号 == 首行号」
+  /// 不变量成立（与 [createChapter] 写种子首行对称）。仅当首行确为章节标题、且其
+  /// 编号与新文件名号不一致时重写——保留副标题与正文，仅替换 `第N章` 的 N。
+  ///
+  /// 仅同步编号：若新文件名带副标题部分（如「第2章 归乡」），副标题仍以文件既有
+  /// 首行为准——副标题的编辑入口是标题栏而非文件名，这是已知限制。首行非章节
+  /// 标题、外部非 UTF-8 内容、或并发改写导致 replace 冲突时均 best-effort 跳过
+  /// （磁盘首行与新文件名暂时错位，下次保存/重命名再修正，不引入损坏）。本方法
+  /// 绝不抛出——[renameNode] 在调用前已完成 move，绝不能因首行同步失败而让
+  /// 重命名半途中断（文件已移、元数据未提交、用户看到误导性错误）。
+  Future<void> _syncChapterTitleLineNumber(
+    LibraryStorageSession storage,
+    LogicalPath path, {
+    required int newNumber,
+    required bool markdown,
+  }) async {
+    // 先取 revision 再读字节，缩小并发写窗口：读期间文件若被改写，replaceFile
+    // 因 revision 不符返回 conflict → 本次同步放弃（best-effort）。
+    final revision = (await storage.stat(path))?.revision;
+    if (revision == null) return;
+    final String text;
+    try {
+      text = utf8.decode(await storage.readBytes(path));
+    } on FormatException {
+      // 外部非 UTF-8 内容（如 GBK/Latin-1 保存）：不可安全解析/重写，跳过。
+      return;
+    }
+    final parsed = ChapterTitleText.tryParse(text, markdown: markdown);
+    if (parsed == null || parsed.number == newNumber) return;
+    final rewritten = ChapterTitleText.compose(
+      newNumber,
+      parsed.subtitle,
+      ChapterTitleText.bodyOf(text),
+      markdown: markdown,
+    );
+    final result = await storage.replaceFile(
+      path,
+      expectedRevision: revision,
+      bytes: Uint8List.fromList(utf8.encode(rewritten)),
+    );
+    if (result is StorageReplaceConflict) return;
   }
 
   @override

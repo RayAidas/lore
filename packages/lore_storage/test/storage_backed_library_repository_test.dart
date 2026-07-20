@@ -333,11 +333,7 @@ void main() {
       final thirdId = third.snapshot.contentTree.nodes.last.id;
 
       // 删第2章，再把第3章重命名为「第2章」。
-      await repository.deleteNode(
-        access,
-        novelId: novelId,
-        nodeId: secondId,
-      );
+      await repository.deleteNode(access, novelId: novelId, nodeId: secondId);
       await repository.renameNode(
         access,
         novelId: novelId,
@@ -346,10 +342,7 @@ void main() {
       );
 
       // 新建章节应回填到第3章，而不是跳到第4章。
-      final created = await repository.createChapter(
-        access,
-        novelId: novelId,
-      );
+      final created = await repository.createChapter(access, novelId: novelId);
       expect(created.entry!.name, '第3章.md');
     },
   );
@@ -386,12 +379,10 @@ void main() {
       );
 
       // 新建卷应回填到第3卷，而不是跳到第4卷。
-      final created = await repository.createVolume(
-        access,
-        novelId: novelId,
+      final created = await repository.createVolume(access, novelId: novelId);
+      final createdVolume = created.snapshot.contentTree.nodes.lastWhere(
+        (node) => node.type == ContentNodeType.volume,
       );
-      final createdVolume = created.snapshot.contentTree.nodes
-          .lastWhere((node) => node.type == ContentNodeType.volume);
       expect(createdVolume.relativePath, '正文/第3卷');
     },
   );
@@ -423,10 +414,7 @@ void main() {
       expect(renamedNode.number, isNull);
 
       // 新建章节应回填到第3章，而不是跳到第4章。
-      final created = await repository.createChapter(
-        access,
-        novelId: novelId,
-      );
+      final created = await repository.createChapter(access, novelId: novelId);
       expect(created.entry!.name, '第3章.md');
     },
   );
@@ -438,14 +426,9 @@ void main() {
       final novel = await repository.createNovel(access, title: '长夜行');
       final novelId = novel.snapshot.metadata.id;
       // 外部放入「第5卷」目录（无既有卷），reconcile 后 number 应为 5 而非按位置得 1。
-      await Directory(
-        '${root.path}/长夜行/正文/第5卷',
-      ).create(recursive: true);
+      await Directory('${root.path}/长夜行/正文/第5卷').create(recursive: true);
 
-      final reconciled = await repository.reconcile(
-        access,
-        novelId: novelId,
-      );
+      final reconciled = await repository.reconcile(access, novelId: novelId);
       final volume = reconciled.snapshot.contentTree.nodes.firstWhere(
         (node) => node.type == ContentNodeType.volume,
       );
@@ -453,28 +436,31 @@ void main() {
     },
   );
 
-  test('recomputes chapter role when renamed to a prologue-style name', () async {
-    await repository.initialize(access);
-    final novel = await repository.createNovel(access, title: '长夜行');
-    final novelId = novel.snapshot.metadata.id;
-    final chapter = await repository.createChapter(
-      access,
-      novelId: novelId,
-    ); // 第1章
-    final chapterId = chapter.snapshot.contentTree.nodes.last.id;
+  test(
+    'recomputes chapter role when renamed to a prologue-style name',
+    () async {
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '长夜行');
+      final novelId = novel.snapshot.metadata.id;
+      final chapter = await repository.createChapter(
+        access,
+        novelId: novelId,
+      ); // 第1章
+      final chapterId = chapter.snapshot.contentTree.nodes.last.id;
 
-    final renamed = await repository.renameNode(
-      access,
-      novelId: novelId,
-      nodeId: chapterId,
-      newName: '序章.md',
-    );
-    final renamedNode = renamed.snapshot.contentTree.nodes.firstWhere(
-      (node) => node.id == chapterId,
-    );
-    expect(renamedNode.role, ContentRole.prologue);
-    expect(renamedNode.number, isNull);
-  });
+      final renamed = await repository.renameNode(
+        access,
+        novelId: novelId,
+        nodeId: chapterId,
+        newName: '序章.md',
+      );
+      final renamedNode = renamed.snapshot.contentTree.nodes.firstWhere(
+        (node) => node.id == chapterId,
+      );
+      expect(renamedNode.role, ContentRole.prologue);
+      expect(renamedNode.number, isNull);
+    },
+  );
 
   test(
     'continuous mode permits duplicate numbers across volumes after rename',
@@ -511,8 +497,7 @@ void main() {
       // （卷与章编号空间独立，故只统计章节）。
       final ones = renamed.snapshot.contentTree.nodes
           .where(
-            (node) =>
-                node.type == ContentNodeType.chapter && node.number == 1,
+            (node) => node.type == ContentNodeType.chapter && node.number == 1,
           )
           .toList();
       expect(ones, hasLength(2));
@@ -559,14 +544,9 @@ void main() {
       final novel = await repository.createNovel(access, title: '长夜行');
       final novelId = novel.snapshot.metadata.id;
       // 中文数字卷名「第一卷」无法用 ASCII 数字正则解析 → number 为 null。
-      await Directory(
-        '${root.path}/长夜行/正文/第一卷',
-      ).create(recursive: true);
+      await Directory('${root.path}/长夜行/正文/第一卷').create(recursive: true);
 
-      final reconciled = await repository.reconcile(
-        access,
-        novelId: novelId,
-      );
+      final reconciled = await repository.reconcile(access, novelId: novelId);
       final volume = reconciled.snapshot.contentTree.nodes.firstWhere(
         (node) => node.type == ContentNodeType.volume,
       );
@@ -582,14 +562,11 @@ void main() {
       final novelId = novel.snapshot.metadata.id;
       await repository.createChapter(access, novelId: novelId); // 第1章
       // 模拟外部重命名：第1章.md → 序章.md。
-      await File('${root.path}/长夜行/正文/第1章.md').rename(
-        '${root.path}/长夜行/正文/序章.md',
-      );
+      await File(
+        '${root.path}/长夜行/正文/第1章.md',
+      ).rename('${root.path}/长夜行/正文/序章.md');
 
-      final reconciled = await repository.reconcile(
-        access,
-        novelId: novelId,
-      );
+      final reconciled = await repository.reconcile(access, novelId: novelId);
       final node = reconciled.snapshot.contentTree.nodes
           .where((node) => node.type == ContentNodeType.chapter)
           .single;
@@ -598,26 +575,205 @@ void main() {
     },
   );
 
+  test('scanner recomputes volume number on external rename', () async {
+    await repository.initialize(access);
+    final novel = await repository.createNovel(access, title: '长夜行');
+    final novelId = novel.snapshot.metadata.id;
+    await repository.createVolume(access, novelId: novelId); // 第1卷
+    // 模拟外部重命名：第1卷 → 第5卷。
+    await Directory(
+      '${root.path}/长夜行/正文/第1卷',
+    ).rename('${root.path}/长夜行/正文/第5卷');
+
+    final reconciled = await repository.reconcile(access, novelId: novelId);
+    final volume = reconciled.snapshot.contentTree.nodes
+        .where((node) => node.type == ContentNodeType.volume)
+        .single;
+    expect(volume.number, 5);
+  });
+
   test(
-    'scanner recomputes volume number on external rename',
+    'rename rewrites the chapter title first line to the new number (markdown)',
     () async {
       await repository.initialize(access);
       final novel = await repository.createNovel(access, title: '长夜行');
       final novelId = novel.snapshot.metadata.id;
-      await repository.createVolume(access, novelId: novelId); // 第1卷
-      // 模拟外部重命名：第1卷 → 第5卷。
-      await Directory('${root.path}/长夜行/正文/第1卷').rename(
-        '${root.path}/长夜行/正文/第5卷',
-      );
-
-      final reconciled = await repository.reconcile(
+      final chapter = await repository.createChapter(
         access,
         novelId: novelId,
+      ); // 第1章，首行 `# 第1章`
+      final chapterId = chapter.snapshot.contentTree.nodes.last.id;
+
+      final renamed = await repository.renameNode(
+        access,
+        novelId: novelId,
+        nodeId: chapterId,
+        newName: '第5章.md',
       );
-      final volume = reconciled.snapshot.contentTree.nodes
-          .where((node) => node.type == ContentNodeType.volume)
-          .single;
-      expect(volume.number, 5);
+      final doc = await repository.readDocument(
+        access,
+        DocumentRef(
+          relativePath: renamed.entry!.relativePath,
+          format: DocumentFormat.markdown,
+        ),
+      );
+      // 首行编号随文件名更新；正文（空）保留。
+      expect(doc.text, '# 第5章\n');
+    },
+  );
+
+  test('rename title rewrite preserves subtitle and body', () async {
+    await repository.initialize(access);
+    final novel = await repository.createNovel(access, title: '长夜行');
+    final novelId = novel.snapshot.metadata.id;
+    final chapter = await repository.createChapter(
+      access,
+      novelId: novelId,
+    ); // 第1章
+    final chapterId = chapter.snapshot.contentTree.nodes.last.id;
+    // 注入带副标题与正文的标题行，模拟用户编辑后的落盘内容。
+    await File(
+      '${root.path}/${chapter.entry!.relativePath}',
+    ).writeAsString('# 第1章 归乡\n正文第一段。');
+
+    final renamed = await repository.renameNode(
+      access,
+      novelId: novelId,
+      nodeId: chapterId,
+      newName: '第2章.md',
+    );
+    final doc = await repository.readDocument(
+      access,
+      DocumentRef(
+        relativePath: renamed.entry!.relativePath,
+        format: DocumentFormat.markdown,
+      ),
+    );
+    expect(doc.text, '# 第2章 归乡\n正文第一段。');
+  });
+
+  test('rename title rewrite honors TXT chapter format', () async {
+    await repository.initialize(access);
+    final novel = await repository.createNovel(
+      access,
+      title: 'TXT 小说',
+      chapterFormat: ChapterFormat.text,
+    );
+    final novelId = novel.snapshot.metadata.id;
+    final chapter = await repository.createChapter(
+      access,
+      novelId: novelId,
+    ); // 第1章，首行 `第1章`（无 `#`）
+    final chapterId = chapter.snapshot.contentTree.nodes.last.id;
+
+    final renamed = await repository.renameNode(
+      access,
+      novelId: novelId,
+      nodeId: chapterId,
+      newName: '第3章.txt',
+    );
+    final doc = await repository.readDocument(
+      access,
+      DocumentRef(
+        relativePath: renamed.entry!.relativePath,
+        format: DocumentFormat.text,
+      ),
+    );
+    expect(doc.text, '第3章\n');
+  });
+
+  test(
+    'rename to a non-numbered name leaves the title first line untouched',
+    () async {
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '长夜行');
+      final novelId = novel.snapshot.metadata.id;
+      final chapter = await repository.createChapter(
+        access,
+        novelId: novelId,
+      ); // 第1章，首行 `# 第1章`
+      final chapterId = chapter.snapshot.contentTree.nodes.last.id;
+
+      final renamed = await repository.renameNode(
+        access,
+        novelId: novelId,
+        nodeId: chapterId,
+        newName: '楔子.md',
+      );
+      final doc = await repository.readDocument(
+        access,
+        DocumentRef(
+          relativePath: renamed.entry!.relativePath,
+          format: DocumentFormat.markdown,
+        ),
+      );
+      // 重命名为无编号名时不动首行（保留既有测试契约：number 清空、内容不变）。
+      expect(doc.text, '# 第1章\n');
+    },
+  );
+
+  test(
+    'rename leaves non-UTF8 chapter content untouched without throwing',
+    () async {
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '长夜行');
+      final novelId = novel.snapshot.metadata.id;
+      final chapter = await repository.createChapter(
+        access,
+        novelId: novelId,
+      ); // 第1章
+      final chapterId = chapter.snapshot.contentTree.nodes.last.id;
+      // 覆盖为非法 UTF-8 字节，模拟外部编辑器用 GBK/Latin-1 等编码保存。
+      final rawBytes = Uint8List.fromList([0xFF, 0xFE, 0xFD, 0x41]);
+      await File(
+        '${root.path}/${chapter.entry!.relativePath}',
+      ).writeAsBytes(rawBytes);
+
+      // 重命名不得抛错（move 已完成，首行同步 best-effort 跳过）。
+      final renamed = await repository.renameNode(
+        access,
+        novelId: novelId,
+        nodeId: chapterId,
+        newName: '第2章.md',
+      );
+      // 磁盘内容原样保留——未因解码失败而损坏或丢失。
+      expect(
+        await File('${root.path}/${renamed.entry!.relativePath}').readAsBytes(),
+        rawBytes,
+      );
+    },
+  );
+
+  test(
+    'rename syncs only the number when filename carries a subtitle portion',
+    () async {
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '长夜行');
+      final novelId = novel.snapshot.metadata.id;
+      final chapter = await repository.createChapter(
+        access,
+        novelId: novelId,
+      ); // 第1章
+      final chapterId = chapter.snapshot.contentTree.nodes.last.id;
+      await File(
+        '${root.path}/${chapter.entry!.relativePath}',
+      ).writeAsString('# 第1章 旧副标题\n正文');
+
+      // 文件名带新副标题部分：编号同步，但副标题以文件既有首行为准（已知限制）。
+      final renamed = await repository.renameNode(
+        access,
+        novelId: novelId,
+        nodeId: chapterId,
+        newName: '第2章 新副标题.md',
+      );
+      final doc = await repository.readDocument(
+        access,
+        DocumentRef(
+          relativePath: renamed.entry!.relativePath,
+          format: DocumentFormat.markdown,
+        ),
+      );
+      expect(doc.text, '# 第2章 旧副标题\n正文');
     },
   );
 }
