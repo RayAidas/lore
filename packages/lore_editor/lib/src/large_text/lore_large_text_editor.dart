@@ -615,7 +615,11 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
     KeyEvent event,
     LoreLargeTextController controller,
   ) {
-    if (event is! KeyDownEvent) {
+    // 长按方向键时平台在首个 KeyDownEvent 之后持续发 KeyRepeatEvent：若只接
+    // KeyDownEvent，跨段逻辑仅在首帧触发，之后 repeat 被忽略 → 光标到段首/段尾
+    // 就卡住、无法跨段（单次点按因每次都是 KeyDownEvent 而表现正常）。故 repeat
+    // 与 down 一视同仁。KeyUpEvent 仍忽略。
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
     final selection = controller.selection;

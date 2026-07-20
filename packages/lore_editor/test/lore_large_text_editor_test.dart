@@ -1078,4 +1078,85 @@ void main() {
       expect(scrollController.offset, greaterThan(0));
     },
   );
+
+  testWidgets('long-pressing arrow right crosses into the next paragraph', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '第一段\n第二段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = const TextSelection.collapsed(offset: 0);
+    await tester.pump();
+
+    // 长按 →：1 个 down + 3 个 repeat。前 3 次行内右移到段末（offset 3），
+    // 第 4 次（repeat）在段末应跨段到第二段——修复前 repeat 被
+    // handleBoundaryKey 忽略，光标卡在段末无法跨段（与单次点按不一致）。
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+
+    expect(
+      controller.blockIndexForOffset(controller.selection.extentOffset),
+      1,
+    );
+  });
+
+  testWidgets('long-pressing arrow down crosses paragraphs', (tester) async {
+    final controller = LoreLargeTextController(text: '一\n二\n三');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = const TextSelection.collapsed(offset: 0);
+    await tester.pump();
+
+    // 长按 ↓：down 跨 一→二，repeat 跨 二→三。贴合用户报告的「上下长按不跨段」，
+    // 覆盖 _handleVerticalKey 的 repeat 路径（与 ←/→ 的跨段实现不同）。
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+
+    expect(
+      controller.blockIndexForOffset(controller.selection.extentOffset),
+      2,
+    );
+  });
 }
