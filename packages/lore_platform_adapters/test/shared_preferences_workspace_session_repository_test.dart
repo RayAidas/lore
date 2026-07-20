@@ -42,4 +42,49 @@ void main() {
     expect(restored, isNotNull);
     expect(restored!.expandedDirectoryPaths, isEmpty);
   });
+
+  test('round-trips version 3 editor groups and split layout', () async {
+    await repository.save(
+      libraryId,
+      const WorkspaceSessionSnapshot(
+        documents: [
+          WorkspaceDocumentState(
+            relativePath: '左.txt',
+            selectionBase: 1,
+            selectionExtent: 1,
+            scrollOffset: 12,
+          ),
+          WorkspaceDocumentState(
+            relativePath: '右.md',
+            selectionBase: 2,
+            selectionExtent: 3,
+            scrollOffset: 24,
+          ),
+        ],
+        activePath: '右.md',
+        editorGroups: [
+          WorkspaceEditorGroupState(
+            id: WorkspaceEditorGroupId.primary,
+            tabPaths: ['左.txt'],
+            activePath: '左.txt',
+          ),
+          WorkspaceEditorGroupState(
+            id: WorkspaceEditorGroupId.secondary,
+            tabPaths: ['右.md'],
+            activePath: '右.md',
+          ),
+        ],
+        focusedGroupId: WorkspaceEditorGroupId.secondary,
+        splitRatio: 0.62,
+      ),
+    );
+
+    final restored = await repository.load(libraryId);
+
+    expect(restored!.editorGroups, hasLength(2));
+    expect(restored.editorGroups.first.tabPaths, ['左.txt']);
+    expect(restored.editorGroups.last.tabPaths, ['右.md']);
+    expect(restored.focusedGroupId, WorkspaceEditorGroupId.secondary);
+    expect(restored.splitRatio, 0.62);
+  });
 }

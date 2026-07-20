@@ -65,9 +65,27 @@ final class WorkspaceController extends ChangeNotifier {
 
   List<WorkspaceTab> get tabs => _tabsStore.tabs;
 
+  List<WorkspaceTab> tabsForGroup(WorkspaceEditorGroupId groupId) =>
+      _tabsStore.tabsForGroup(groupId);
+
+  WorkspaceEditorGroupId groupForTab(WorkspaceTab tab) =>
+      _tabsStore.groupForTab(tab);
+
   List<OpenDocument> get documents => _tabsStore.documents;
 
   String? get activePath => _tabsStore.activePath;
+
+  String? activePathForGroup(WorkspaceEditorGroupId groupId) =>
+      _tabsStore.activePathForGroup(groupId);
+
+  OpenDocument? activeDocumentForGroup(WorkspaceEditorGroupId groupId) =>
+      _tabsStore.activeDocumentForGroup(groupId);
+
+  WorkspaceEditorGroupId get focusedGroupId => _tabsStore.focusedGroupId;
+
+  bool get isSplit => _tabsStore.isSplit;
+
+  double get splitRatio => _tabsStore.splitRatio;
 
   String? get selectedPath => _tabsStore.selectedPath;
 
@@ -444,6 +462,24 @@ final class WorkspaceController extends ChangeNotifier {
 
   Future<void> activateTab(WorkspaceTab tab) => _tabsStore.activateTab(tab);
 
+  void focusGroup(WorkspaceEditorGroupId groupId) =>
+      _tabsStore.focusGroup(groupId);
+
+  void setSplitRatio(double value) => _tabsStore.setSplitRatio(value);
+
+  void reorderTab(WorkspaceEditorGroupId groupId, int oldIndex, int newIndex) =>
+      _tabsStore.reorderTab(groupId, oldIndex, newIndex);
+
+  void moveTab(
+    WorkspaceTab tab,
+    WorkspaceEditorGroupId destination, {
+    int? index,
+  }) => _tabsStore.moveTab(tab, destination, index: index);
+
+  void splitRight(WorkspaceTab tab) => _tabsStore.splitRight(tab);
+
+  void closeSplit() => _tabsStore.closeSplit();
+
   void setPreview(OpenDocument document, bool showPreview) =>
       _tabsStore.setPreview(document, showPreview);
 
@@ -518,35 +554,57 @@ final class WorkspaceController extends ChangeNotifier {
   /// 其后 `_loadDeferredDocument` 的异步重插/dispose 会与后续关闭竞态（泄漏幽灵
   /// tab 或重复 dispose）；把活动留到最后，候选中的 Deferred 邻居已被先行关闭，
   /// 激活只会作用于非候选 tab。
-  Future<List<WorkspaceTab>> closeOthers(WorkspaceTab keep) => _closePaths([
-    for (final tab in tabs)
-      if (tab.relativePath != keep.relativePath) tab.relativePath,
-  ]);
+  Future<List<WorkspaceTab>> closeOthers(WorkspaceTab keep) {
+    final groupId = _tabsStore.groupForTab(keep);
+    return _closePaths([
+      for (final tab in tabsForGroup(groupId))
+        if (tab.relativePath != keep.relativePath) tab.relativePath,
+    ], groupId: groupId);
+  }
 
   Future<List<WorkspaceTab>> closeTabsToRight(WorkspaceTab anchor) {
+    final groupId = _tabsStore.groupForTab(anchor);
     final anchorPath = anchor.relativePath;
-    final index = tabs.indexWhere((tab) => tab.relativePath == anchorPath);
+    final groupTabs = tabsForGroup(groupId);
+    final index = groupTabs.indexWhere((tab) => tab.relativePath == anchorPath);
     if (index < 0) {
       return Future.value(const <WorkspaceTab>[]);
     }
     return _closePaths([
-      for (final tab in tabs.sublist(index + 1)) tab.relativePath,
-    ]);
+      for (final tab in groupTabs.sublist(index + 1)) tab.relativePath,
+    ], groupId: groupId);
   }
 
   Future<List<WorkspaceTab>> closeAllTabs() =>
       _closePaths([for (final tab in tabs) tab.relativePath]);
 
-  Future<List<WorkspaceTab>> _closePaths(List<String> paths) async {
+  Future<List<WorkspaceTab>> closeAllTabsInGroup(WorkspaceTab anchor) {
+    final groupId = _tabsStore.groupForTab(anchor);
+    return _closePaths([
+      for (final tab in tabsForGroup(groupId)) tab.relativePath,
+    ], groupId: groupId);
+  }
+
+  Future<List<WorkspaceTab>> _closePaths(
+    List<String> paths, {
+    WorkspaceEditorGroupId? groupId,
+  }) async {
     final stuck = <WorkspaceTab>[];
-    final active = activePath;
+    final active = groupId == null ? activePath : activePathForGroup(groupId);
     // 非活动先关、活动最后关——见上方文档注释对 activateTab 竞态的说明。
     final ordered = <String>[
       ...paths.where((path) => path != active),
       ...paths.where((path) => path == active),
     ];
     for (final path in ordered) {
-      final tab = _tabForPath(path);
+      final tab = tabs
+          .where(
+            (candidate) =>
+                candidate.relativePath == path &&
+                (groupId == null ||
+                    _tabsStore.groupForTab(candidate) == groupId),
+          )
+          .firstOrNull;
       if (tab == null) {
         continue; // 已被前面关闭波及（如目录删除连带）。
       }
@@ -555,16 +613,6 @@ final class WorkspaceController extends ChangeNotifier {
       }
     }
     return stuck;
-  }
-
-  /// 按相对路径查找当前 tab 实例（Deferred 激活会替换实例，故每次重查）。
-  WorkspaceTab? _tabForPath(String relativePath) {
-    for (final tab in tabs) {
-      if (tab.relativePath == relativePath) {
-        return tab;
-      }
-    }
-    return null;
   }
 
   Future<bool> flushAll() => _tabsStore.flushAll();

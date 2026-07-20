@@ -304,6 +304,47 @@ void main() {
     },
   );
 
+  testWidgets('refreshes a chapter number in the unfocused editor group', (
+    tester,
+  ) async {
+    final snapshot = _chapterNovelSnapshot();
+    final novelRepo = _FakeNovelRepository(snapshot);
+    final treeRepo = _FakeContentTreeRepository(snapshot);
+    final repository = _MemoryWorkspaceRepository()..diskText = '第1章\n正文段';
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+      novelStructureService: NovelStructureService(
+        novelRepository: novelRepo,
+        contentTreeRepository: treeRepo,
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+
+    await controller.initialize();
+    await controller.openPath('我的小说/正文/第1章.txt');
+    final document = controller.activeDocument!;
+    controller.splitRight(document);
+    controller.focusGroup(WorkspaceEditorGroupId.primary);
+
+    await controller.renameContentNode(
+      snapshot.metadata.id,
+      ContentId('chapter-1'),
+      '第2章',
+    );
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+
+    expect(controller.focusedGroupId, WorkspaceEditorGroupId.primary);
+    expect(document.chapterNumber, 2);
+    expect(document.relativePath, '我的小说/正文/第2章.txt');
+  });
+
   testWidgets(
     'saved first line and filename agree for a leading-dot subtitle',
     (tester) async {
@@ -1132,6 +1173,171 @@ void main() {
     expect(controller.tabs, hasLength(1));
     // c 被保留（关 a 时激活邻居 c，可能已加载为 OpenDocument，路径不变）。
     expect(controller.tabs.single.relativePath, 'c.txt');
+  });
+
+  testWidgets('reorders tabs and moves them between editor groups', (
+    tester,
+  ) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = buildController(repository);
+    addTearDown(repository.dispose);
+    await controller.initialize();
+    await controller.openPath('a.txt');
+    await controller.openPath('b.txt');
+    await controller.openPath('c.txt');
+
+    controller.reorderTab(WorkspaceEditorGroupId.primary, 0, 3);
+    expect(
+      controller
+          .tabsForGroup(WorkspaceEditorGroupId.primary)
+          .map((tab) => tab.relativePath),
+      ['b.txt', 'c.txt', 'a.txt'],
+    );
+
+    final moved = controller.tabsForGroup(WorkspaceEditorGroupId.primary).first;
+    controller.splitRight(moved);
+
+    expect(controller.isSplit, isTrue);
+    expect(controller.focusedGroupId, WorkspaceEditorGroupId.secondary);
+    expect(
+      controller.tabsForGroup(WorkspaceEditorGroupId.secondary).single,
+      same(moved),
+    );
+    expect(
+      controller.activePathForGroup(WorkspaceEditorGroupId.secondary),
+      'b.txt',
+    );
+
+    controller.moveTab(moved, WorkspaceEditorGroupId.primary, index: 1);
+
+    expect(controller.isSplit, isFalse);
+    expect(
+      controller
+          .tabsForGroup(WorkspaceEditorGroupId.primary)
+          .map((tab) => tab.relativePath),
+      ['c.txt', 'b.txt', 'a.txt'],
+    );
+    controller.dispose();
+  });
+
+  testWidgets('restores both visible editor groups and their active tabs', (
+    tester,
+  ) async {
+    final repository = _MemoryWorkspaceRepository();
+    final sessions = _MemorySessionRepository(
+      value: const WorkspaceSessionSnapshot(
+        documents: [
+          WorkspaceDocumentState(
+            relativePath: 'left.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+          WorkspaceDocumentState(
+            relativePath: 'right.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+        ],
+        activePath: 'right.txt',
+        editorGroups: [
+          WorkspaceEditorGroupState(
+            id: WorkspaceEditorGroupId.primary,
+            tabPaths: ['left.txt'],
+            activePath: 'left.txt',
+          ),
+          WorkspaceEditorGroupState(
+            id: WorkspaceEditorGroupId.secondary,
+            tabPaths: ['right.txt'],
+            activePath: 'right.txt',
+          ),
+        ],
+        focusedGroupId: WorkspaceEditorGroupId.secondary,
+        splitRatio: 0.6,
+      ),
+    );
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: sessions,
+      ),
+    );
+    addTearDown(repository.dispose);
+
+    await controller.initialize();
+
+    expect(controller.isSplit, isTrue);
+    expect(controller.documents, hasLength(2));
+    expect(repository.readPaths, ['left.txt', 'right.txt']);
+    expect(
+      controller.activePathForGroup(WorkspaceEditorGroupId.primary),
+      'left.txt',
+    );
+    expect(
+      controller.activePathForGroup(WorkspaceEditorGroupId.secondary),
+      'right.txt',
+    );
+    expect(controller.focusedGroupId, WorkspaceEditorGroupId.secondary);
+    expect(controller.splitRatio, 0.6);
+    controller.dispose();
+  });
+
+  testWidgets('collapses restored secondary group when its tab cannot load', (
+    tester,
+  ) async {
+    final repository = _MemoryWorkspaceRepository()..sourceMissing = true;
+    final sessions = _MemorySessionRepository(
+      value: const WorkspaceSessionSnapshot(
+        documents: [
+          WorkspaceDocumentState(
+            relativePath: 'left.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+          WorkspaceDocumentState(
+            relativePath: '章节.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+        ],
+        activePath: '章节.txt',
+        editorGroups: [
+          WorkspaceEditorGroupState(
+            id: WorkspaceEditorGroupId.primary,
+            tabPaths: ['left.txt'],
+            activePath: 'left.txt',
+          ),
+          WorkspaceEditorGroupState(
+            id: WorkspaceEditorGroupId.secondary,
+            tabPaths: ['章节.txt'],
+            activePath: '章节.txt',
+          ),
+        ],
+        focusedGroupId: WorkspaceEditorGroupId.secondary,
+      ),
+    );
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: sessions,
+      ),
+    );
+    addTearDown(repository.dispose);
+
+    await controller.initialize();
+
+    expect(controller.isSplit, isFalse);
+    expect(controller.focusedGroupId, WorkspaceEditorGroupId.primary);
+    expect(controller.tabs.map((tab) => tab.relativePath), ['left.txt']);
+    expect(controller.activePath, 'left.txt');
+    controller.dispose();
   });
 }
 

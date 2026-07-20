@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -44,23 +45,38 @@ final class _LibraryWorkspacePageState
   bool _showInspector = true;
   FindReplaceController? _findController;
   bool _findReplaceMode = false;
+  WorkspaceTabDragData? _draggingTab;
 
   WorkspaceController get _controller {
     return ref.read(workspaceControllerProvider(widget.session));
   }
 
+  bool get _supportsSplit => switch (defaultTargetPlatform) {
+    TargetPlatform.macOS ||
+    TargetPlatform.windows ||
+    TargetPlatform.linux => true,
+    _ => false,
+  };
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    Future<void>.microtask(_controller.initialize);
+    Future<void>.microtask(_initializeController);
   }
 
   @override
   void didUpdateWidget(covariant LibraryWorkspacePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.session != widget.session) {
-      Future<void>.microtask(_controller.initialize);
+      Future<void>.microtask(_initializeController);
+    }
+  }
+
+  Future<void> _initializeController() async {
+    await _controller.initialize();
+    if (!_supportsSplit && _controller.isSplit) {
+      _controller.closeSplit();
     }
   }
 
@@ -95,6 +111,7 @@ final class _LibraryWorkspacePageState
             final permanentSidebar = constraints.maxWidth >= 760;
             final inspectorAvailable = constraints.maxWidth >= 1180;
             final inspectorVisible = inspectorAvailable && _showInspector;
+            final desktop = _supportsSplit;
             return CallbackShortcuts(
               bindings: {
                 const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () {
@@ -112,6 +129,32 @@ final class _LibraryWorkspacePageState
                 const SingleActivator(LogicalKeyboardKey.keyH, meta: true): () {
                   _openFindReplace(controller, replace: true);
                 },
+                if (desktop)
+                  const SingleActivator(
+                    LogicalKeyboardKey.backslash,
+                    meta: true,
+                  ): () {
+                    final tab = controller.activeDocument;
+                    if (tab != null) {
+                      if (controller.isSplit) {
+                        controller.closeSplit();
+                      } else {
+                        controller.splitRight(tab);
+                      }
+                    }
+                  },
+                if (desktop)
+                  const SingleActivator(
+                    LogicalKeyboardKey.digit1,
+                    meta: true,
+                  ): () =>
+                      _focusGroup(controller, WorkspaceEditorGroupId.primary),
+                if (desktop && controller.isSplit)
+                  const SingleActivator(
+                    LogicalKeyboardKey.digit2,
+                    meta: true,
+                  ): () =>
+                      _focusGroup(controller, WorkspaceEditorGroupId.secondary),
                 const SingleActivator(LogicalKeyboardKey.keyG, meta: true): () {
                   _findController?.next();
                 },
@@ -166,6 +209,22 @@ final class _LibraryWorkspacePageState
                       ],
                     ),
                     actions: [
+                      if (desktop && controller.activeDocument != null)
+                        IconButton(
+                          onPressed: () {
+                            if (controller.isSplit) {
+                              controller.closeSplit();
+                            } else {
+                              controller.splitRight(controller.activeDocument!);
+                            }
+                          },
+                          tooltip: controller.isSplit ? '关闭分屏' : '向右分屏',
+                          icon: Icon(
+                            controller.isSplit
+                                ? Icons.close_fullscreen
+                                : Icons.vertical_split_outlined,
+                          ),
+                        ),
                       if (inspectorAvailable)
                         IconButton(
                           onPressed: () =>
@@ -227,7 +286,12 @@ final class _LibraryWorkspacePageState
                               ),
                             if (permanentSidebar)
                               const VerticalDivider(width: 1),
-                            Expanded(child: _buildContent(controller)),
+                            Expanded(
+                              child: _buildContent(
+                                controller,
+                                desktop: desktop,
+                              ),
+                            ),
                             if (inspectorVisible)
                               const VerticalDivider(width: 1),
                             if (inspectorVisible)
@@ -251,13 +315,133 @@ final class _LibraryWorkspacePageState
     );
   }
 
-  Widget _buildContent(WorkspaceController controller) {
+  Widget _buildContent(
+    WorkspaceController controller, {
+    required bool desktop,
+  }) {
     if (!controller.initialized) {
       return const Center(child: CircularProgressIndicator());
     }
+    if (!desktop) {
+      return _buildEditorGroup(controller, WorkspaceEditorGroupId.primary);
+    }
+    if (!controller.isSplit) {
+      final editorGroup = _buildEditorGroup(
+        controller,
+        WorkspaceEditorGroupId.primary,
+      );
+      if (_draggingTab == null) {
+        return editorGroup;
+      }
+      return LayoutBuilder(
+        builder: (context, constraints) => Stack(
+          children: [
+            Positioned.fill(child: editorGroup),
+            Positioned(
+              top: DocumentTabs.barHeight + 1,
+              right: 0,
+              bottom: 0,
+              width: constraints.maxWidth / 2,
+              child: DragTarget<WorkspaceTabDragData>(
+                onWillAcceptWithDetails: (_) => true,
+                onAcceptWithDetails: (details) {
+                  _discardFindReplace();
+                  controller.splitRight(details.data.tab);
+                  _finishTabDrag();
+                },
+                builder: (context, candidates, _) {
+                  if (candidates.isEmpty) {
+                    return const SizedBox.expand();
+                  }
+                  return Container(
+                    margin: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primaryContainer.withAlpha(90),
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.primary,
+                        width: 2,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '在右侧创建分屏',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const minimumPaneWidth = 280.0;
+        const dividerWidth = 9.0;
+        if (constraints.maxWidth < minimumPaneWidth * 2 + dividerWidth) {
+          return _buildEditorGroup(controller, controller.focusedGroupId);
+        }
+        final available = constraints.maxWidth - dividerWidth;
+        final primaryWidth = (available * controller.splitRatio).clamp(
+          minimumPaneWidth,
+          available - minimumPaneWidth,
+        );
+        return Row(
+          children: [
+            SizedBox(
+              width: primaryWidth,
+              child: _buildEditorGroup(
+                controller,
+                WorkspaceEditorGroupId.primary,
+              ),
+            ),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragUpdate: (details) {
+                controller.setSplitRatio(
+                  (primaryWidth + details.delta.dx) / available,
+                );
+              },
+              child: MouseRegion(
+                cursor: SystemMouseCursors.resizeColumn,
+                child: SizedBox(
+                  width: dividerWidth,
+                  child: Center(
+                    child: VerticalDivider(
+                      width: 1,
+                      color: Theme.of(context).dividerColor,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: _buildEditorGroup(
+                controller,
+                WorkspaceEditorGroupId.secondary,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildEditorGroup(
+    WorkspaceController controller,
+    WorkspaceEditorGroupId groupId,
+  ) {
     final selectedEntry = controller.selectedEntry;
     final selectedNovel = controller.selectedNovel;
     final showStructure =
+        groupId == controller.focusedGroupId &&
         selectedNovel != null &&
         switch (selectedEntry?.semanticKind) {
           LibraryEntrySemanticKind.novel ||
@@ -265,51 +449,112 @@ final class _LibraryWorkspacePageState
           LibraryEntrySemanticKind.volume => true,
           _ => false,
         };
-    final activeDocument = controller.activeDocument;
-    return Column(
-      children: [
-        DocumentTabs(
-          controller: controller,
-          onClose: (document) => _closeDocument(controller, document),
-          onContextMenu: (tab, offset) =>
-              _showTabContextMenu(controller, tab, offset),
+    final activeDocument = controller.activeDocumentForGroup(groupId);
+    final focused = controller.focusedGroupId == groupId;
+    final editorGroup = Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (_) => _focusGroup(controller, groupId),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: focused && controller.isSplit
+              ? Border.all(
+                  color: Theme.of(context).colorScheme.primary.withAlpha(80),
+                )
+              : null,
         ),
-        const Divider(height: 1),
-        Expanded(
-          child: showStructure
-              ? NovelStructurePane(
-                  controller: controller,
-                  snapshot: selectedNovel,
-                  selectedEntry: selectedEntry!,
-                  onFailure: _showFailure,
-                )
-              : activeDocument != null
-              ? DocumentPane(
-                  controller: controller,
-                  document: activeDocument,
-                  session: widget.session,
-                  onReloadConflict: () =>
-                      _reloadConflict(controller, activeDocument),
-                )
-              : ColoredBox(
-                  color: Theme.of(context).colorScheme.surface,
-                  child: Center(
-                    child: EmptyWorkspace(
-                      hasSelection: controller.selectedPath != null,
-                      selectedPath: controller.selectedPath,
+        child: Column(
+          children: [
+            DocumentTabs(
+              controller: controller,
+              groupId: groupId,
+              onActivate: (tab) => _activateTab(controller, tab),
+              onMove: _discardFindReplace,
+              onDragStarted: _startTabDrag,
+              onDragEnded: _finishTabDrag,
+              onClose: (document) => _closeDocument(controller, document),
+              onContextMenu: (tab, offset) =>
+                  _showTabContextMenu(controller, tab, offset),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: showStructure
+                  ? NovelStructurePane(
+                      controller: controller,
+                      snapshot: selectedNovel,
+                      selectedEntry: selectedEntry!,
+                      onFailure: _showFailure,
+                    )
+                  : activeDocument != null
+                  ? DocumentPane(
+                      controller: controller,
+                      document: activeDocument,
+                      session: widget.session,
+                      onReloadConflict: () =>
+                          _reloadConflict(controller, activeDocument),
+                    )
+                  : ColoredBox(
+                      color: Theme.of(context).colorScheme.surface,
+                      child: Center(
+                        child: EmptyWorkspace(
+                          hasSelection: controller.selectedPath != null,
+                          selectedPath: controller.selectedPath,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+            ),
+            if (_findController != null &&
+                activeDocument != null &&
+                groupId == controller.focusedGroupId)
+              FindReplaceOverlay(
+                findController: _findController!,
+                editorController: activeDocument.editorController,
+                initialShowReplace: _findReplaceMode,
+                onClose: _closeFindReplace,
+              ),
+          ],
         ),
-        if (_findController != null && activeDocument != null)
-          FindReplaceOverlay(
-            findController: _findController!,
-            editorController: activeDocument.editorController,
-            initialShowReplace: _findReplaceMode,
-            onClose: _closeFindReplace,
-          ),
-      ],
+      ),
     );
+    if (!_supportsSplit || !controller.isSplit) {
+      return editorGroup;
+    }
+    return DragTarget<WorkspaceTabDragData>(
+      onWillAcceptWithDetails: (details) =>
+          details.data.sourceGroupId != groupId,
+      onAcceptWithDetails: (details) {
+        _discardFindReplace();
+        controller.moveTab(details.data.tab, groupId);
+        _finishTabDrag();
+      },
+      builder: (context, candidates, _) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: candidates.isNotEmpty
+              ? Theme.of(context).colorScheme.primaryContainer.withAlpha(55)
+              : null,
+          border: candidates.isNotEmpty
+              ? Border.all(
+                  color: Theme.of(context).colorScheme.primary,
+                  width: 2,
+                )
+              : null,
+        ),
+        child: editorGroup,
+      ),
+    );
+  }
+
+  void _startTabDrag(WorkspaceTabDragData data) {
+    if (_draggingTab == data) {
+      return;
+    }
+    setState(() => _draggingTab = data);
+  }
+
+  void _finishTabDrag() {
+    if (_draggingTab == null || !mounted) {
+      return;
+    }
+    setState(() => _draggingTab = null);
   }
 
   Future<void> _closeDocument(
@@ -326,6 +571,32 @@ final class _LibraryWorkspacePageState
             ),
       );
     }
+  }
+
+  void _focusGroup(
+    WorkspaceController controller,
+    WorkspaceEditorGroupId groupId,
+  ) {
+    if (controller.focusedGroupId == groupId) {
+      return;
+    }
+    _discardFindReplace();
+    controller.focusGroup(groupId);
+  }
+
+  Future<void> _activateTab(
+    WorkspaceController controller,
+    WorkspaceTab tab,
+  ) async {
+    if (controller.activePath != tab.relativePath) {
+      _discardFindReplace();
+    }
+    await controller.activateTab(tab);
+  }
+
+  void _discardFindReplace() {
+    _findController?.dispose();
+    _findController = null;
   }
 
   /// 右键/长按标签时弹出上下文菜单：标签管理（关闭类）+ 文件操作（重命名/
@@ -346,6 +617,13 @@ final class _LibraryWorkspacePageState
     WorkspaceController controller,
     WorkspaceTab tab,
   ) {
+    final desktop = switch (defaultTargetPlatform) {
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux => true,
+      _ => false,
+    };
+    final groupId = controller.groupForTab(tab);
     return <LoreContextMenuItem>[
       LoreContextMenuItem(
         label: '关闭',
@@ -357,14 +635,50 @@ final class _LibraryWorkspacePageState
       ),
       LoreContextMenuItem(
         label: '关闭右侧',
-        onTap: () => unawaited(
-          _closeBatch(() => controller.closeTabsToRight(tab)),
-        ),
+        onTap: () =>
+            unawaited(_closeBatch(() => controller.closeTabsToRight(tab))),
       ),
       LoreContextMenuItem(
         label: '关闭全部',
-        onTap: () => unawaited(_closeBatch(controller.closeAllTabs)),
+        onTap: () =>
+            unawaited(_closeBatch(() => controller.closeAllTabsInGroup(tab))),
       ),
+      if (desktop && !controller.isSplit)
+        LoreContextMenuItem(
+          label: '在右侧打开',
+          onTap: () {
+            _discardFindReplace();
+            controller.splitRight(tab);
+          },
+        ),
+      if (desktop &&
+          controller.isSplit &&
+          groupId == WorkspaceEditorGroupId.primary)
+        LoreContextMenuItem(
+          label: '移到右侧',
+          onTap: () {
+            _discardFindReplace();
+            controller.moveTab(tab, WorkspaceEditorGroupId.secondary);
+          },
+        ),
+      if (desktop &&
+          controller.isSplit &&
+          groupId == WorkspaceEditorGroupId.secondary)
+        LoreContextMenuItem(
+          label: '移到左侧',
+          onTap: () {
+            _discardFindReplace();
+            controller.moveTab(tab, WorkspaceEditorGroupId.primary);
+          },
+        ),
+      if (desktop && controller.isSplit)
+        LoreContextMenuItem(
+          label: '关闭分屏',
+          onTap: () {
+            _discardFindReplace();
+            controller.closeSplit();
+          },
+        ),
       LoreContextMenuItem(
         label: '重命名',
         onTap: () => unawaited(
@@ -406,17 +720,12 @@ final class _LibraryWorkspacePageState
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('已复制路径'),
-        duration: Duration(seconds: 2),
-      ),
+      const SnackBar(content: Text('已复制路径'), duration: Duration(seconds: 2)),
     );
   }
 
   /// 执行批量关闭；若存在因冲突无法关闭的标签，提示用户先处理。
-  Future<void> _closeBatch(
-    Future<List<WorkspaceTab>> Function() action,
-  ) async {
+  Future<void> _closeBatch(Future<List<WorkspaceTab>> Function() action) async {
     final stuck = await action();
     if (!mounted || stuck.isEmpty) {
       return;

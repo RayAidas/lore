@@ -1,5 +1,6 @@
-import 'dart:ui' show Tristate;
+import 'dart:ui' show PointerDeviceKind, Tristate;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_application/lore_application.dart';
@@ -182,6 +183,113 @@ void main() {
 
     expect(isSelected(shortName), isTrue);
     expect(isSelected(longName), isFalse);
+  });
+
+  testWidgets('mobile tabs expose independent reorder handles', (tester) async {
+    final controller = buildController(_FakeRepository());
+    addTearDown(controller.dispose);
+    await controller.openPath(shortName);
+    await controller.openPath(longName);
+
+    await tester.pumpWidget(harness(controller));
+    await tester.pump();
+
+    final handles = find.byTooltip('拖动排序');
+    expect(handles, findsNWidgets(2));
+    expect(find.byType(ReorderableDelayedDragStartListener), findsNWidgets(2));
+  });
+
+  testWidgets('desktop drag moves a tab into the other editor group', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final controller = buildController(_FakeRepository());
+    addTearDown(controller.dispose);
+    await controller.openPath(shortName);
+    await controller.openPath(longName);
+    controller.splitRight(controller.tabs.last);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Row(
+            children: [
+              Expanded(
+                child: DocumentTabs(
+                  controller: controller,
+                  groupId: WorkspaceEditorGroupId.primary,
+                  onClose: (_) async {},
+                ),
+              ),
+              Expanded(
+                child: DocumentTabs(
+                  controller: controller,
+                  groupId: WorkspaceEditorGroupId.secondary,
+                  onClose: (_) async {},
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byTooltip(shortName)),
+      kind: PointerDeviceKind.mouse,
+    );
+    await gesture.moveBy(const Offset(20, 0));
+    await tester.pump();
+    await gesture.moveTo(tester.getCenter(find.byTooltip(longName)));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(controller.tabsForGroup(WorkspaceEditorGroupId.primary), isEmpty);
+    expect(
+      controller
+          .tabsForGroup(WorkspaceEditorGroupId.secondary)
+          .map((tab) => tab.relativePath),
+      [shortName, longName],
+    );
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('desktop drag starts from downward pointer movement', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final controller = buildController(_FakeRepository());
+    addTearDown(controller.dispose);
+    await controller.openPath(shortName);
+    var dragStarted = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DocumentTabs(
+            controller: controller,
+            onClose: (_) async {},
+            onDragStarted: (_) => dragStarted = true,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byTooltip(shortName)),
+      kind: PointerDeviceKind.mouse,
+    );
+    await gesture.moveBy(const Offset(0, 24));
+    await tester.pump();
+
+    expect(dragStarted, isTrue);
+    await gesture.cancel();
+    debugDefaultTargetPlatformOverride = null;
   });
 }
 

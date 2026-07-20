@@ -9,7 +9,7 @@ final class SharedPreferencesWorkspaceSessionRepository
     implements WorkspaceSessionRepository {
   const SharedPreferencesWorkspaceSessionRepository();
 
-  static const _schemaVersion = 2;
+  static const _schemaVersion = 3;
   static const _keyPrefix = 'lore.workspace.session.';
 
   @override
@@ -25,7 +25,9 @@ final class SharedPreferencesWorkspaceSessionRepository
           ? value['schemaVersion']
           : null;
       if (value is! Map<String, Object?> ||
-          (schemaVersion != 1 && schemaVersion != _schemaVersion) ||
+          (schemaVersion != 1 &&
+              schemaVersion != 2 &&
+              schemaVersion != _schemaVersion) ||
           value['documents'] is! List<Object?>) {
         return null;
       }
@@ -63,6 +65,11 @@ final class SharedPreferencesWorkspaceSessionRepository
                   .toSet()
                   .toList()
             : const [],
+        editorGroups: _readEditorGroups(value['editorGroups']),
+        focusedGroupId:
+            _readGroupId(value['focusedGroupId']) ??
+            WorkspaceEditorGroupId.primary,
+        splitRatio: _readSplitRatio(value['splitRatio']),
       );
     } on FormatException {
       return null;
@@ -80,6 +87,8 @@ final class SharedPreferencesWorkspaceSessionRepository
       jsonEncode({
         'schemaVersion': _schemaVersion,
         'activePath': snapshot.activePath,
+        'focusedGroupId': snapshot.focusedGroupId.name,
+        'splitRatio': snapshot.splitRatio,
         'expandedDirectoryPaths':
             snapshot.expandedDirectoryPaths.toSet().toList()..sort(),
         'documents': snapshot.documents
@@ -92,7 +101,59 @@ final class SharedPreferencesWorkspaceSessionRepository
               },
             )
             .toList(),
+        'editorGroups': snapshot.editorGroups
+            .map(
+              (group) => {
+                'id': group.id.name,
+                'tabPaths': group.tabPaths,
+                'activePath': group.activePath,
+              },
+            )
+            .toList(),
       }),
     );
+  }
+
+  static List<WorkspaceEditorGroupState> _readEditorGroups(Object? value) {
+    if (value is! List<Object?>) {
+      return const [];
+    }
+    final groups = <WorkspaceEditorGroupState>[];
+    final seenIds = <WorkspaceEditorGroupId>{};
+    for (final item in value) {
+      if (item is! Map<String, Object?>) {
+        continue;
+      }
+      final id = _readGroupId(item['id']);
+      final paths = item['tabPaths'];
+      if (id == null || !seenIds.add(id) || paths is! List<Object?>) {
+        continue;
+      }
+      groups.add(
+        WorkspaceEditorGroupState(
+          id: id,
+          tabPaths: paths.whereType<String>().toList(),
+          activePath: item['activePath'] is String
+              ? item['activePath']! as String
+              : null,
+        ),
+      );
+    }
+    return groups;
+  }
+
+  static WorkspaceEditorGroupId? _readGroupId(Object? value) {
+    return switch (value) {
+      'primary' => WorkspaceEditorGroupId.primary,
+      'secondary' => WorkspaceEditorGroupId.secondary,
+      _ => null,
+    };
+  }
+
+  static double _readSplitRatio(Object? value) {
+    if (value is! num || !value.isFinite) {
+      return 0.5;
+    }
+    return value.toDouble().clamp(0.3, 0.7).toDouble();
   }
 }

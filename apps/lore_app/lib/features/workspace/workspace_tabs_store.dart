@@ -68,20 +68,51 @@ final class WorkspaceTabsStore {
   final void Function(LibraryFailure) _reportFailure;
   final Future<void> Function(OpenDocument) _requestTitleSync;
 
-  final List<WorkspaceTab> _tabs = [];
+  final Map<WorkspaceEditorGroupId, List<WorkspaceTab>> _tabsByGroup = {
+    WorkspaceEditorGroupId.primary: <WorkspaceTab>[],
+  };
+  final Map<WorkspaceEditorGroupId, String?> _activePaths = {
+    WorkspaceEditorGroupId.primary: null,
+  };
   final Map<String, Timer> _externalChangeTimers = {};
   Timer? _sessionSaveTimer;
-  String? _activePath;
+  WorkspaceEditorGroupId _focusedGroupId = WorkspaceEditorGroupId.primary;
+  double _splitRatio = 0.5;
   String? _selectedPath;
   LibraryEntry? _selectedEntry;
   bool _initialized = false;
   bool _disposed = false;
 
-  List<WorkspaceTab> get tabs => List.unmodifiable(_tabs);
+  List<WorkspaceTab> get _tabs => _tabsByGroup[_focusedGroupId]!;
 
-  List<OpenDocument> get documents => _tabs.whereType<OpenDocument>().toList();
+  String? get _activePath => _activePaths[_focusedGroupId];
+
+  set _activePath(String? value) => _activePaths[_focusedGroupId] = value;
+
+  List<WorkspaceTab> get tabs => List.unmodifiable([
+    ..._tabsByGroup[WorkspaceEditorGroupId.primary]!,
+    ...?_tabsByGroup[WorkspaceEditorGroupId.secondary],
+  ]);
+
+  List<OpenDocument> get documents => tabs.whereType<OpenDocument>().toList();
 
   String? get activePath => _activePath;
+
+  WorkspaceEditorGroupId get focusedGroupId => _focusedGroupId;
+
+  bool get isSplit =>
+      _tabsByGroup.containsKey(WorkspaceEditorGroupId.secondary);
+
+  double get splitRatio => _splitRatio;
+
+  List<WorkspaceTab> tabsForGroup(WorkspaceEditorGroupId groupId) =>
+      List.unmodifiable(_tabsByGroup[groupId] ?? const <WorkspaceTab>[]);
+
+  String? activePathForGroup(WorkspaceEditorGroupId groupId) =>
+      _activePaths[groupId];
+
+  OpenDocument? activeDocumentForGroup(WorkspaceEditorGroupId groupId) =>
+      _documentForPath(_activePaths[groupId]);
 
   String? get selectedPath => _selectedPath;
 
@@ -91,25 +122,184 @@ final class WorkspaceTabsStore {
 
   OpenDocument? get activeDocument => _documentForPath(_activePath);
 
+  WorkspaceEditorGroupId groupForTab(WorkspaceTab tab) {
+    for (final entry in _tabsByGroup.entries) {
+      if (entry.value.contains(tab)) {
+        return entry.key;
+      }
+    }
+    return _focusedGroupId;
+  }
+
   /// 从会话快照恢复标签（不读取磁盘内容，仅建立 [DeferredDocument] 占位）。
   void restoreTabs(WorkspaceSessionSnapshot? saved) {
     if (saved != null) {
+      final deferredByPath = <String, DeferredDocument>{};
       for (final document in saved.documents.take(_maximumRestoredTabs)) {
         final format = _formatForPath(document.relativePath);
-        if (format == null) {
+        if (format == null ||
+            deferredByPath.containsKey(document.relativePath)) {
           continue;
         }
-        _tabs.add(DeferredDocument(state: document, format: format));
+        deferredByPath[document.relativePath] = DeferredDocument(
+          state: document,
+          format: format,
+        );
       }
-      if (_tabForPath(saved.activePath) != null) {
-        _activePath = saved.activePath;
+      final assigned = <String>{};
+      final savedGroups = saved.editorGroups.isEmpty
+          ? [
+              WorkspaceEditorGroupState(
+                id: WorkspaceEditorGroupId.primary,
+                tabPaths: deferredByPath.keys.toList(),
+                activePath: saved.activePath,
+              ),
+            ]
+          : saved.editorGroups;
+      for (final group in savedGroups) {
+        final groupTabs = <WorkspaceTab>[];
+        for (final path in group.tabPaths) {
+          final deferred = deferredByPath[path];
+          if (deferred != null && assigned.add(path)) {
+            groupTabs.add(deferred);
+          }
+        }
+        if (group.id == WorkspaceEditorGroupId.primary ||
+            groupTabs.isNotEmpty) {
+          _tabsByGroup[group.id] = groupTabs;
+          _activePaths[group.id] =
+              groupTabs.any((tab) => tab.relativePath == group.activePath)
+              ? group.activePath
+              : groupTabs.firstOrNull?.relativePath;
+        }
       }
+      final primary = _tabsByGroup[WorkspaceEditorGroupId.primary]!;
+      for (final entry in deferredByPath.entries) {
+        if (assigned.add(entry.key)) {
+          primary.add(entry.value);
+        }
+      }
+      _focusedGroupId = _tabsByGroup.containsKey(saved.focusedGroupId)
+          ? saved.focusedGroupId
+          : WorkspaceEditorGroupId.primary;
+      _splitRatio = saved.splitRatio.clamp(0.3, 0.7).toDouble();
     }
     _activePath ??= _tabs.firstOrNull?.relativePath;
     _selectedPath = _activePath;
   }
 
   void markInitialized() => _initialized = true;
+
+  void focusGroup(WorkspaceEditorGroupId groupId) {
+    if (!_tabsByGroup.containsKey(groupId) || _focusedGroupId == groupId) {
+      return;
+    }
+    _focusedGroupId = groupId;
+    _selectedPath = _activePath;
+    _selectedEntry = null;
+    _scheduleSessionSave();
+    _notify();
+  }
+
+  void setSplitRatio(double value) {
+    final next = value.clamp(0.3, 0.7).toDouble();
+    if (next == _splitRatio) {
+      return;
+    }
+    _splitRatio = next;
+    _scheduleSessionSave();
+    _notify();
+  }
+
+  void reorderTab(WorkspaceEditorGroupId groupId, int oldIndex, int newIndex) {
+    final groupTabs = _tabsByGroup[groupId];
+    if (groupTabs == null ||
+        oldIndex < 0 ||
+        oldIndex >= groupTabs.length ||
+        newIndex < 0 ||
+        newIndex > groupTabs.length) {
+      return;
+    }
+    if (newIndex > oldIndex) {
+      newIndex -= 1;
+    }
+    if (newIndex == oldIndex) {
+      return;
+    }
+    final tab = groupTabs.removeAt(oldIndex);
+    groupTabs.insert(newIndex, tab);
+    _focusedGroupId = groupId;
+    _scheduleSessionSave();
+    _notify();
+  }
+
+  void moveTab(
+    WorkspaceTab tab,
+    WorkspaceEditorGroupId destination, {
+    int? index,
+  }) {
+    final source = groupForTab(tab);
+    final sourceTabs = _tabsByGroup[source];
+    if (sourceTabs == null || !sourceTabs.contains(tab)) {
+      return;
+    }
+    if (source == destination) {
+      final oldIndex = sourceTabs.indexOf(tab);
+      reorderTab(source, oldIndex, index ?? sourceTabs.length);
+      return;
+    }
+    final sourceIndex = sourceTabs.indexOf(tab);
+    sourceTabs.removeAt(sourceIndex);
+    if (_activePaths[source] == tab.relativePath) {
+      _activePaths[source] = sourceTabs.isEmpty
+          ? null
+          : sourceTabs[sourceIndex.clamp(0, sourceTabs.length - 1)]
+                .relativePath;
+    }
+    final destinationTabs = _tabsByGroup.putIfAbsent(
+      destination,
+      () => <WorkspaceTab>[],
+    );
+    _activePaths.putIfAbsent(destination, () => null);
+    final insertionIndex = (index ?? destinationTabs.length).clamp(
+      0,
+      destinationTabs.length,
+    );
+    destinationTabs.insert(insertionIndex, tab);
+    _activePaths[destination] = tab.relativePath;
+    _focusedGroupId = destination;
+    _selectedPath = tab.relativePath;
+    _selectedEntry = null;
+    if (source == WorkspaceEditorGroupId.secondary && sourceTabs.isEmpty) {
+      _tabsByGroup.remove(WorkspaceEditorGroupId.secondary);
+      _activePaths.remove(WorkspaceEditorGroupId.secondary);
+    }
+    _scheduleSessionSave();
+    _notify();
+  }
+
+  void splitRight(WorkspaceTab tab) {
+    moveTab(tab, WorkspaceEditorGroupId.secondary);
+  }
+
+  void closeSplit() {
+    final secondary = _tabsByGroup[WorkspaceEditorGroupId.secondary];
+    if (secondary == null) {
+      return;
+    }
+    final secondaryActive = _activePaths[WorkspaceEditorGroupId.secondary];
+    _tabsByGroup[WorkspaceEditorGroupId.primary]!.addAll(secondary);
+    if (_focusedGroupId == WorkspaceEditorGroupId.secondary) {
+      _focusedGroupId = WorkspaceEditorGroupId.primary;
+      _activePaths[WorkspaceEditorGroupId.primary] = secondaryActive;
+    }
+    _tabsByGroup.remove(WorkspaceEditorGroupId.secondary);
+    _activePaths.remove(WorkspaceEditorGroupId.secondary);
+    _selectedPath = _activePath;
+    _selectedEntry = null;
+    _scheduleSessionSave();
+    _notify();
+  }
 
   /// 供控制器在外部变更（重命名/结构变更）后安排一次防抖的 session 持久化。
   void scheduleSessionSave() => _scheduleSessionSave();
@@ -144,6 +334,7 @@ final class WorkspaceTabsStore {
   }
 
   Future<void> activateTab(WorkspaceTab tab) async {
+    _focusedGroupId = groupForTab(tab);
     WorkspaceTab activated = tab;
     if (tab is DeferredDocument) {
       final loaded = await _loadDeferredDocument(tab);
@@ -161,10 +352,18 @@ final class WorkspaceTabsStore {
 
   /// 初始化末尾激活首个标签（若存在）。
   Future<void> activateInitialTab() async {
-    final activeTab = _tabForPath(_activePath);
-    if (activeTab != null) {
-      await activateTab(activeTab);
+    final intendedFocus = _focusedGroupId;
+    for (final groupId in List<WorkspaceEditorGroupId>.of(_tabsByGroup.keys)) {
+      final activeTab = _tabForPath(_activePaths[groupId]);
+      if (activeTab != null) {
+        await activateTab(activeTab);
+      }
     }
+    _focusedGroupId = _tabsByGroup.containsKey(intendedFocus)
+        ? intendedFocus
+        : WorkspaceEditorGroupId.primary;
+    _selectedPath = _activePath;
+    _notify();
   }
 
   void setPreview(OpenDocument document, bool showPreview) {
@@ -199,11 +398,11 @@ final class WorkspaceTabsStore {
   /// （chapterNumber）。正文不含标题行，编号一改标题栏即变；不动副标题、正文、
   /// 脏标记与编辑器文本。路径无打开标签或编号未变时为 no-op。
   void updateChapterNumberForPath(String relativePath, int newNumber) {
-    for (final tab in _tabs) {
-      if (tab is OpenDocument && tab.relativePath == relativePath) {
-        if (tab.chapterNumber != newNumber) {
-          tab.chapterNumber = newNumber;
-          tab.notifyChanged();
+    for (final document in documents) {
+      if (document.relativePath == relativePath) {
+        if (document.chapterNumber != newNumber) {
+          document.chapterNumber = newNumber;
+          document.notifyChanged();
         }
         return;
       }
@@ -347,21 +546,31 @@ final class WorkspaceTabsStore {
   }
 
   bool _removeTab(WorkspaceTab tab) {
-    final index = _tabs.indexOf(tab);
+    final groupId = groupForTab(tab);
+    final groupTabs = _tabsByGroup[groupId]!;
+    final index = groupTabs.indexOf(tab);
     if (index < 0) {
       return true;
     }
-    _tabs.removeAt(index);
-    if (_activePath == tab.relativePath) {
-      _activePath = _tabs.isEmpty
+    groupTabs.removeAt(index);
+    if (_activePaths[groupId] == tab.relativePath) {
+      _activePaths[groupId] = groupTabs.isEmpty
           ? null
-          : _tabs[index.clamp(0, _tabs.length - 1)].relativePath;
-      _selectedPath = _activePath;
+          : groupTabs[index.clamp(0, groupTabs.length - 1)].relativePath;
+      if (_focusedGroupId == groupId) {
+        _selectedPath = _activePath;
+      }
     }
     tab.dispose();
+    if (groupId == WorkspaceEditorGroupId.secondary && groupTabs.isEmpty) {
+      _tabsByGroup.remove(WorkspaceEditorGroupId.secondary);
+      _activePaths.remove(WorkspaceEditorGroupId.secondary);
+      _focusedGroupId = WorkspaceEditorGroupId.primary;
+      _selectedPath = _activePath;
+    }
     _scheduleSessionSave();
     _notify();
-    final nextTab = _tabForPath(_activePath);
+    final nextTab = _tabForPath(_activePaths[groupId]);
     if (nextTab is DeferredDocument) {
       unawaited(activateTab(nextTab));
     }
@@ -437,7 +646,9 @@ final class WorkspaceTabsStore {
 
   Future<void> persistSession() async {
     _sessionSaveTimer?.cancel();
-    final states = _tabs.take(_maximumRestoredTabs).map((tab) {
+    final persistedTabs = tabs.take(_maximumRestoredTabs).toList();
+    final persistedPaths = persistedTabs.map((tab) => tab.relativePath).toSet();
+    final states = persistedTabs.map((tab) {
       if (tab is DeferredDocument) {
         return tab.state;
       }
@@ -459,6 +670,20 @@ final class WorkspaceTabsStore {
         documents: states,
         activePath: _activePath,
         expandedDirectoryPaths: _expandedDirectoryPaths(),
+        editorGroups: [
+          for (final entry in _tabsByGroup.entries)
+            WorkspaceEditorGroupState(
+              id: entry.key,
+              tabPaths: [
+                for (final tab in entry.value)
+                  if (persistedPaths.contains(tab.relativePath))
+                    tab.relativePath,
+              ],
+              activePath: _activePaths[entry.key],
+            ),
+        ],
+        focusedGroupId: _focusedGroupId,
+        splitRatio: _splitRatio,
       ),
     );
   }
@@ -544,7 +769,9 @@ final class WorkspaceTabsStore {
   }
 
   Future<OpenDocument?> _loadDeferredDocument(DeferredDocument deferred) async {
-    final index = _tabs.indexOf(deferred);
+    final groupId = groupForTab(deferred);
+    final groupTabs = _tabsByGroup[groupId]!;
+    final index = groupTabs.indexOf(deferred);
     if (index < 0) {
       return null;
     }
@@ -564,16 +791,23 @@ final class WorkspaceTabsStore {
         ),
         scrollOffset: deferred.state.scrollOffset,
       );
-      _tabs[index] = document;
+      groupTabs[index] = document;
       deferred.dispose();
       _notify();
       return document;
     } on LibraryOperationException catch (error) {
-      _tabs.removeAt(index);
+      groupTabs.removeAt(index);
       deferred.dispose();
       _reportFailure(error.failure);
-      if (_activePath == deferred.relativePath) {
-        _activePath = _tabs.firstOrNull?.relativePath;
+      if (_activePaths[groupId] == deferred.relativePath) {
+        _activePaths[groupId] = groupTabs.firstOrNull?.relativePath;
+      }
+      if (groupId == WorkspaceEditorGroupId.secondary && groupTabs.isEmpty) {
+        _tabsByGroup.remove(WorkspaceEditorGroupId.secondary);
+        _activePaths.remove(WorkspaceEditorGroupId.secondary);
+        _focusedGroupId = WorkspaceEditorGroupId.primary;
+        _selectedPath = _activePath;
+        _selectedEntry = null;
       }
     }
     _notify();
@@ -711,7 +945,7 @@ final class WorkspaceTabsStore {
 
   /// 重命名/移动后，把标签内缓存的旧路径重写到新路径（仅逻辑，不 notify）。
   void updatePathsAfterRename(String oldPath, String newPath) {
-    for (final tab in _tabs) {
+    for (final tab in tabs) {
       if (tab is DeferredDocument) {
         final path = tab.relativePath;
         if (path != oldPath && !p.isWithin(oldPath, path)) {
@@ -725,9 +959,7 @@ final class WorkspaceTabsStore {
           selectionExtent: tab.state.selectionExtent,
           scrollOffset: tab.state.scrollOffset,
         );
-        if (_activePath == path) {
-          _activePath = updatedPath;
-        }
+        _replaceActivePath(path, updatedPath);
         continue;
       }
       final document = tab as OpenDocument;
@@ -744,9 +976,7 @@ final class WorkspaceTabsStore {
         lineEnding: document.snapshot.lineEnding,
         revision: document.snapshot.revision,
       );
-      if (_activePath == path) {
-        _activePath = updatedPath;
-      }
+      _replaceActivePath(path, updatedPath);
     }
   }
 
@@ -764,7 +994,7 @@ final class WorkspaceTabsStore {
         _selectedPath = null;
       }
     }
-    final hasOpenTabsBeneathRemoved = _tabs.any((tab) {
+    final hasOpenTabsBeneathRemoved = tabs.any((tab) {
       for (final removed in removedPaths) {
         if (tab.relativePath == removed ||
             p.isWithin(removed, tab.relativePath)) {
@@ -774,23 +1004,29 @@ final class WorkspaceTabsStore {
       return false;
     });
     if (hasOpenTabsBeneathRemoved) {
-      _tabs.removeWhere((tab) {
-        for (final removed in removedPaths) {
-          if (tab.relativePath == removed ||
-              p.isWithin(removed, tab.relativePath)) {
-            tab.dispose();
-            return true;
+      for (final entry in _tabsByGroup.entries) {
+        entry.value.removeWhere((tab) {
+          for (final removed in removedPaths) {
+            if (tab.relativePath == removed ||
+                p.isWithin(removed, tab.relativePath)) {
+              tab.dispose();
+              return true;
+            }
           }
-        }
-        return false;
-      });
-      if (_activePath != null) {
-        final stillOpen = _tabForPath(_activePath) != null;
-        if (!stillOpen) {
-          _activePath = _tabs.firstOrNull?.relativePath;
-          _selectedPath = _activePath;
+          return false;
+        });
+        final active = _activePaths[entry.key];
+        if (active != null && _tabForPath(active) == null) {
+          _activePaths[entry.key] = entry.value.firstOrNull?.relativePath;
         }
       }
+      final secondary = _tabsByGroup[WorkspaceEditorGroupId.secondary];
+      if (secondary != null && secondary.isEmpty) {
+        _tabsByGroup.remove(WorkspaceEditorGroupId.secondary);
+        _activePaths.remove(WorkspaceEditorGroupId.secondary);
+        _focusedGroupId = WorkspaceEditorGroupId.primary;
+      }
+      _selectedPath = _activePath;
     }
     _scheduleSessionSave();
   }
@@ -811,12 +1047,20 @@ final class WorkspaceTabsStore {
     if (relativePath == null) {
       return null;
     }
-    for (final tab in _tabs) {
+    for (final tab in tabs) {
       if (tab.relativePath == relativePath) {
         return tab;
       }
     }
     return null;
+  }
+
+  void _replaceActivePath(String oldPath, String newPath) {
+    for (final entry in _activePaths.entries) {
+      if (entry.value == oldPath) {
+        _activePaths[entry.key] = newPath;
+      }
+    }
   }
 
   DocumentFormat? _formatForPath(String relativePath) {
@@ -833,7 +1077,7 @@ final class WorkspaceTabsStore {
     for (final timer in _externalChangeTimers.values) {
       timer.cancel();
     }
-    for (final tab in _tabs) {
+    for (final tab in tabs) {
       tab.dispose();
     }
   }

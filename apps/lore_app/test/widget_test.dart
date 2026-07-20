@@ -1,3 +1,6 @@
+import 'dart:ui' show PointerDeviceKind;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:lore_app/app/lore_app.dart';
 import 'package:lore_app/features/library/library_providers.dart';
+import 'package:lore_app/features/workspace/document_pane.dart';
+import 'package:lore_app/features/workspace/document_tabs.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
 
 void main() {
@@ -170,6 +175,178 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(Drawer), findsNothing);
   });
+
+  testWidgets(
+    'dragging a desktop tab into the right content area creates split',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const access = LibraryAccess(
+        token: '/tmp/library',
+        displayPath: '/tmp/library',
+        isPending: false,
+      );
+      final metadata = LibraryMetadata(
+        schemaVersion: 1,
+        id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+        createdAt: DateTime.utc(2026, 7, 17),
+        updatedAt: DateTime.utc(2026, 7, 17),
+      );
+      final workspaceRepository = _FakeWorkspaceRepository(
+        entries: const [
+          LibraryEntry(
+            name: '第一章.md',
+            relativePath: '第一章.md',
+            type: LibraryEntryType.markdownFile,
+          ),
+          LibraryEntry(
+            name: '第二章.md',
+            relativePath: '第二章.md',
+            type: LibraryEntryType.markdownFile,
+          ),
+        ],
+      );
+      final sessionRepository = _MemoryWorkspaceSessionRepository()
+        ..value = const WorkspaceSessionSnapshot(
+          documents: [
+            WorkspaceDocumentState(
+              relativePath: '第一章.md',
+              selectionBase: 0,
+              selectionExtent: 0,
+              scrollOffset: 0,
+            ),
+            WorkspaceDocumentState(
+              relativePath: '第二章.md',
+              selectionBase: 0,
+              selectionExtent: 0,
+              scrollOffset: 0,
+            ),
+          ],
+          activePath: '第一章.md',
+        );
+      final novelRepository = _FakeNovelRepository();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            libraryAccessGatewayProvider.overrideWithValue(
+              _FakeAccessGateway(restoreAccess: access),
+            ),
+            libraryRepositoryProvider.overrideWithValue(
+              _FakeLibraryRepository(
+                inspection: LibraryInspectionReady(metadata),
+              ),
+            ),
+            libraryTreeRepositoryProvider.overrideWithValue(
+              workspaceRepository,
+            ),
+            documentRepositoryProvider.overrideWithValue(workspaceRepository),
+            novelRepositoryProvider.overrideWithValue(novelRepository),
+            contentTreeRepositoryProvider.overrideWithValue(novelRepository),
+            workspaceSessionRepositoryProvider.overrideWithValue(
+              sessionRepository,
+            ),
+          ],
+          child: const LoreApp(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DocumentTabs), findsOneWidget);
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byTooltip('第一章.md')),
+        kind: PointerDeviceKind.mouse,
+      );
+      await gesture.moveBy(const Offset(24, 0));
+      await tester.pump();
+
+      final splitTarget = find.text('在右侧创建分屏');
+      expect(splitTarget, findsNothing);
+
+      final tabBarBounds = tester.getRect(find.byType(DocumentTabs));
+      final leftContentPoint = Offset(
+        tabBarBounds.left + tabBarBounds.width * 0.25,
+        tabBarBounds.bottom + 120,
+      );
+      final rightContentPoint = Offset(
+        tabBarBounds.left + tabBarBounds.width * 0.75,
+        tabBarBounds.bottom + 120,
+      );
+      await gesture.moveTo(leftContentPoint);
+      await tester.pump();
+      expect(splitTarget, findsNothing);
+
+      await gesture.moveTo(rightContentPoint);
+      await tester.pump();
+      expect(splitTarget, findsOneWidget);
+
+      await gesture.moveTo(leftContentPoint);
+      await tester.pump();
+      expect(splitTarget, findsNothing);
+
+      await gesture.moveTo(rightContentPoint);
+      await tester.pump();
+      expect(splitTarget, findsOneWidget);
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+      expect(splitTarget, findsNothing);
+      expect(find.byType(DocumentTabs), findsOneWidget);
+
+      final splitGesture = await tester.startGesture(
+        tester.getCenter(find.byTooltip('第一章.md')),
+        kind: PointerDeviceKind.mouse,
+      );
+      await splitGesture.moveBy(const Offset(24, 0));
+      await tester.pump();
+      await splitGesture.moveTo(rightContentPoint);
+      await tester.pump();
+      expect(splitTarget, findsOneWidget);
+      await splitGesture.up();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DocumentTabs), findsNWidgets(2));
+
+      tester.view.physicalSize = const Size(565, 900);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(DocumentTabs), findsOneWidget);
+
+      tester.view.physicalSize = const Size(1400, 900);
+      await tester.pumpAndSettle();
+      expect(find.byType(DocumentTabs), findsNWidgets(2));
+
+      final secondGesture = await tester.startGesture(
+        tester.getCenter(find.byTooltip('第二章.md')),
+        kind: PointerDeviceKind.mouse,
+      );
+      await secondGesture.moveBy(const Offset(24, 0));
+      await tester.pump();
+      await secondGesture.moveTo(tester.getCenter(find.byType(DocumentPane)));
+      await tester.pump();
+      await secondGesture.up();
+      await tester.pump(const Duration(milliseconds: 600));
+
+      final groups = sessionRepository.value!.editorGroups;
+      expect(
+        groups
+            .singleWhere((group) => group.id == WorkspaceEditorGroupId.primary)
+            .tabPaths,
+        isEmpty,
+      );
+      expect(
+        groups
+            .singleWhere(
+              (group) => group.id == WorkspaceEditorGroupId.secondary,
+            )
+            .tabPaths,
+        ['第一章.md', '第二章.md'],
+      );
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
 
   testWidgets('creates a novel from the workspace toolbar', (tester) async {
     const access = LibraryAccess(

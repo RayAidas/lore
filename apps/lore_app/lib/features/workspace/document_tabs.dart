@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:lore_application/lore_application.dart';
 import 'package:path/path.dart' as p;
 
 import 'workspace_controller.dart';
@@ -9,6 +10,14 @@ import 'workspace_controller.dart';
 /// 标签右键/长按上下文菜单回调：携带目标标签与触发的全局坐标。
 typedef TabContextMenuCallback =
     void Function(WorkspaceTab tab, Offset globalPosition);
+
+/// 桌面标签拖动数据，供标签栏和整个工作区窗格共享 drop target。
+final class WorkspaceTabDragData {
+  const WorkspaceTabDragData({required this.tab, required this.sourceGroupId});
+
+  final WorkspaceTab tab;
+  final WorkspaceEditorGroupId sourceGroupId;
+}
 
 /// 文档标签条：水平滚动，展示已打开文档，支持激活与关闭。
 ///
@@ -20,12 +29,22 @@ final class DocumentTabs extends StatelessWidget {
   const DocumentTabs({
     required this.controller,
     required this.onClose,
+    this.groupId = WorkspaceEditorGroupId.primary,
+    this.onActivate,
+    this.onMove,
+    this.onDragStarted,
+    this.onDragEnded,
     this.onContextMenu,
     super.key,
   });
 
   final WorkspaceController controller;
   final Future<void> Function(WorkspaceTab tab) onClose;
+  final WorkspaceEditorGroupId groupId;
+  final Future<void> Function(WorkspaceTab tab)? onActivate;
+  final VoidCallback? onMove;
+  final ValueChanged<WorkspaceTabDragData>? onDragStarted;
+  final VoidCallback? onDragEnded;
   final TabContextMenuCallback? onContextMenu;
 
   static const double barHeight = 38;
@@ -39,47 +58,152 @@ final class DocumentTabs extends StatelessWidget {
       listenable: controller,
       builder: (context, _) {
         final colorScheme = Theme.of(context).colorScheme;
-        if (controller.tabs.isEmpty) {
-          return ColoredBox(
-            color: colorScheme.surfaceContainerLowest,
-            child: const SizedBox(height: barHeight),
+        final tabs = controller.tabsForGroup(groupId);
+        final desktop = switch (Theme.of(context).platform) {
+          TargetPlatform.macOS ||
+          TargetPlatform.windows ||
+          TargetPlatform.linux => true,
+          _ => false,
+        };
+        if (tabs.isEmpty) {
+          return DragTarget<WorkspaceTabDragData>(
+            onWillAcceptWithDetails: (_) => desktop,
+            onAcceptWithDetails: (details) => _moveTab(details.data.tab),
+            builder: (context, candidates, _) => ColoredBox(
+              color: candidates.isNotEmpty
+                  ? colorScheme.primaryContainer.withAlpha(80)
+                  : colorScheme.surfaceContainerLowest,
+              child: const SizedBox(height: barHeight),
+            ),
           );
         }
         return ColoredBox(
           color: colorScheme.surfaceContainerLowest,
           child: SizedBox(
             height: barHeight,
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              scrollDirection: Axis.horizontal,
-              itemCount: controller.tabs.length,
-              itemBuilder: (context, index) {
-                final tab = controller.tabs[index];
-                return ListenableBuilder(
-                  listenable: tab,
-                  builder: (context, _) {
-                    final active = controller.activePath == tab.relativePath;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 4,
-                        horizontal: 2,
+            child: desktop
+                ? _buildDesktopTabs(context, tabs)
+                : _buildMobileTabs(tabs),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDesktopTabs(BuildContext context, List<WorkspaceTab> tabs) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      scrollDirection: Axis.horizontal,
+      itemCount: tabs.length + 1,
+      itemBuilder: (context, index) {
+        if (index == tabs.length) {
+          return DragTarget<WorkspaceTabDragData>(
+            onWillAcceptWithDetails: (_) => true,
+            onAcceptWithDetails: (details) =>
+                _moveTab(details.data.tab, index: tabs.length),
+            builder: (context, candidates, _) => SizedBox(
+              width: candidates.isNotEmpty ? 28 : 12,
+              child: candidates.isNotEmpty
+                  ? Center(
+                      child: Container(
+                        width: 2,
+                        height: 24,
+                        color: colorScheme.primary,
                       ),
-                      child: _TabChip(
-                        tab: tab,
-                        active: active,
-                        onTap: () => unawaited(controller.activateTab(tab)),
-                        onClose: () => unawaited(onClose(tab)),
-                        onContextMenu: onContextMenu,
-                      ),
-                    );
-                  },
-                );
-              },
+                    )
+                  : null,
+            ),
+          );
+        }
+        final tab = tabs[index];
+        final tabChild = _buildTab(tab);
+        return DragTarget<WorkspaceTabDragData>(
+          key: ObjectKey(tab),
+          onWillAcceptWithDetails: (_) => true,
+          onAcceptWithDetails: (details) =>
+              _moveTab(details.data.tab, index: index),
+          builder: (context, candidates, _) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (candidates.isNotEmpty)
+                Container(width: 2, height: 24, color: colorScheme.primary),
+              Draggable<WorkspaceTabDragData>(
+                data: WorkspaceTabDragData(tab: tab, sourceGroupId: groupId),
+                dragAnchorStrategy: pointerDragAnchorStrategy,
+                onDragStarted: () => onDragStarted?.call(
+                  WorkspaceTabDragData(tab: tab, sourceGroupId: groupId),
+                ),
+                onDragEnd: (_) => onDragEnded?.call(),
+                feedback: Material(
+                  color: Colors.transparent,
+                  child: Opacity(opacity: 0.9, child: _buildTab(tab)),
+                ),
+                childWhenDragging: Opacity(opacity: 0.35, child: tabChild),
+                child: tabChild,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMobileTabs(List<WorkspaceTab> tabs) {
+    return ReorderableListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      scrollDirection: Axis.horizontal,
+      buildDefaultDragHandles: false,
+      onReorderItem: (oldIndex, newIndex) => controller.reorderTab(
+        groupId,
+        oldIndex,
+        newIndex >= oldIndex ? newIndex + 1 : newIndex,
+      ),
+      itemCount: tabs.length,
+      itemBuilder: (context, index) {
+        final tab = tabs[index];
+        return KeyedSubtree(
+          key: ObjectKey(tab),
+          child: _buildTab(
+            tab,
+            dragHandle: ReorderableDelayedDragStartListener(
+              index: index,
+              child: const Tooltip(
+                message: '拖动排序',
+                child: SizedBox(
+                  width: 22,
+                  height: 24,
+                  child: Icon(Icons.drag_indicator_rounded, size: 14),
+                ),
+              ),
             ),
           ),
         );
       },
     );
+  }
+
+  Widget _buildTab(WorkspaceTab tab, {Widget? dragHandle}) {
+    return ListenableBuilder(
+      listenable: tab,
+      builder: (context, _) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+        child: _TabChip(
+          tab: tab,
+          active: controller.activePathForGroup(groupId) == tab.relativePath,
+          onTap: () =>
+              unawaited(onActivate?.call(tab) ?? controller.activateTab(tab)),
+          onClose: () => unawaited(onClose(tab)),
+          onContextMenu: onContextMenu,
+          dragHandle: dragHandle,
+        ),
+      ),
+    );
+  }
+
+  void _moveTab(WorkspaceTab tab, {int? index}) {
+    onMove?.call();
+    controller.moveTab(tab, groupId, index: index);
   }
 }
 
@@ -90,6 +214,7 @@ class _TabChip extends StatefulWidget {
     required this.onTap,
     required this.onClose,
     this.onContextMenu,
+    this.dragHandle,
   });
 
   final WorkspaceTab tab;
@@ -97,6 +222,7 @@ class _TabChip extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback onClose;
   final TabContextMenuCallback? onContextMenu;
+  final Widget? dragHandle;
 
   /// 标签内容区（图标 + 文件名 + 关闭按钮）的最大宽度（像素）。
   static const double maxWidth = 220;
@@ -148,7 +274,9 @@ class _TabChipState extends State<_TabChip> {
         child: Listener(
           onPointerDown: _handlePointerDown,
           child: Material(
-            color: active ? colorScheme.surfaceContainerLow : Colors.transparent,
+            color: active
+                ? colorScheme.surfaceContainerLow
+                : Colors.transparent,
             borderRadius: _TabChip._borderRadius,
             clipBehavior: Clip.antiAlias,
             child: InkWell(
@@ -209,6 +337,7 @@ class _TabChipState extends State<_TabChip> {
                           color: colorScheme.primary,
                         ),
                       ),
+                    ?widget.dragHandle,
                     _TabCloseButton(onPressed: widget.onClose),
                   ],
                 ),
