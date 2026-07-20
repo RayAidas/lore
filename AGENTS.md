@@ -48,6 +48,22 @@ Set `NO_PROXY=127.0.0.1,localhost` before running `flutter test` manually —
 
 Use `flutter run -d android` from `apps/lore_app/` when validating Android behavior.
 
+## Development Workflow with Git Worktrees
+
+Do feature work in a git worktree under `.worktrees/` (already in `.gitignore`), keeping the primary checkout on `main`:
+
+```bash
+git worktree add -b feature-x .worktrees/feature-x main
+cd .worktrees/feature-x
+flutter pub get                 # each worktree resolves its own deps
+```
+
+Remove a worktree once its branch is merged:
+
+```bash
+git worktree remove .worktrees/feature-x
+```
+
 ## Coding Style & Naming Conventions
 
 Use two-space indentation and rely on `dart format`; do not hand-align code. Follow `flutter_lints` from the root `analysis_options.yaml`. Use `UpperCamelCase` for types, `lowerCamelCase` for members, and `snake_case.dart` for files. Prefer immutable models, explicit domain types, and small widgets or services with a single responsibility.
