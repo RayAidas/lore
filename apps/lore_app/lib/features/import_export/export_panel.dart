@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 
@@ -246,7 +247,7 @@ class _ExportPanelState extends State<ExportPanel> {
       // 先让用户选保存位置——取消即放弃，避免白读 N 章正文（千章小说尤其重要）。
       final name = _fileNameController.text.trim();
       final fileName = name.isEmpty ? '导出小说.txt' : name;
-      final path = await FilePicker.platform.saveFile(
+      final path = await FilePicker.saveFile(
         dialogTitle: '导出 TXT',
         fileName: fileName,
       );
@@ -313,6 +314,17 @@ class _ExportPanelState extends State<ExportPanel> {
         } catch (_) {
           // 忽略：定位失败不影响已完成的导出。
         }
+      }
+    } on PlatformException {
+      // file_picker 缺 entitlement / 底层异常时抛此；比通用异常给更明确的提示。
+      if (mounted) {
+        showLibraryFailure(
+          context,
+          const LibraryFailure(
+            code: LibraryFailureCode.io,
+            message: '无法打开保存对话框。',
+          ),
+        );
       }
     } on LibraryOperationException catch (error) {
       if (mounted) {

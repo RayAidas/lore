@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_ui/lore_ui.dart';
@@ -19,11 +19,25 @@ Future<void> importTxtNovelFlow(
   BuildContext context,
   WorkspaceController controller,
 ) async {
-  final result = await FilePicker.platform.pickFiles(
-    type: FileType.custom,
-    allowedExtensions: const ['txt'],
-    allowMultiple: false,
-  );
+  // file_picker 在 macOS 缺 entitlement 等底层异常时会抛 PlatformException，
+  // 统一兜底成友好提示，避免未捕获异常导致红屏。
+  FilePickerResult? result;
+  try {
+    result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['txt'],
+      allowMultiple: false,
+    );
+  } on PlatformException {
+    if (!context.mounted) {
+      return;
+    }
+    _failure(
+      context,
+      const LibraryFailure(code: LibraryFailureCode.io, message: '无法打开文件选择器。'),
+    );
+    return;
+  }
   final files = result?.files ?? const <PlatformFile>[];
   if (files.isEmpty) {
     return;
