@@ -5,6 +5,7 @@ export 'src/find_replace/search_query.dart';
 export 'src/large_text/chunked_text_buffer.dart';
 export 'src/large_text/lore_large_text_controller.dart';
 export 'src/large_text/lore_large_text_editor.dart';
+export 'src/large_text/pasted_text_normalizer.dart';
 export 'src/lore_markdown_preview.dart';
 export 'src/lore_text_controller.dart';
 export 'src/lore_text_editor.dart';

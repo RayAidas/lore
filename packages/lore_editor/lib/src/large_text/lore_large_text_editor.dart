@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../editor_style.dart';
 import 'lore_large_text_controller.dart';
+import 'pasted_text_normalizer.dart';
 
 /// 段首两字缩进（U+3000 × 2）。挂载首段注入与 [_AutoIndentFormatter] 回车开新段
 /// 共用此单一来源，避免魔法字符串重复定义。
@@ -491,7 +492,21 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
   Future<void> _paste() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     if (data?.text case final text?) {
-      widget.controller.replaceSelection(text);
+      // 先折叠外部应用的段间空行，再按当前样式补段首缩进——顺序不能反，
+      // 否则缩进会插进 `\n\n` 之间使空行折叠失效。粘贴走文档 controller，
+      // 绕过各 block 的 [_AutoIndentFormatter]，故在此显式补一次。
+      var pasted = normalizePastedText(text);
+      if (widget.style.firstLineIndent) {
+        pasted = indentPastedParagraphs(
+          pasted,
+          _paragraphIndent,
+          indentAtStart: pasteInsertsAtParagraphStart(
+            widget.controller.text,
+            widget.controller.selection.start,
+          ),
+        );
+      }
+      widget.controller.replaceSelection(pasted);
     }
   }
 }
