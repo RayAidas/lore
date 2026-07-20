@@ -44,8 +44,14 @@ Future<void> showExportPanel({
 
 /// 一个卷/根下的可导出章节分组。
 class _ExportGroup {
-  const _ExportGroup({required this.label, required this.chapters});
+  const _ExportGroup({
+    required this.key,
+    required this.label,
+    required this.chapters,
+  });
 
+  /// 展开收起状态用的稳定标识（卷 id 或根分组占位符）。
+  final String key;
   final String label;
   final List<ContentNode> chapters;
 }
@@ -69,6 +75,8 @@ class ExportPanel extends StatefulWidget {
 class _ExportPanelState extends State<ExportPanel> {
   late final List<_ExportGroup> _groups;
   final Set<String> _selected = <String>{};
+  // 收起的分组 key 集合；空集 = 全部展开（与旧版默认一致）。
+  final Set<String> _collapsed = <String>{};
   final TextEditingController _fileNameController = TextEditingController();
   bool _includeTitles = true;
   bool _blankLineBetween = true;
@@ -103,6 +111,7 @@ class _ExportPanelState extends State<ExportPanel> {
       final label = volume == null ? '卷' : _volumeLabel(volume);
       return [
         _ExportGroup(
+          key: restrict.value,
           label: label,
           chapters: tree
               .childrenOf(restrict)
@@ -122,7 +131,9 @@ class _ExportPanelState extends State<ExportPanel> {
             .toList()
           ..sort((a, b) => a.order.compareTo(b.order));
     if (rootChapters.isNotEmpty) {
-      groups.add(_ExportGroup(label: '正文', chapters: rootChapters));
+      groups.add(
+        _ExportGroup(key: '_body', label: '正文', chapters: rootChapters),
+      );
     }
     final volumes =
         tree.nodes.where((node) => node.type == ContentNodeType.volume).toList()
@@ -134,7 +145,11 @@ class _ExportPanelState extends State<ExportPanel> {
           .toList();
       if (chapters.isNotEmpty) {
         groups.add(
-          _ExportGroup(label: _volumeLabel(volume), chapters: chapters),
+          _ExportGroup(
+            key: volume.id.value,
+            label: _volumeLabel(volume),
+            chapters: chapters,
+          ),
         );
       }
     }
@@ -180,9 +195,47 @@ class _ExportPanelState extends State<ExportPanel> {
     });
   }
 
+  void _toggleCollapse(String key) {
+    setState(() {
+      if (!_collapsed.remove(key)) {
+        _collapsed.add(key);
+      }
+    });
+  }
+
   bool _groupAllSelected(_ExportGroup group) =>
       group.chapters.isNotEmpty &&
       group.chapters.every((c) => _selected.contains(c.id.value));
+
+  /// 当前选中章节的合计字数（characterCount 为空时按 0 计）。
+  int get _selectedWordCount {
+    var total = 0;
+    for (final group in _groups) {
+      for (final chapter in group.chapters) {
+        if (_selected.contains(chapter.id.value)) {
+          total += chapter.characterCount ?? 0;
+        }
+      }
+    }
+    return total;
+  }
+
+  /// 纯本地千分位格式化，避免为面板单独引入 intl 依赖。
+  String _formatCount(int value) {
+    assert(value >= 0, '_formatCount 仅处理非负字数');
+    if (value == 0) {
+      return '0';
+    }
+    final digits = value.toString();
+    final out = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) {
+        out.write(',');
+      }
+      out.write(digits[i]);
+    }
+    return out.toString();
+  }
 
   Future<void> _export() async {
     if (_selected.isEmpty || _exporting) {
@@ -284,7 +337,6 @@ class _ExportPanelState extends State<ExportPanel> {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final title = widget.snapshot.metadata.title;
-    final scopeLabel = widget.restrictVolumeId == null ? '全部卷与章节' : '当前卷';
     return Dialog(
       backgroundColor: colorScheme.surfaceContainerHigh,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
@@ -318,7 +370,7 @@ class _ExportPanelState extends State<ExportPanel> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
-                          '范围：$scopeLabel · TXT 合并文件',
+                          '约 ${_formatCount(_selectedWordCount)} 字 · TXT 合并文件',
                           style: textTheme.bodySmall?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -392,8 +444,9 @@ class _ExportPanelState extends State<ExportPanel> {
                   children: [
                     for (final group in _groups) ...[
                       _groupHeader(group),
-                      for (final chapter in group.chapters)
-                        _chapterRow(chapter),
+                      if (!_collapsed.contains(group.key))
+                        for (final chapter in group.chapters)
+                          _chapterRow(chapter),
                       const SizedBox(height: 6),
                     ],
                   ],
@@ -460,29 +513,64 @@ class _ExportPanelState extends State<ExportPanel> {
 
   Widget _groupHeader(_ExportGroup group) {
     final colorScheme = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: () => _toggleGroup(group, !_groupAllSelected(group)),
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Row(
-          children: [
-            Checkbox(
-              value: _groupAllSelected(group),
-              onChanged: (v) => _toggleGroup(group, v),
-              visualDensity: VisualDensity.compact,
+    final textTheme = Theme.of(context).textTheme;
+    final collapsed = _collapsed.contains(group.key);
+    // 仅在多分组时提供展开/收起：卷右键场景只有一个分组，收起会把面板清空。
+    final canCollapse = _groups.length > 1;
+
+    Widget label = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          if (canCollapse) ...[
+            Icon(
+              collapsed ? Icons.chevron_right : Icons.expand_more,
+              size: 18,
+              color: colorScheme.onSurfaceVariant,
             ),
-            Icon(Icons.folder_outlined, size: 16, color: colorScheme.secondary),
-            const SizedBox(width: 6),
-            Text(
+            const SizedBox(width: 2),
+          ],
+          Icon(Icons.folder_outlined, size: 16, color: colorScheme.secondary),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
               group.label,
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 color: colorScheme.onSurface,
               ),
             ),
-          ],
-        ),
+          ),
+          Text(
+            '${group.chapters.length} 章',
+            style: textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+    // 点击卷名区域只切换展开/收起，便于浏览长卷目录。
+    if (canCollapse) {
+      label = InkWell(
+        onTap: () => _toggleCollapse(group.key),
+        borderRadius: BorderRadius.circular(8),
+        child: label,
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Row(
+        children: [
+          // 复选框单独负责「整卷选择/取消」，不与展开收起的点击区重叠。
+          Checkbox(
+            value: _groupAllSelected(group),
+            onChanged: (v) => _toggleGroup(group, v),
+            visualDensity: VisualDensity.compact,
+          ),
+          Expanded(child: label),
+        ],
       ),
     );
   }

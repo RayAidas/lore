@@ -384,7 +384,7 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
       if (entry.semanticKind == LibraryEntrySemanticKind.novel ||
           entry.semanticKind == LibraryEntrySemanticKind.body ||
           entry.semanticKind == LibraryEntrySemanticKind.volume)
-        item('导出…', _ContextMenuAction.export),
+        item('导出章节', _ContextMenuAction.export),
       item('复制路径', _ContextMenuAction.copyPath),
       if (widget.controller.revealGateway != null)
         item('在 Finder 中显示', _ContextMenuAction.revealInFinder),
