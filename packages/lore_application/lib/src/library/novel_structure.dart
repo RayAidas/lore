@@ -95,6 +95,25 @@ final class NovelStructureService {
     );
   }
 
+  /// 由已解析章节导入整本小说（TXT 导入入口）。经 [_mutate] 串行化，
+  /// 避免与其它结构写操作并发覆盖 content.json。
+  Future<NovelStructureMutation> importNovel(
+    LibrarySession session, {
+    required String title,
+    required List<NovelChapterImport> chapters,
+    ChapterFormat chapterFormat = ChapterFormat.text,
+  }) {
+    return _mutate(
+      session,
+      () => novelRepository.importNovel(
+        session.access,
+        title: title,
+        chapters: chapters,
+        chapterFormat: chapterFormat,
+      ),
+    );
+  }
+
   Future<NovelStructureMutation> registerExistingNovel(
     LibrarySession session, {
     required String relativePath,

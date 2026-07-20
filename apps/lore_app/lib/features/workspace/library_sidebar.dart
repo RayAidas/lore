@@ -9,6 +9,8 @@ import 'package:lore_ui/lore_ui.dart';
 import 'package:path/path.dart' as p;
 
 import '../preferences/preferences_providers.dart';
+import '../import_export/export_panel.dart';
+import '../import_export/import_flow.dart';
 import 'library_failure_snackbar.dart';
 import 'workspace_controller.dart';
 import 'workspace_directory_tree.dart';
@@ -24,6 +26,7 @@ enum _ContextMenuAction {
   revealInFinder,
   rename,
   copyPath,
+  export,
   delete,
 }
 
@@ -82,6 +85,27 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
         }
       }
     }
+  }
+
+  Future<void> _importTxt() {
+    return importTxtNovelFlow(context, widget.controller);
+  }
+
+  Future<void> _exportEntry(LibraryEntry entry) async {
+    final novelId = entry.novelId;
+    if (novelId == null) {
+      return;
+    }
+    await showExportPanel(
+      context: context,
+      controller: widget.controller,
+      novelId: NovelId(novelId),
+      volumeId:
+          entry.semanticKind == LibraryEntrySemanticKind.volume &&
+              entry.semanticId != null
+          ? ContentId(entry.semanticId!)
+          : null,
+    );
   }
 
   Future<void> _createDirectory() async {
@@ -355,6 +379,10 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
         item('新建 Markdown', _ContextMenuAction.newMarkdown),
       ],
       item('重命名', _ContextMenuAction.rename),
+      if (entry.semanticKind == LibraryEntrySemanticKind.novel ||
+          entry.semanticKind == LibraryEntrySemanticKind.body ||
+          entry.semanticKind == LibraryEntrySemanticKind.volume)
+        item('导出…', _ContextMenuAction.export),
       item('复制路径', _ContextMenuAction.copyPath),
       if (widget.controller.revealGateway != null)
         item('在 Finder 中显示', _ContextMenuAction.revealInFinder),
@@ -393,6 +421,8 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
         );
       case _ContextMenuAction.rename:
         await _renameSelected(entry);
+      case _ContextMenuAction.export:
+        await _exportEntry(entry);
       case _ContextMenuAction.delete:
         await _deleteSelected(entry);
       case _ContextMenuAction.copyPath:
@@ -463,6 +493,22 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                             unawaited(_createDocument(DocumentFormat.markdown)),
                       ),
                     ],
+                  ),
+                  IconButton(
+                    tooltip: '导入 TXT',
+                    onPressed: () => unawaited(_importTxt()),
+                    icon: const Icon(Icons.file_download_outlined, size: 20),
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size.square(_sidebarMenuButtonSize),
+                      maximumSize: const Size.square(_sidebarMenuButtonSize),
+                      padding: EdgeInsets.zero,
+                      hoverColor: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.06),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
                   ),
                 ],
               ),

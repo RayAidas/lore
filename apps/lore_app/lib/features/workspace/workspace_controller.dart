@@ -307,6 +307,30 @@ final class WorkspaceController extends ChangeNotifier {
     return mutation;
   }
 
+  /// 由已解析章节导入整本 TXT 小说（见 [TxtNovelParser]）。重名时抛
+  /// `LibraryFailureCode.alreadyExists`，由调用方负责重命名循环。
+  Future<NovelStructureMutation> importNovel({
+    required String title,
+    required List<NovelChapterImport> chapters,
+  }) async {
+    final mutation = await _requireNovelStructureService().importNovel(
+      session,
+      title: title,
+      chapters: chapters,
+    );
+    _applyStructureMutation(mutation);
+    return mutation;
+  }
+
+  /// 当前书库是否存在同名小说（基于内存 [novels]，与目录树展示一致）。
+  bool novelTitleExists(String title) {
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) {
+      return false;
+    }
+    return novels.any((novel) => novel.metadata.title == trimmed);
+  }
+
   Future<NovelStructureMutation> createVolume(NovelId novelId) async {
     final mutation = await _requireNovelStructureService().createVolume(
       session,

@@ -716,6 +716,16 @@ final class _FakeNovelRepository
   }
 
   @override
+  Future<NovelStructureMutation> importNovel(
+    LibraryAccess access, {
+    required String title,
+    required List<NovelChapterImport> chapters,
+    ChapterFormat chapterFormat = ChapterFormat.text,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<NovelStructureMutation> renameNovel(
     LibraryAccess access, {
     required NovelId novelId,

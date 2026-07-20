@@ -9,6 +9,7 @@ import 'storage_schema_migrator.dart';
 
 part 'portable/storage_backed_library_support.dart';
 part 'portable/storage_backed_document_repository.dart';
+part 'portable/storage_backed_import_support.dart';
 part 'portable/storage_backed_trash_support.dart';
 part 'portable/storage_backed_trash_repository.dart';
 
@@ -26,6 +27,7 @@ final class StorageBackedLibraryRepository
     with
         _StorageBackedLibrarySupport,
         _StorageBackedDocumentRepository,
+        _StorageBackedImportSupport,
         _StorageBackedTrashSupport,
         _StorageBackedTrashRepository
     implements
