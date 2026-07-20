@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -244,57 +245,40 @@ class _ExportPanelState extends State<ExportPanel> {
     }
     setState(() => _exporting = true);
     try {
-      // 先让用户选保存位置——取消即放弃，避免白读 N 章正文（千章小说尤其重要）。
       final name = _fileNameController.text.trim();
       final fileName = name.isEmpty ? '导出小说.txt' : name;
-      final path = await FilePicker.saveFile(
-        dialogTitle: '导出 TXT',
-        fileName: fileName,
-      );
-      if (path == null || path.isEmpty) {
-        return; // 用户取消
+
+      // 先组正文：移动端 saveFile 返回系统托管的 URI（content:// 等），
+      // dart:io 写不进去，只能用 bytes: 让插件内部写入；而 bytes 必须在调
+      // saveFile 之前备好——故统一先组正文再弹框（桌面也走同一路径，跨平台一致）。
+      final composed = await _composeSelectedChapters();
+      if (composed == null) {
+        return; // 无可导出内容，提示已在 _composeSelectedChapters 内给出。
       }
 
-      // 按文档顺序收集选中章节。
-      final orderedChapters = <ContentNode>[];
-      for (final group in _groups) {
-        for (final chapter in group.chapters) {
-          if (_selected.contains(chapter.id.value)) {
-            orderedChapters.add(chapter);
-          }
-        }
-      }
-      final exportChapters = <ExportChapter>[];
-      for (final chapter in orderedChapters) {
-        final text = await widget.controller.readChapterRawText(
-          widget.snapshot,
-          chapter,
+      final String? path;
+      try {
+        path = await FilePicker.saveFile(
+          dialogTitle: '导出 TXT',
+          fileName: fileName,
+          bytes: utf8.encode(composed.text),
         );
-        final breakIndex = text.indexOf('\n');
-        final title = breakIndex < 0 ? text : text.substring(0, breakIndex);
-        final body = breakIndex < 0 ? '' : text.substring(breakIndex + 1);
-        exportChapters.add(ExportChapter(title: title, body: body));
-      }
-      final composed = TxtExportComposer.compose(
-        chapters: exportChapters,
-        options: TxtExportOptions(
-          includeTitles: _includeTitles,
-          blankLineBetween: _blankLineBetween,
-        ),
-      );
-      if (composed.isEmpty) {
+      } on PlatformException {
+        // file_picker 缺 entitlement / 底层异常时抛此；作用域仅限 saveFile。
         if (mounted) {
           showLibraryFailure(
             context,
             const LibraryFailure(
-              code: LibraryFailureCode.unsupportedFormat,
-              message: '所选章节均为空，没有可导出的内容。',
+              code: LibraryFailureCode.io,
+              message: '无法打开保存对话框。',
             ),
           );
         }
         return;
       }
-      await File(path).writeAsString(composed);
+      if (path == null || path.isEmpty) {
+        return; // 用户取消
+      }
       if (!mounted) {
         return;
       }
@@ -303,7 +287,7 @@ class _ExportPanelState extends State<ExportPanel> {
       Navigator.of(context).maybePop();
       messenger.showSnackBar(
         SnackBar(
-          content: Text('已导出 ${exportChapters.length} 章到「$path」。'),
+          content: Text('已导出 ${composed.chapterCount} 章到「$path」。'),
           duration: const Duration(seconds: 4),
         ),
       );
@@ -314,17 +298,6 @@ class _ExportPanelState extends State<ExportPanel> {
         } catch (_) {
           // 忽略：定位失败不影响已完成的导出。
         }
-      }
-    } on PlatformException {
-      // file_picker 缺 entitlement / 底层异常时抛此；比通用异常给更明确的提示。
-      if (mounted) {
-        showLibraryFailure(
-          context,
-          const LibraryFailure(
-            code: LibraryFailureCode.io,
-            message: '无法打开保存对话框。',
-          ),
-        );
       }
     } on LibraryOperationException catch (error) {
       if (mounted) {
@@ -342,6 +315,51 @@ class _ExportPanelState extends State<ExportPanel> {
         setState(() => _exporting = false);
       }
     }
+  }
+
+  /// 按文档顺序读取选中章节并组装为导出正文。
+  ///
+  /// 返回 null 表示无可导出内容（已在内部提示）；否则返回正文文本与章节数。
+  Future<({String text, int chapterCount})?> _composeSelectedChapters() async {
+    final orderedChapters = <ContentNode>[];
+    for (final group in _groups) {
+      for (final chapter in group.chapters) {
+        if (_selected.contains(chapter.id.value)) {
+          orderedChapters.add(chapter);
+        }
+      }
+    }
+    final exportChapters = <ExportChapter>[];
+    for (final chapter in orderedChapters) {
+      final text = await widget.controller.readChapterRawText(
+        widget.snapshot,
+        chapter,
+      );
+      final breakIndex = text.indexOf('\n');
+      final title = breakIndex < 0 ? text : text.substring(0, breakIndex);
+      final body = breakIndex < 0 ? '' : text.substring(breakIndex + 1);
+      exportChapters.add(ExportChapter(title: title, body: body));
+    }
+    final composed = TxtExportComposer.compose(
+      chapters: exportChapters,
+      options: TxtExportOptions(
+        includeTitles: _includeTitles,
+        blankLineBetween: _blankLineBetween,
+      ),
+    );
+    if (composed.isEmpty) {
+      if (mounted) {
+        showLibraryFailure(
+          context,
+          const LibraryFailure(
+            code: LibraryFailureCode.unsupportedFormat,
+            message: '所选章节均为空，没有可导出的内容。',
+          ),
+        );
+      }
+      return null;
+    }
+    return (text: composed, chapterCount: exportChapters.length);
   }
 
   @override
