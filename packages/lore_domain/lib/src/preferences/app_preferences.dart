@@ -30,14 +30,15 @@ final class AppPreferences {
     required this.editorFontFamily,
   });
 
-  static const schemaVersionCurrent = 1;
+  static const schemaVersionCurrent = 2;
 
-  /// 默认值对齐当前硬编码体验，确保无偏好记录时视觉与行为零回归。
+  /// 开箱默认：行高 1.45、段间距 14；标题→首段留白由 EditorStyle 派生
+  ///（段间距 + 14）保证始终宽于段间距。
   factory AppPreferences.defaults() => const AppPreferences(
     schemaVersion: schemaVersionCurrent,
     themeMode: AppThemeMode.system,
     defaultChapterFormat: ChapterFormat.text,
-    editorLineHeight: 1.5,
+    editorLineHeight: 1.45,
     editorFontSize: 15,
     editorContentWidth: 900,
     dailyWordGoal: 2000,
@@ -46,7 +47,7 @@ final class AppPreferences {
     typewriterMode: false,
     focusMode: false,
     firstLineIndent: true,
-    paragraphSpacing: 12,
+    paragraphSpacing: 14,
     editorFontFamily: AppFontFamily.wenkai,
   );
 

@@ -59,7 +59,8 @@ void main() {
     'loads legacy blob missing immersive toggles with other prefs intact',
     () async {
       // 模拟 1.x 版本写入的旧 blob：没有 typewriterMode/focusMode 键。
-      // 应当加载成功，旧字段保留，新字段回退默认 false，而非整体回退默认值。
+      // 应当加载成功：沉浸开关回退默认 false；v1→v2 迁移按值匹配——行高 2.2
+      // 是自定义值（≠ v1 默认 1.5）故保留，段间距缺失则取 v2 默认；其余偏好不变。
       SharedPreferences.setMockInitialValues({
         'lore.app.preferences': jsonEncode({
           'schemaVersion': 1,
@@ -84,11 +85,65 @@ void main() {
       expect(loaded.typewriterMode, isFalse);
       expect(loaded.focusMode, isFalse);
       expect(loaded.firstLineIndent, isTrue);
-      expect(loaded.paragraphSpacing, 18);
+      // 行高 2.2 是自定义值（≠ v1 默认）→ 保留；段间距缺失 → 回落 v2 默认。
+      expect(loaded.editorLineHeight, 2.2);
+      expect(
+        loaded.paragraphSpacing,
+        AppPreferences.defaults().paragraphSpacing,
+      );
       // editorFontFamily 是后加字段，旧 blob 缺该键应回落默认值（文楷）。
       expect(loaded.editorFontFamily, AppFontFamily.wenkai);
     },
   );
+
+  test('v1 blob at old typography defaults is bumped to v2 defaults', () async {
+    // 行高/段间距仍停留在 v1 默认（1.5 / 12）→ 替换为 v2 默认；其余偏好不变。
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 1,
+        'themeMode': 'system',
+        'defaultChapterFormat': 'text',
+        'editorLineHeight': 1.5,
+        'editorFontSize': 15,
+        'editorContentWidth': 900,
+        'dailyWordGoal': 2000,
+        'findMatchCase': false,
+        'findUseRegex': false,
+        'paragraphSpacing': 12,
+      }),
+    });
+    final loaded = await repository.load();
+    expect(loaded, isNotNull);
+    expect(
+      loaded!.editorLineHeight,
+      AppPreferences.defaults().editorLineHeight,
+    );
+    expect(loaded.paragraphSpacing, AppPreferences.defaults().paragraphSpacing);
+    expect(loaded.editorFontSize, 15);
+    expect(loaded.themeMode, AppThemeMode.system);
+  });
+
+  test('v1 blob with customized spacing preserves user values', () async {
+    // 用户自定义的行高/段间距（≠ v1 默认）原样保留，迁移不覆盖。
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 1,
+        'themeMode': 'system',
+        'defaultChapterFormat': 'text',
+        'editorLineHeight': 1.8,
+        'editorFontSize': 15,
+        'editorContentWidth': 900,
+        'dailyWordGoal': 2000,
+        'findMatchCase': false,
+        'findUseRegex': false,
+        'paragraphSpacing': 6,
+      }),
+    });
+    final loaded = await repository.load();
+    expect(loaded, isNotNull);
+    expect(loaded!.editorLineHeight, 1.8);
+    expect(loaded.paragraphSpacing, 6);
+  });
 
   test(
     'immersive toggles tolerate wrong-typed values by falling back to false',

@@ -15,7 +15,18 @@ final class SharedPreferencesAppPreferencesRepository
   SharedPreferencesAppPreferencesRepository();
 
   static const _key = 'lore.app.preferences';
-  static const _schemaVersion = 1;
+  static const _schemaVersion = 2;
+
+  /// 上一版 schema：load 时接受 v1 并就地迁移到 v2（收紧行高/段间距默认）。
+  ///
+  /// 迁移按值匹配：仅替换仍等于 v1 默认（[_v1EditorLineHeight] /
+  /// [_v1ParagraphSpacing]）的排版值，保留用户自定义，故对同一输入幂等、
+  /// 可重复执行。若未来引入 v3，需把本常量扩为版本链并逐版串接每步变换。
+  static const _migratedFromSchemaVersion = 1;
+
+  /// v1 排版默认值：迁移时识别「仍停留在旧默认」的值，仅这些值被替换为 v2 默认。
+  static const _v1EditorLineHeight = 1.5;
+  static const _v1ParagraphSpacing = 12.0;
 
   // sync: true 让 save 时的 add 同步派发给监听者，避免异步广播在测试/快速
   // 连续写入下丢失事件（偏好仅在本进程内变更，同步派发安全）。
@@ -31,8 +42,14 @@ final class SharedPreferencesAppPreferencesRepository
     }
     try {
       final value = jsonDecode(encoded);
-      if (value is! Map<String, Object?> ||
-          value['schemaVersion'] != _schemaVersion) {
+      if (value is! Map<String, Object?>) {
+        return null;
+      }
+      // 接受 v1（旧版）或 v2（当前）；其它版本号视为损坏，整体回退默认值。
+      final storedVersion = value['schemaVersion'];
+      final migrating = storedVersion == _migratedFromSchemaVersion;
+      if (storedVersion is! int ||
+          (!migrating && storedVersion != _schemaVersion)) {
         return null;
       }
       final themeMode = _themeModeFromString(value['themeMode']);
@@ -63,22 +80,32 @@ final class SharedPreferencesAppPreferencesRepository
       final focusMode = value['focusMode'] is bool
           ? value['focusMode']! as bool
           : false;
-      // 段落排版同理：首行缩进缺失取 true（默认开），段间距缺失取 18。
+      // 段落排版同理：首行缩进缺失取 true（默认开），段间距缺失取当前默认。
       final firstLineIndent = value['firstLineIndent'] is bool
           ? value['firstLineIndent']! as bool
           : true;
       final paragraphSpacing = value['paragraphSpacing'] is num
           ? (value['paragraphSpacing']! as num).toDouble()
-          : 18.0;
+          : AppPreferences.defaults().paragraphSpacing;
       // 正文字体是后加字段，老 blob 里可能没有——容错读取，缺失回落默认值。
       final editorFontFamily =
           _fontFamilyFromString(value['editorFontFamily']) ??
           AppPreferences.defaults().editorFontFamily;
+      // v1 → v2 迁移：仅当行高/段间距仍停留在 v1 默认时替换为 v2 默认（视觉
+      // 瘦身）；用户已自定义的值原样保留。按值匹配使迁移对同一输入幂等，
+      // 不会每次冷启动都把自定义抹回默认。
+      final resolvedLineHeight = migrating && lineHeight == _v1EditorLineHeight
+          ? AppPreferences.defaults().editorLineHeight
+          : lineHeight.toDouble();
+      final resolvedParagraphSpacing =
+          migrating && paragraphSpacing == _v1ParagraphSpacing
+          ? AppPreferences.defaults().paragraphSpacing
+          : paragraphSpacing;
       return AppPreferences(
         schemaVersion: _schemaVersion,
         themeMode: themeMode,
         defaultChapterFormat: defaultChapterFormat,
-        editorLineHeight: lineHeight.toDouble(),
+        editorLineHeight: resolvedLineHeight,
         editorFontSize: fontSize.toDouble(),
         editorContentWidth: contentWidth.toDouble(),
         dailyWordGoal: dailyWordGoal,
@@ -87,7 +114,7 @@ final class SharedPreferencesAppPreferencesRepository
         typewriterMode: typewriterMode,
         focusMode: focusMode,
         firstLineIndent: firstLineIndent,
-        paragraphSpacing: paragraphSpacing,
+        paragraphSpacing: resolvedParagraphSpacing,
         editorFontFamily: editorFontFamily,
       );
     } on FormatException {
