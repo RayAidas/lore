@@ -40,15 +40,16 @@ final class EditorStyle {
     this.typewriterMode = false,
     this.focusMode = false,
     this.firstLineIndent = true,
-    this.paragraphSpacing = 18,
+    this.paragraphSpacing = 14,
     this.titleScale = 1.3,
     this.titleFontWeight = FontWeight.w700,
     this.titleLineHeight = 1.2,
-    this.titleBottomSpacing = 12,
   });
 
+  /// 包级排版基线：与 [AppPreferences.defaults] 对齐，使无偏好注入时编辑器
+  /// 独立渲染（测试、预览组件）与应用实际体验一致。行高 1.45、段间距 14。
   const EditorStyle.defaults()
-    : lineHeight = 1.5,
+    : lineHeight = 1.45,
       fontSize = 15,
       contentWidth = 900,
       letterSpacing = 0.2,
@@ -57,11 +58,10 @@ final class EditorStyle {
       typewriterMode = false,
       focusMode = false,
       firstLineIndent = true,
-      paragraphSpacing = 12,
+      paragraphSpacing = 14,
       titleScale = 1.3,
       titleFontWeight = FontWeight.w700,
-      titleLineHeight = 1.2,
-      titleBottomSpacing = 12;
+      titleLineHeight = 1.2;
 
   final double lineHeight;
   final double fontSize;
@@ -95,11 +95,22 @@ final class EditorStyle {
   /// 章节标题行高（仅章节标题栏消费，通常比正文略紧）。
   final double titleLineHeight;
 
-  /// 章节标题与正文之间的间距（逻辑像素，仅章节标题栏消费）。
-  final double titleBottomSpacing;
-
   /// 章节标题字号 = [fontSize] × [titleScale]。
   double get titleFontSize => fontSize * titleScale;
+
+  /// 标题与首段之间的留白（逻辑像素，仅章节标题栏消费）。
+  ///
+  /// 由 [paragraphSpacing] 派生而非独立常量：标题字号更大、行盒更厚，等量
+  /// 间距下「标题→首段」视觉上反而比「段→段」更紧（标题字身下沉吃掉留白）。
+  /// 在段间距上叠加固定呼吸量 [_titleGapExtra]，保证标题留白始终明显大于段
+  /// 间距，且用户拖动段间距滑块时标题留白同步跟踪，杜绝比例倒挂。
+  double get titleBottomSpacing => paragraphSpacing + _titleGapExtra;
+
+  /// 标题留白相对段间距的额外呼吸量（绝对像素差，非倍数）。
+  ///
+  /// 其数值若与某处段间距默认值相同纯属巧合，并非派生关系；调整其一不必
+  /// 同步另一个。
+  static const double _titleGapExtra = 14;
 
   EditorStyle copyWith({
     double? lineHeight,
@@ -115,7 +126,6 @@ final class EditorStyle {
     double? titleScale,
     FontWeight? titleFontWeight,
     double? titleLineHeight,
-    double? titleBottomSpacing,
   }) {
     return EditorStyle(
       lineHeight: lineHeight ?? this.lineHeight,
@@ -131,7 +141,6 @@ final class EditorStyle {
       titleScale: titleScale ?? this.titleScale,
       titleFontWeight: titleFontWeight ?? this.titleFontWeight,
       titleLineHeight: titleLineHeight ?? this.titleLineHeight,
-      titleBottomSpacing: titleBottomSpacing ?? this.titleBottomSpacing,
     );
   }
 }

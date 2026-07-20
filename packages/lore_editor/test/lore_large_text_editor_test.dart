@@ -398,6 +398,11 @@ void main() {
               scrollController: scrollController,
               style: const EditorStyle.defaults().copyWith(
                 typewriterMode: true,
+                // 打字机居中滚动与段间距/行高相关：显式 pin 住，使「第 8 段位于
+                // 视口中线下方」这一前提不被默认排版基线（现 1.45/14）的后续
+                // 调整改写，让本用例聚焦滚动行为本身，而非默认间距。
+                lineHeight: 1.5,
+                paragraphSpacing: 12,
               ),
             ),
           ),
