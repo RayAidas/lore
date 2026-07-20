@@ -749,4 +749,239 @@ void main() {
 
     expect(controller.text, '已有正文');
   });
+
+  testWidgets('arrow down moves the caret into the next paragraph', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '第一段\n第二段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = const TextSelection.collapsed(offset: 0);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+
+    // 单行段落：末行即整段，↓ 跨入第二段开头（offset 4）。
+    expect(controller.selection, const TextSelection.collapsed(offset: 4));
+  });
+
+  testWidgets('arrow up moves the caret into the previous paragraph', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '第一段\n第二段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).at(1));
+    controller.selection = const TextSelection.collapsed(offset: 4);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pump();
+
+    // ↑ 从第二段开头跨回第一段同列（offset 0）。
+    expect(controller.selection, const TextSelection.collapsed(offset: 0));
+  });
+
+  testWidgets('arrow down inside a wrapped line does not cross paragraphs', (
+    tester,
+  ) async {
+    // 一段足够长、在 800 宽内会折成多视觉行的文本：行内 ↓ 应交还 TextField，
+    // 不跨段（无下一段时停在末行，selection 的 block 不变）。
+    final longLine = List.generate(200, (i) => '字').join();
+    final controller = LoreLargeTextController(text: longLine);
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = const TextSelection.collapsed(offset: 0);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+
+    // 仍在唯一段落内（block 0），光标下移到第二视觉行但不跨段。
+    expect(
+      controller.blockIndexForOffset(controller.selection.extentOffset),
+      0,
+    );
+    expect(controller.selection.extentOffset, greaterThan(0));
+  });
+
+  testWidgets('tab inserts a full-width space at the caret', (tester) async {
+    final controller = LoreLargeTextController(text: '甲乙');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = const TextSelection.collapsed(offset: 1);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+
+    expect(controller.text, '甲　乙');
+    expect(controller.selection, const TextSelection.collapsed(offset: 2));
+  });
+
+  testWidgets('tab replaces the selection with a full-width space', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: 'abcdef');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = const TextSelection(baseOffset: 1, extentOffset: 3);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+
+    // 选中的 'bc' 被替换为单个全角空格。
+    expect(controller.text, 'a　def');
+    expect(controller.selection, const TextSelection.collapsed(offset: 2));
+  });
+
+  testWidgets('shift+arrow down extends the selection across paragraphs', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '第一段\n第二段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = const TextSelection.collapsed(offset: 0);
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pump();
+
+    // baseOffset 保持 0，extent 跨到第二段开头（offset 4）。
+    expect(
+      controller.selection,
+      const TextSelection(baseOffset: 0, extentOffset: 4),
+    );
+  });
+
+  testWidgets('arrow down collapses a selection before crossing paragraphs', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '第一段\n第二段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = const TextSelection(baseOffset: 0, extentOffset: 2);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+
+    // 非扩展的↓先折叠到 extent（offset 2），不跨段；再按一次才会跨段。
+    expect(controller.selection, const TextSelection.collapsed(offset: 2));
+  });
 }

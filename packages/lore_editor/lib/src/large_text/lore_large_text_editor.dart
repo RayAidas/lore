@@ -9,6 +9,10 @@ import 'lore_large_text_controller.dart';
 /// 共用此单一来源，避免魔法字符串重复定义。
 const String _paragraphIndent = '　　';
 
+/// Tab 缩进：单全角空格（U+3000），即中文排版「一个字」的宽度，也是
+/// [_paragraphIndent] 的基本单位。按 Tab 在光标处插入一个；选区非空时替换选区。
+const String _tabIndent = '　';
+
 final class LoreLargeTextEditor extends StatefulWidget {
   const LoreLargeTextEditor({
     required this.controller,
@@ -561,6 +565,14 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
       );
       return KeyEventResult.handled;
     }
+    // Tab：在光标处插入一字缩进（全角空格）。排除 ⌘/Shift 组合（⌘Tab 是系统
+    // 切应用、Shift+Tab 留作反向语义），以及 IME 组字进行中（交还默认，避免
+    // 与候选词冲突）。
+    final isTab =
+        !isMeta && !shift && event.logicalKey == LogicalKeyboardKey.tab;
+    if (isTab) {
+      return _handleTab(controller);
+    }
     if (isBackspace || isDelete) {
       if (_textController.value.composing.isValid &&
           !_textController.value.composing.isCollapsed) {
@@ -589,6 +601,11 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
     }
     final isLeft = event.logicalKey == LogicalKeyboardKey.arrowLeft;
     final isRight = event.logicalKey == LogicalKeyboardKey.arrowRight;
+    final isUp = event.logicalKey == LogicalKeyboardKey.arrowUp;
+    final isDown = event.logicalKey == LogicalKeyboardKey.arrowDown;
+    if (isUp || isDown) {
+      return _handleVerticalKey(controller, isUp, shift);
+    }
     if (!isLeft && !isRight) {
       return KeyEventResult.ignored;
     }
@@ -623,6 +640,140 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
         : TextSelection.collapsed(offset: nextExtent);
     widget.registry.focusBlock(adjacent, controller);
     return KeyEventResult.handled;
+  }
+
+  /// 处理 Tab 键：IME 组字进行中放行（交还默认，避免与候选词冲突）；否则在
+  /// 光标处插入一字缩进（全角空格 [_tabIndent]），选区非空时替换选区。
+  KeyEventResult _handleTab(LoreLargeTextController controller) {
+    final composing = _textController.value.composing;
+    if (composing.isValid && !composing.isCollapsed) {
+      return KeyEventResult.ignored;
+    }
+    final selection = controller.selection;
+    if (selection.isCollapsed) {
+      controller.replaceRange(
+        selection.extentOffset,
+        selection.extentOffset,
+        _tabIndent,
+      );
+    } else {
+      controller.replaceSelection(_tabIndent);
+    }
+    return KeyEventResult.handled;
+  }
+
+  /// 处理 ↑/↓：行内移动交还 TextField；命中段首/段末视觉行时跨段，把光标落到
+  /// 目标段对应行的同列（用当前 caret 的 X 在目标段里取最近 offset）。Shift
+  /// 按下时扩展选区（保持 baseOffset、移动 extentOffset）而非单纯移动。
+  ///
+  /// 为何用 caret 顶部 Y 判定视觉行而非 getLineBoundary：单段文本经 word-wrap
+  /// 可有多视觉行，getOffsetForCaret 给出真实的行内 Y；空段也能正确判为「既首
+  /// 既末」。0.5×lineHeight 死区吸收字距/行高微差，避免边界抖动。
+  KeyEventResult _handleVerticalKey(
+    LoreLargeTextController controller,
+    bool upward,
+    bool shift,
+  ) {
+    // 有选区且非扩展：先折叠到光标点（取消选区），不跨段——再按一次↑/↓才真正
+    // 移动。与 ←/→ 的「先取消选区、再按方向键才跨段」保持一致，避免选中一段
+    // 文字后按↓直接跳到下一段的反直觉行为。
+    if (!shift && !controller.selection.isCollapsed) {
+      final extent = controller.selection.extentOffset.clamp(
+        0,
+        controller.length,
+      );
+      controller.selection = TextSelection.collapsed(offset: extent);
+      widget.registry.focusBlock(
+        controller.blockIndexForOffset(extent),
+        controller,
+      );
+      return KeyEventResult.handled;
+    }
+    final blockStart = controller.blockStart(widget.blockIndex);
+    final blockText = widget.block.text;
+    final localExtent = (controller.selection.extentOffset - blockStart).clamp(
+      0,
+      blockText.length,
+    );
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) {
+      return KeyEventResult.ignored;
+    }
+    final width = box.size.width;
+    final textStyle = Theme.of(context).textTheme.bodyLarge?.copyWith(
+      height: widget.style.lineHeight,
+      fontSize: widget.style.fontSize,
+      letterSpacing: widget.style.letterSpacing,
+      fontFamily: widget.style.fontFamily,
+      fontFamilyFallback: widget.style.fontFamilyFallback,
+    );
+    final painter = _layoutPainterFor(
+      text: blockText,
+      style: textStyle,
+      direction: Directionality.of(context),
+      scaler: MediaQuery.textScalerOf(context),
+      width: width,
+    );
+    final caret = painter.getOffsetForCaret(
+      TextPosition(offset: localExtent),
+      Rect.zero,
+    );
+    final lineHeight = painter.preferredLineHeight;
+    final onEdge = upward
+        ? caret.dy < lineHeight * 0.5
+        : caret.dy + lineHeight > painter.height - lineHeight * 0.5;
+    if (!onEdge) {
+      return KeyEventResult.ignored;
+    }
+    final targetIndex = widget.blockIndex + (upward ? -1 : 1);
+    if (targetIndex < 0 || targetIndex >= controller.blocks.length) {
+      return KeyEventResult.ignored;
+    }
+    final targetOffset = _resolveVerticalTarget(
+      controller: controller,
+      targetIndex: targetIndex,
+      upward: upward,
+      preferredX: caret.dx,
+      width: width,
+      textStyle: textStyle,
+    );
+    controller.selection = shift
+        ? TextSelection(
+            baseOffset: controller.selection.baseOffset,
+            extentOffset: targetOffset,
+          )
+        : TextSelection.collapsed(offset: targetOffset);
+    widget.registry.focusBlock(targetIndex, controller);
+    return KeyEventResult.handled;
+  }
+
+  /// 在目标段落里按 [preferredX] 取目标行（上行=末行、下行=首行）的最近 offset，
+  /// 转成全局 offset。目标段可能未渲染（不在视口），故自建临时 painter 计算，
+  /// 不复用当前段缓存；用完即释放。
+  int _resolveVerticalTarget({
+    required LoreLargeTextController controller,
+    required int targetIndex,
+    required bool upward,
+    required double preferredX,
+    required double width,
+    required TextStyle? textStyle,
+  }) {
+    final targetText = controller.blocks[targetIndex].text;
+    final painter = TextPainter(
+      text: TextSpan(text: targetText, style: textStyle),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: width);
+    final lineHeight = painter.preferredLineHeight;
+    final targetY = upward
+        ? (painter.height - lineHeight * 0.5).clamp(0.0, painter.height)
+        : (lineHeight * 0.5).clamp(0.0, painter.height);
+    final localOffset = painter
+        .getPositionForOffset(Offset(preferredX.clamp(0.0, width), targetY))
+        .offset
+        .clamp(0, targetText.length);
+    painter.dispose();
+    return controller.blockStart(targetIndex) + localOffset;
   }
 
   void _handleLocalChanged() {
