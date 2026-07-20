@@ -262,6 +262,49 @@ void main() {
   });
 
   testWidgets(
+    'refreshes an open chapter locked prefix after rename changes its number',
+    (tester) async {
+      final snapshot = _chapterNovelSnapshot();
+      final novelRepo = _FakeNovelRepository(snapshot);
+      final treeRepo = _FakeContentTreeRepository(snapshot);
+      final repository = _MemoryWorkspaceRepository()..diskText = '第1章\n正文段';
+      final controller = WorkspaceController(
+        session: session,
+        service: LibraryWorkspaceService(
+          treeRepository: repository,
+          documentRepository: repository,
+          sessionRepository: _MemorySessionRepository(),
+        ),
+        novelStructureService: NovelStructureService(
+          novelRepository: novelRepo,
+          contentTreeRepository: treeRepo,
+        ),
+      );
+      addTearDown(repository.dispose);
+      addTearDown(controller.dispose);
+
+      await controller.initialize();
+      await controller.openPath('我的小说/正文/第1章.txt');
+      expect(controller.activeDocument!.chapterNumber, 1);
+
+      // 重命名「第1章」→「第2章」：文件名号变了，已打开标签的锁定前缀应即时刷新
+      // （不依赖文件 watch 回流）。
+      await controller.renameContentNode(
+        snapshot.metadata.id,
+        ContentId('chapter-1'),
+        '第2章',
+      );
+      // 结构变更会安排一次会话保存（500ms）；pump 过它，避免遗留 pending timer。
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+
+      final active = controller.activeDocument!;
+      expect(active.chapterNumber, 2);
+      expect(active.relativePath, '我的小说/正文/第2章.txt');
+    },
+  );
+
+  testWidgets(
     'saved first line and filename agree for a leading-dot subtitle',
     (tester) async {
       final snapshot = _chapterNovelSnapshot();
@@ -928,10 +971,10 @@ void main() {
     final stuck = await controller.closeTabsToRight(anchor);
 
     expect(stuck, isEmpty);
-    expect(
-      controller.tabs.map((t) => t.relativePath).toList(),
-      ['a.txt', 'b.txt'],
-    );
+    expect(controller.tabs.map((t) => t.relativePath).toList(), [
+      'a.txt',
+      'b.txt',
+    ]);
     controller.dispose();
   });
 
@@ -976,10 +1019,10 @@ void main() {
     expect(stuck, hasLength(1));
     expect(stuck.single.relativePath, 'b.txt');
     // keep a 保留、冲突 b 跳过保留、干净的 c 被关闭。
-    expect(
-      controller.tabs.map((t) => t.relativePath).toList(),
-      ['a.txt', 'b.txt'],
-    );
+    expect(controller.tabs.map((t) => t.relativePath).toList(), [
+      'a.txt',
+      'b.txt',
+    ]);
     controller.dispose();
   });
 
@@ -1366,13 +1409,17 @@ class _FakeContentTreeRepository implements ContentTreeRepository {
     final dir = p.dirname(oldRel);
     final ext = p.extension(oldRel);
     final newRel = dir == '.' ? '$newName$ext' : '$dir/$newName$ext';
+    // 按新文件名重算 number（与真实存储层 _renumberNode 一致），供控制器
+    // _syncOpenChapterNumbers 据此刷新已打开标签的锁定前缀编号。
+    final stemMatch = RegExp(r'^第(\d+)章').firstMatch(newName);
+    final newNumber = stemMatch == null ? null : int.parse(stemMatch.group(1)!);
     final renamed = ContentNode(
       id: oldNode.id,
       type: oldNode.type,
       parentId: oldNode.parentId,
       relativePath: newRel,
       order: oldNode.order,
-      number: oldNode.number,
+      number: newNumber,
       role: oldNode.role,
     );
     final newTree = ContentTree(

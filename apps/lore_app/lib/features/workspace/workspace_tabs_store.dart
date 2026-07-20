@@ -195,6 +195,21 @@ final class WorkspaceTabsStore {
     document.notifyChanged();
   }
 
+  /// 结构变更（如重命名）后，按新文件名刷新对应已打开章节的锁定前缀编号
+  /// （chapterNumber）。正文不含标题行，编号一改标题栏即变；不动副标题、正文、
+  /// 脏标记与编辑器文本。路径无打开标签或编号未变时为 no-op。
+  void updateChapterNumberForPath(String relativePath, int newNumber) {
+    for (final tab in _tabs) {
+      if (tab is OpenDocument && tab.relativePath == relativePath) {
+        if (tab.chapterNumber != newNumber) {
+          tab.chapterNumber = newNumber;
+          tab.notifyChanged();
+        }
+        return;
+      }
+    }
+  }
+
   /// 防抖安排一次标题→文件名同步（比自动保存略晚，确保内容先落盘再重命名）。
   void _scheduleTitleSync(OpenDocument document) {
     document.titleSyncTimer?.cancel();

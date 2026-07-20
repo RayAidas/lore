@@ -702,6 +702,12 @@ final class WorkspaceController extends ChangeNotifier {
       _tabsStore.updatePathsAfterRename(change.oldPath, change.newPath);
       _remapExpandedPaths(change.oldPath, change.newPath);
     }
+    // 仅在发生路径变更（重命名/移动）时刷新已打开章节的编号——编号只在文件名变更
+    // 时才会改变。字数更新（每次保存都会触发）等无 pathChanges 的结构变更跳过，
+    // 避免在保存热路径上对全部章节节点做无意义的扫描。
+    if (mutation.pathChanges.isNotEmpty) {
+      _syncOpenChapterNumbers(mutation);
+    }
     final entry = mutation.entry;
     if (entry != null) {
       _tabsStore.selectEntry(entry);
@@ -709,6 +715,22 @@ final class WorkspaceController extends ChangeNotifier {
     _treeRevision += 1;
     _tabsStore.scheduleSessionSave();
     _notify();
+  }
+
+  /// 结构变更后，按最新快照刷新已打开章节标签的锁定前缀编号（chapterNumber）。
+  ///
+  /// 存储层 renameNode 已让磁盘首行与新文件名一致；但已打开标签的
+  /// [OpenDocument.chapterNumber] 仍停留在旧首行的解析值，且文件 watch 回流
+  /// 在路径被 [WorkspaceTabsStore.updatePathsAfterRename] 重映射后未必命中，
+  /// 故在此显式同步。正文不含标题行，编号一改标题栏即变；副标题与正文均不动。
+  void _syncOpenChapterNumbers(NovelStructureMutation mutation) {
+    for (final node in mutation.snapshot.contentTree.nodes) {
+      if (node.type != ContentNodeType.chapter || node.number == null) {
+        continue;
+      }
+      final path = p.join(mutation.snapshot.rootPath, node.relativePath);
+      _tabsStore.updateChapterNumberForPath(path, node.number!);
+    }
   }
 
   /// 把字数写回 content.json 并刷新内存快照。字数更新是 best-effort 缓存，
