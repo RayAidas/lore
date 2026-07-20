@@ -190,6 +190,18 @@ class _ExportPanelState extends State<ExportPanel> {
     }
     setState(() => _exporting = true);
     try {
+      // 先让用户选保存位置——取消即放弃，避免白读 N 章正文（千章小说尤其重要）。
+      final name = _fileNameController.text.trim();
+      final fileName = name.isEmpty ? '导出小说.txt' : name;
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: '导出 TXT',
+        fileName: fileName,
+      );
+      if (path == null || path.isEmpty) {
+        return; // 用户取消
+      }
+
+      // 按文档顺序收集选中章节。
       final orderedChapters = <ContentNode>[];
       for (final group in _groups) {
         for (final chapter in group.chapters) {
@@ -228,29 +240,26 @@ class _ExportPanelState extends State<ExportPanel> {
         }
         return;
       }
-      final name = _fileNameController.text.trim();
-      final fileName = name.isEmpty ? '导出小说.txt' : name;
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: '导出 TXT',
-        fileName: fileName,
-      );
-      if (path == null || path.isEmpty) {
-        return; // 用户取消
-      }
       await File(path).writeAsString(composed);
       if (!mounted) {
         return;
       }
+      // 先取 messenger 再 pop，避免 pop 后 context 失效。
+      final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).maybePop();
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text('已导出 ${exportChapters.length} 章到「$path」。'),
           duration: const Duration(seconds: 4),
         ),
       );
-      // macOS：在 Finder 中定位产出文件。
+      // macOS：在 Finder 中定位产出文件；失败非致命（导出本身已成功）。
       if (Platform.isMacOS) {
-        await Process.run('open', ['-R', path]);
+        try {
+          await Process.run('open', ['-R', path]);
+        } catch (_) {
+          // 忽略：定位失败不影响已完成的导出。
+        }
       }
     } on LibraryOperationException catch (error) {
       if (mounted) {

@@ -43,7 +43,16 @@ Future<void> importTxtNovelFlow(
     );
     return;
   }
-  final text = await decodeTxtBytes(bytes);
+  final String text;
+  try {
+    text = await decodeTxtBytes(bytes);
+  } on LibraryOperationException catch (error) {
+    if (!context.mounted) {
+      return;
+    }
+    _failure(context, error.failure);
+    return;
+  }
   if (!context.mounted) {
     return;
   }
@@ -54,12 +63,9 @@ Future<void> importTxtNovelFlow(
       context,
       const LibraryFailure(
         code: LibraryFailureCode.unsupportedFormat,
-        message: '文件内容为空，未解析到任何章节。',
+        message: '文件内容为空。',
       ),
     );
-    return;
-  }
-  if (!context.mounted) {
     return;
   }
 
@@ -70,39 +76,46 @@ Future<void> importTxtNovelFlow(
     title = '导入小说';
   }
 
-  // 重名循环：弹输入框直到无重名或用户取消。
-  while (controller.novelTitleExists(title)) {
+  // 重名处理：内存预检 + 写入兜底构成循环。写入时若仍撞 alreadyExists
+  // （预检与写入之间的竞态、或内存列表未同步），回到重命名弹窗重试，而非
+  // 直接报错让用户从头来。
+  while (true) {
+    while (controller.novelTitleExists(title)) {
+      if (!context.mounted) {
+        return;
+      }
+      final renamed = await showLoreTextPromptDialog(
+        context: context,
+        title: '书名重复',
+        label: '请输入新书名',
+        initialValue: title,
+        helperText: '书库中已存在同名小说，请改名后继续。',
+      );
+      if (!context.mounted || renamed == null) {
+        return;
+      }
+      final next = renamed.trim();
+      if (next.isEmpty) {
+        continue;
+      }
+      title = next;
+    }
     if (!context.mounted) {
       return;
     }
-    final renamed = await showLoreTextPromptDialog(
-      context: context,
-      title: '书名重复',
-      label: '请输入新书名',
-      initialValue: title,
-      helperText: '书库中已存在同名小说，请改名后继续。',
-    );
-    if (!context.mounted || renamed == null) {
-      return;
+    try {
+      await controller.importNovel(title: title, sections: parsed.sections);
+      break;
+    } on LibraryOperationException catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      if (error.failure.code != LibraryFailureCode.alreadyExists) {
+        _failure(context, error.failure);
+        return;
+      }
+      // alreadyExists：循环回到重命名弹窗，用当前 title 作初值重试。
     }
-    final next = renamed.trim();
-    if (next.isEmpty) {
-      continue;
-    }
-    title = next;
-  }
-  if (!context.mounted) {
-    return;
-  }
-
-  try {
-    await controller.importNovel(title: title, sections: parsed.sections);
-  } on LibraryOperationException catch (error) {
-    if (!context.mounted) {
-      return;
-    }
-    _failure(context, error.failure);
-    return;
   }
   if (!context.mounted) {
     return;

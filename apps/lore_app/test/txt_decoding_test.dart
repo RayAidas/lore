@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lore_application/lore_application.dart';
 
 import 'package:lore_app/features/import_export/txt_decoding.dart';
 
@@ -50,6 +51,31 @@ void main() {
     test('treats ASCII as UTF-8', () async {
       final bytes = Uint8List.fromList(ascii.encode('Chapter 1 Begins'));
       expect(await decodeTxtBytes(bytes), 'Chapter 1 Begins');
+    });
+
+    test('rejects UTF-16 BOM with a clear unsupported error', () async {
+      final utf16Le = Uint8List.fromList([0xFF, 0xFE, 0x00, 0x00]);
+      await expectLater(
+        decodeTxtBytes(utf16Le),
+        throwsA(
+          isA<LibraryOperationException>().having(
+            (error) => error.failure.code,
+            'code',
+            LibraryFailureCode.unsupportedFormat,
+          ),
+        ),
+      );
+    });
+
+    test('keeps UTF-8 decoding when only a few bytes are corrupt', () async {
+      // 一个坏字节不应让整篇 UTF-8 误退回 GB18030；保留 UTF-8 解码（坏字节成
+      // 替换符），正文大部分正确还原。
+      final body = utf8.encode('第1章 标题${'正文内容。' * 24}');
+      final withBadByte = <int>[...body, 0xB5, ...utf8.encode('尾部')];
+      final result = await decodeTxtBytes(Uint8List.fromList(withBadByte));
+      expect(result, contains('第1章 标题'));
+      expect(result, contains('尾部'));
+      expect(result, contains('正文内容'));
     });
   });
 }

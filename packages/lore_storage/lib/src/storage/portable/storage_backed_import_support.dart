@@ -76,7 +76,7 @@ mixin _StorageBackedImportSupport on _StorageBackedLibrarySupport {
               id: ContentId(idGenerator.generate()),
               type: ContentNodeType.chapter,
               parentId: bodyId,
-              relativePath: target.value.substring(root.value.length + 1),
+              relativePath: _relativePath(root, target),
               order: bodyChildOrder,
               number: chapterSeq,
               role: ContentRole.normal,
@@ -99,7 +99,7 @@ mixin _StorageBackedImportSupport on _StorageBackedLibrarySupport {
             id: volumeId,
             type: ContentNodeType.volume,
             parentId: bodyId,
-            relativePath: volumePath.value.substring(root.value.length + 1),
+            relativePath: _relativePath(root, volumePath),
             order: bodyChildOrder,
             number: volumeSeq,
             role: ContentRole.normal,
@@ -129,7 +129,7 @@ mixin _StorageBackedImportSupport on _StorageBackedLibrarySupport {
               id: ContentId(idGenerator.generate()),
               type: ContentNodeType.chapter,
               parentId: volumeId,
-              relativePath: target.value.substring(root.value.length + 1),
+              relativePath: _relativePath(root, target),
               order: chapterOrder,
               number: chapterSeq,
               role: ContentRole.normal,
@@ -192,5 +192,11 @@ mixin _StorageBackedImportSupport on _StorageBackedLibrarySupport {
     return format == ChapterFormat.text
         ? '$titleLine\n${chapter.body}'
         : '# $titleLine\n${chapter.body}';
+  }
+
+  /// [target] 相对小说根 [root] 的路径（去掉「根/」前缀），用于
+  /// [ContentNode.relativePath]。集中一处避免三处重复的 substring 脆弱算术。
+  String _relativePath(LogicalPath root, LogicalPath target) {
+    return target.value.substring(root.value.length + 1);
   }
 }

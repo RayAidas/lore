@@ -222,6 +222,8 @@ abstract final class TxtNovelParser {
     if (rootChapters.isNotEmpty) {
       sections.insert(0, ParsedRootChapters(rootChapters));
     }
+    // 丢弃无章节的空卷（连续独立卷头会产生），避免落盘孤儿空卷目录。
+    sections.removeWhere((s) => s is ParsedVolume && s.chapters.isEmpty);
 
     return ParsedTxtNovel(
       titleSuggestion: _titleFromFileName(fileName),
@@ -230,15 +232,42 @@ abstract final class TxtNovelParser {
   }
 
   /// 行首首个非空白字符是否可能为标题起始（不分配新字符串，O(行首)）。
+  ///
+  /// 同时拒绝超长行（标题不会很长，长行是正文段落，借此降低「正文行首提及
+  /// 第N章」被误判为标题的概率）。空白判定须与正则 `\s` 一致（否则像
+  /// `﻿`/` ` 这类前导字符会让预过滤误删正则本可匹配的标题行）。
   static bool _couldBeHeading(String line) {
+    if (line.length > 80) {
+      return false;
+    }
     for (var i = 0; i < line.length; i++) {
       final c = line.codeUnitAt(i);
-      if (c == 0x20 || c == 0x09 || c == 0xA0 || c == 0x3000) {
+      if (_isWhitespace(c)) {
         continue;
       }
       return _starterChars.contains(c);
     }
     return false;
+  }
+
+  /// 与 ECMAScript/Dart `\s` 等价的空白码元判定（预过滤必须比正则宽松，
+  /// 否则会漏判带特殊前导空白的标题行）。
+  static bool _isWhitespace(int c) {
+    return c == 0x09 ||
+        c == 0x0A ||
+        c == 0x0B ||
+        c == 0x0C ||
+        c == 0x0D ||
+        c == 0x20 ||
+        c == 0xA0 ||
+        c == 0x1680 ||
+        c == 0x2028 ||
+        c == 0x2029 ||
+        c == 0x202F ||
+        c == 0x205F ||
+        c == 0x3000 ||
+        c == 0xFEFF ||
+        (c >= 0x2000 && c <= 0x200A);
   }
 
   static String _stripSeparators(String value) {

@@ -183,5 +183,38 @@ void main() {
       );
       expect(parsed.titleSuggestion, '书名');
     });
+
+    test('recognizes headings with exotic leading whitespace (U+FEFF)', () {
+      // 预过滤的空白集须与正则 \s 一致；前导 BOM 等不应让标题被漏判。
+      final parsed = TxtNovelParser.parse(text: '﻿第1章 标题\n正文A\n第2章 续\n正文B');
+      expect(_flat(parsed), hasLength(2));
+      expect(_flat(parsed)[0].subtitle, '标题');
+      expect(_flat(parsed)[1].subtitle, '续');
+    });
+
+    test('drops empty volumes (consecutive standalone volume headers)', () {
+      // 连续独立卷头：前一个卷无章节应被丢弃，不留孤儿空卷。
+      final parsed = TxtNovelParser.parse(text: '第一卷 风起\n第二卷 雨聚\n第一章 雨\n雨正文');
+      expect(parsed.sections, hasLength(1));
+      final vol = parsed.sections.single as ParsedVolume;
+      expect(vol.name, '雨聚');
+      expect(vol.chapters, hasLength(1));
+    });
+
+    test('does not treat a long body line starting with 第N章 as a heading', () {
+      // 超长行（正文段落）即使以「第1章」开头也不应被误判为标题。
+      final parsed = TxtNovelParser.parse(
+        text:
+            '第1章 开端\n开端正文\n'
+            '第1章的秘密就藏在这段非常长的正文叙述里，主角一路前行遇到了许多事情，'
+            '翻山越岭跋山涉水经历了无数艰难险阻，遇见了形形色色的人物与妖兽，'
+            '这段叙述远超任何正常章节标题的长度，理应作为正文保留在第一章之中而不被切分。\n'
+            '第2章 结束\n结束正文',
+      );
+      expect(_flat(parsed), hasLength(2));
+      expect(_flat(parsed)[0].subtitle, '开端');
+      expect(_flat(parsed)[0].body, contains('第1章的秘密'));
+      expect(_flat(parsed)[1].subtitle, '结束');
+    });
   });
 }
