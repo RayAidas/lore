@@ -383,7 +383,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 700));
 
     final editorBefore = tester.element(find.byType(LoreLargeTextEditor));
     // 聚焦副标题字段（标题栏的 TextField 排在编辑器正文块之前）。
@@ -450,7 +450,7 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 700));
 
       // 标题渲染为编辑器的后代（滚动视口 header），而非与编辑器并列的固定节点。
       expect(
@@ -888,6 +888,207 @@ void main() {
     await tester.pump();
     expect(treeRepo.lastCharacterCounts, isNotNull);
     expect(treeRepo.lastCharacterCounts![ContentId('chapter-1')], isNotNull);
+  });
+
+  // ---- Tab 批量关闭（右键菜单「关闭其他/关闭右侧/关闭全部」的底层支持）----
+
+  testWidgets('closeOthers closes every tab except the kept one', (
+    tester,
+  ) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = buildController(repository);
+    addTearDown(repository.dispose);
+    await controller.initialize();
+    await controller.openPath('a.txt');
+    await controller.openPath('b.txt');
+    await controller.openPath('c.txt');
+    final keep = controller.tabs[1]; // b
+
+    final stuck = await controller.closeOthers(keep);
+
+    expect(stuck, isEmpty);
+    expect(controller.tabs, hasLength(1));
+    expect(controller.tabs.single.relativePath, 'b.txt');
+    controller.dispose();
+  });
+
+  testWidgets('closeTabsToRight closes only tabs right of the anchor', (
+    tester,
+  ) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = buildController(repository);
+    addTearDown(repository.dispose);
+    await controller.initialize();
+    await controller.openPath('a.txt');
+    await controller.openPath('b.txt');
+    await controller.openPath('c.txt');
+    await controller.openPath('d.txt');
+    final anchor = controller.tabs[1]; // b
+
+    final stuck = await controller.closeTabsToRight(anchor);
+
+    expect(stuck, isEmpty);
+    expect(
+      controller.tabs.map((t) => t.relativePath).toList(),
+      ['a.txt', 'b.txt'],
+    );
+    controller.dispose();
+  });
+
+  testWidgets('closeAllTabs closes every tab', (tester) async {
+    final repository = _MemoryWorkspaceRepository();
+    final controller = buildController(repository);
+    addTearDown(repository.dispose);
+    await controller.initialize();
+    await controller.openPath('a.txt');
+    await controller.openPath('b.txt');
+
+    final stuck = await controller.closeAllTabs();
+
+    expect(stuck, isEmpty);
+    expect(controller.tabs, isEmpty);
+    expect(controller.activePath, isNull);
+    controller.dispose();
+  });
+
+  testWidgets('closeOthers skips conflict tabs and reports them as stuck', (
+    tester,
+  ) async {
+    // 让 b 进入冲突态：本地改动 + 推进磁盘 revision，触发自动保存冲突——
+    // 与「external modification enters conflict」同一路径，稳定可复现。
+    final repository = _MemoryWorkspaceRepository();
+    final controller = buildController(repository);
+    addTearDown(repository.dispose);
+    await controller.initialize();
+    await controller.openPath('a.txt');
+    await controller.openPath('b.txt');
+    await controller.openPath('c.txt');
+    final b = controller.documents[1];
+    await controller.activateTab(b);
+    b.editorController.text = '本地修改';
+    repository.revision = 2;
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pump();
+    expect(b.saveStatus, DocumentSaveStatus.conflict);
+
+    final stuck = await controller.closeOthers(controller.tabs[0]); // keep a
+
+    expect(stuck, hasLength(1));
+    expect(stuck.single.relativePath, 'b.txt');
+    // keep a 保留、冲突 b 跳过保留、干净的 c 被关闭。
+    expect(
+      controller.tabs.map((t) => t.relativePath).toList(),
+      ['a.txt', 'b.txt'],
+    );
+    controller.dispose();
+  });
+
+  // ---- 会话恢复产生的 DeferredDocument 与批量关闭的交互 ----
+  // 回归：close(活动)→unawaited(activateTab(Deferred 邻居))→close(邻居) 曾与
+  // _loadDeferredDocument 的异步重插/dispose 竞态，导致泄漏幽灵 tab 或重复 dispose。
+
+  testWidgets('closeAllTabs empties restored deferred tabs without leaking', (
+    tester,
+  ) async {
+    // 会话恢复：a 为活动（加载为 OpenDocument），b/c 保持 DeferredDocument 占位。
+    final sessions = _MemorySessionRepository(
+      value: const WorkspaceSessionSnapshot(
+        documents: [
+          WorkspaceDocumentState(
+            relativePath: 'a.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+          WorkspaceDocumentState(
+            relativePath: 'b.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+          WorkspaceDocumentState(
+            relativePath: 'c.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+        ],
+        activePath: 'a.txt',
+      ),
+    );
+    final repository = _MemoryWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: sessions,
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    expect(controller.tabs, hasLength(3));
+    expect(controller.documents, hasLength(1)); // 仅活动 a 加载，b/c 为 Deferred。
+
+    final stuck = await controller.closeAllTabs();
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(stuck, isEmpty);
+    expect(controller.tabs, isEmpty);
+    expect(controller.activePath, isNull);
+  });
+
+  testWidgets('closeOthers keeps the target tab among deferred neighbors', (
+    tester,
+  ) async {
+    final sessions = _MemorySessionRepository(
+      value: const WorkspaceSessionSnapshot(
+        documents: [
+          WorkspaceDocumentState(
+            relativePath: 'a.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+          WorkspaceDocumentState(
+            relativePath: 'b.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+          WorkspaceDocumentState(
+            relativePath: 'c.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+        ],
+        activePath: 'a.txt',
+      ),
+    );
+    final repository = _MemoryWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: sessions,
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    // tabs = [OpenA(活动), DeferredB, DeferredC]；保留 c（Deferred）。
+    final keep = controller.tabs[2];
+
+    final stuck = await controller.closeOthers(keep);
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(stuck, isEmpty);
+    expect(controller.tabs, hasLength(1));
+    // c 被保留（关 a 时激活邻居 c，可能已加载为 OpenDocument，路径不变）。
+    expect(controller.tabs.single.relativePath, 'c.txt');
   });
 }
 

@@ -19,6 +19,7 @@ import 'library_sidebar.dart';
 import 'novel_structure_pane.dart';
 import 'trash_pane.dart';
 import 'workspace_controller.dart';
+import 'workspace_entry_actions.dart';
 import 'workspace_inspector.dart';
 
 /// 写作工作区主页：侧栏 + 内容区 + 工具栏三栏布局，按宽度自适应。
@@ -270,6 +271,8 @@ final class _LibraryWorkspacePageState
         DocumentTabs(
           controller: controller,
           onClose: (document) => _closeDocument(controller, document),
+          onContextMenu: (tab, offset) =>
+              _showTabContextMenu(controller, tab, offset),
         ),
         const Divider(height: 1),
         Expanded(
@@ -323,6 +326,107 @@ final class _LibraryWorkspacePageState
             ),
       );
     }
+  }
+
+  /// 右键/长按标签时弹出上下文菜单：标签管理（关闭类）+ 文件操作（重命名/
+  /// 复制路径/Finder/移到回收站）。右键不激活标签——动作直接作用于被右键的 tab。
+  void _showTabContextMenu(
+    WorkspaceController controller,
+    WorkspaceTab tab,
+    Offset position,
+  ) {
+    showLoreContextMenu(
+      context: context,
+      position: position,
+      items: _buildTabContextMenuItems(controller, tab),
+    );
+  }
+
+  List<LoreContextMenuItem> _buildTabContextMenuItems(
+    WorkspaceController controller,
+    WorkspaceTab tab,
+  ) {
+    return <LoreContextMenuItem>[
+      LoreContextMenuItem(
+        label: '关闭',
+        onTap: () => unawaited(_closeDocument(controller, tab)),
+      ),
+      LoreContextMenuItem(
+        label: '关闭其他',
+        onTap: () => unawaited(_closeBatch(() => controller.closeOthers(tab))),
+      ),
+      LoreContextMenuItem(
+        label: '关闭右侧',
+        onTap: () => unawaited(
+          _closeBatch(() => controller.closeTabsToRight(tab)),
+        ),
+      ),
+      LoreContextMenuItem(
+        label: '关闭全部',
+        onTap: () => unawaited(_closeBatch(controller.closeAllTabs)),
+      ),
+      LoreContextMenuItem(
+        label: '重命名',
+        onTap: () => unawaited(
+          renameDocumentFlow(
+            context: context,
+            controller: controller,
+            relativePath: tab.relativePath,
+            displayName: tab.name,
+          ),
+        ),
+      ),
+      LoreContextMenuItem(
+        label: '复制路径',
+        onTap: () => unawaited(_copyTabPath(tab)),
+      ),
+      if (controller.revealGateway != null)
+        LoreContextMenuItem(
+          label: '在 Finder 中显示',
+          onTap: () => unawaited(controller.revealEntry(tab.relativePath)),
+        ),
+      LoreContextMenuItem(
+        label: '移到回收站',
+        destructive: true,
+        onTap: () => unawaited(
+          deleteDocumentFlow(
+            context: context,
+            controller: controller,
+            relativePath: tab.relativePath,
+            displayName: tab.name,
+          ),
+        ),
+      ),
+    ];
+  }
+
+  Future<void> _copyTabPath(WorkspaceTab tab) async {
+    await Clipboard.setData(ClipboardData(text: tab.relativePath));
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已复制路径'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// 执行批量关闭；若存在因冲突无法关闭的标签，提示用户先处理。
+  Future<void> _closeBatch(
+    Future<List<WorkspaceTab>> Function() action,
+  ) async {
+    final stuck = await action();
+    if (!mounted || stuck.isEmpty) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${stuck.length} 个标签因冲突未关闭，请先处理'),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   Future<void> _reloadConflict(

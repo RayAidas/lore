@@ -1,9 +1,14 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import 'workspace_controller.dart';
+
+/// 标签右键/长按上下文菜单回调：携带目标标签与触发的全局坐标。
+typedef TabContextMenuCallback =
+    void Function(WorkspaceTab tab, Offset globalPosition);
 
 /// 文档标签条：水平滚动，展示已打开文档，支持激活与关闭。
 ///
@@ -15,11 +20,13 @@ final class DocumentTabs extends StatelessWidget {
   const DocumentTabs({
     required this.controller,
     required this.onClose,
+    this.onContextMenu,
     super.key,
   });
 
   final WorkspaceController controller;
   final Future<void> Function(WorkspaceTab tab) onClose;
+  final TabContextMenuCallback? onContextMenu;
 
   static const double barHeight = 38;
 
@@ -62,6 +69,7 @@ final class DocumentTabs extends StatelessWidget {
                         active: active,
                         onTap: () => unawaited(controller.activateTab(tab)),
                         onClose: () => unawaited(onClose(tab)),
+                        onContextMenu: onContextMenu,
                       ),
                     );
                   },
@@ -75,18 +83,20 @@ final class DocumentTabs extends StatelessWidget {
   }
 }
 
-class _TabChip extends StatelessWidget {
+class _TabChip extends StatefulWidget {
   const _TabChip({
     required this.tab,
     required this.active,
     required this.onTap,
     required this.onClose,
+    this.onContextMenu,
   });
 
   final WorkspaceTab tab;
   final bool active;
   final VoidCallback onTap;
   final VoidCallback onClose;
+  final TabContextMenuCallback? onContextMenu;
 
   /// 标签内容区（图标 + 文件名 + 关闭按钮）的最大宽度（像素）。
   static const double maxWidth = 220;
@@ -96,9 +106,33 @@ class _TabChip extends StatelessWidget {
   );
 
   @override
+  State<_TabChip> createState() => _TabChipState();
+}
+
+class _TabChipState extends State<_TabChip> {
+  // 桌面端 InkWell 会把鼠标右键 up 误当 onTap 触发，导致右键弹菜单的同时
+  // 误激活标签。这里在 [Listener.onPointerDown] 阶段按按钮同步置位/复位
+  // （与目录树 _TreeRowState 一致）：指针事件在手势竞技场裁决之前同步分发，
+  // 保证右键标志一定先于可能误触的 onTap 就绪。
+  bool _secondaryArmed = false;
+
+  void _handlePointerDown(PointerDownEvent event) {
+    if (event.buttons == kSecondaryButton) {
+      _secondaryArmed = true;
+    } else if (event.buttons == kPrimaryButton) {
+      // 右键标志若未被误触的 onTap 消费，不能跨到下一次左键点击，否则
+      // 右键后第一次左键会被吞掉。下一次主键 down 时复位。
+      _secondaryArmed = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final tab = widget.tab;
+    final active = widget.active;
+    final onContextMenu = widget.onContextMenu;
     final isMarkdown = p.extension(tab.name).toLowerCase() == '.md';
     // 与左侧目录树一致：文本文件隐藏 `.txt` 后缀，Markdown 等保留扩展名。
     final displayName = _tabDisplayName(tab.name);
@@ -111,54 +145,73 @@ class _TabChip extends StatelessWidget {
         label: displayName,
         selected: active,
         button: true,
-        child: Material(
-          color: active ? colorScheme.surfaceContainerLow : Colors.transparent,
-          borderRadius: _borderRadius,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: _borderRadius,
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: maxWidth),
-              padding: const EdgeInsets.only(left: 10, right: 4),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    isMarkdown
-                        ? Icons.description_outlined
-                        : Icons.text_snippet_outlined,
-                    size: 15,
-                    color: active
-                        ? colorScheme.primary
-                        : colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 7),
-                  Flexible(
-                    child: Text(
-                      displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: active
-                            ? colorScheme.onSurface
-                            : colorScheme.onSurfaceVariant,
+        child: Listener(
+          onPointerDown: _handlePointerDown,
+          child: Material(
+            color: active ? colorScheme.surfaceContainerLow : Colors.transparent,
+            borderRadius: _TabChip._borderRadius,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () {
+                if (!_secondaryArmed) {
+                  widget.onTap();
+                }
+                _secondaryArmed = false;
+              },
+              onSecondaryTapUp: onContextMenu == null
+                  ? null
+                  : (details) => onContextMenu(tab, details.globalPosition),
+              onLongPress: onContextMenu == null
+                  ? null
+                  : () {
+                      final box = context.findRenderObject() as RenderBox?;
+                      if (box != null) {
+                        onContextMenu(tab, box.localToGlobal(Offset.zero));
+                      }
+                    },
+              borderRadius: _TabChip._borderRadius,
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: _TabChip.maxWidth),
+                padding: const EdgeInsets.only(left: 10, right: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isMarkdown
+                          ? Icons.description_outlined
+                          : Icons.text_snippet_outlined,
+                      size: 15,
+                      color: active
+                          ? colorScheme.primary
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 7),
+                    Flexible(
+                      child: Text(
+                        displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: active
+                              ? colorScheme.onSurface
+                              : colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
-                  ),
-                  if (tab.hasUnsavedChanges)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 6, right: 2),
-                      child: Icon(
-                        Icons.circle,
-                        size: 7,
-                        color: colorScheme.primary,
+                    if (tab.hasUnsavedChanges)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 6, right: 2),
+                        child: Icon(
+                          Icons.circle,
+                          size: 7,
+                          color: colorScheme.primary,
+                        ),
                       ),
-                    ),
-                  _TabCloseButton(onPressed: onClose),
-                ],
+                    _TabCloseButton(onPressed: widget.onClose),
+                  ],
+                ),
               ),
             ),
           ),

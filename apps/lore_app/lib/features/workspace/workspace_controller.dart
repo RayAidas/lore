@@ -235,6 +235,19 @@ final class WorkspaceController extends ChangeNotifier {
     _notify();
   }
 
+  /// 按路径查询注册章节节点：供 tab 右键菜单判断「重命名/删除」应走结构服务
+  /// （[renameContentNode]/[deleteContentNode]）还是普通文件操作
+  /// （[renameSelected]/[deleteSelectedEntry]）。散文件返回 null。
+  ({NovelId novelId, ContentId nodeId})? chapterNodeForPath(
+    String relativePath,
+  ) {
+    final match = _novelStore.chapterNodeForPath(relativePath);
+    if (match == null) {
+      return null;
+    }
+    return (novelId: match.novel.metadata.id, nodeId: match.node.id);
+  }
+
   void dismissWorkspaceFailure() {
     _workspaceFailure = null;
     _notify();
@@ -494,6 +507,65 @@ final class WorkspaceController extends ChangeNotifier {
 
   Future<bool> closeDocument(OpenDocument document) =>
       _tabsStore.closeDocument(document);
+
+  /// 批量关闭：逐个尝试 [closeTab]，冲突态等无法保存的 tab 保留并出现在返回
+  /// 列表中（供 UI 提示「N 个标签未关闭」）。
+  ///
+  /// 以**相对路径**而非 tab 实例作为关闭目标，并在每次关闭前按路径重新查找
+  /// 当前实例——Deferred→OpenDocument 的就地激活会替换实例，按路径键控可避免
+  /// 漏关。非活动路径先关、活动路径最后关：关闭活动 tab 会触发
+  /// `unawaited(activateTab(邻居))`，若邻居是 DeferredDocument 且也在候选中，
+  /// 其后 `_loadDeferredDocument` 的异步重插/dispose 会与后续关闭竞态（泄漏幽灵
+  /// tab 或重复 dispose）；把活动留到最后，候选中的 Deferred 邻居已被先行关闭，
+  /// 激活只会作用于非候选 tab。
+  Future<List<WorkspaceTab>> closeOthers(WorkspaceTab keep) => _closePaths([
+    for (final tab in tabs)
+      if (tab.relativePath != keep.relativePath) tab.relativePath,
+  ]);
+
+  Future<List<WorkspaceTab>> closeTabsToRight(WorkspaceTab anchor) {
+    final anchorPath = anchor.relativePath;
+    final index = tabs.indexWhere((tab) => tab.relativePath == anchorPath);
+    if (index < 0) {
+      return Future.value(const <WorkspaceTab>[]);
+    }
+    return _closePaths([
+      for (final tab in tabs.sublist(index + 1)) tab.relativePath,
+    ]);
+  }
+
+  Future<List<WorkspaceTab>> closeAllTabs() =>
+      _closePaths([for (final tab in tabs) tab.relativePath]);
+
+  Future<List<WorkspaceTab>> _closePaths(List<String> paths) async {
+    final stuck = <WorkspaceTab>[];
+    final active = activePath;
+    // 非活动先关、活动最后关——见上方文档注释对 activateTab 竞态的说明。
+    final ordered = <String>[
+      ...paths.where((path) => path != active),
+      ...paths.where((path) => path == active),
+    ];
+    for (final path in ordered) {
+      final tab = _tabForPath(path);
+      if (tab == null) {
+        continue; // 已被前面关闭波及（如目录删除连带）。
+      }
+      if (!await closeTab(tab)) {
+        stuck.add(tab);
+      }
+    }
+    return stuck;
+  }
+
+  /// 按相对路径查找当前 tab 实例（Deferred 激活会替换实例，故每次重查）。
+  WorkspaceTab? _tabForPath(String relativePath) {
+    for (final tab in tabs) {
+      if (tab.relativePath == relativePath) {
+        return tab;
+      }
+    }
+    return null;
+  }
 
   Future<bool> flushAll() => _tabsStore.flushAll();
 

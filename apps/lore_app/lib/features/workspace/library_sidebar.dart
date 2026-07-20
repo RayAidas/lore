@@ -12,6 +12,7 @@ import '../preferences/preferences_providers.dart';
 import 'library_failure_snackbar.dart';
 import 'workspace_controller.dart';
 import 'workspace_directory_tree.dart';
+import 'workspace_entry_actions.dart';
 
 /// 目录树右键菜单的可选动作。
 enum _ContextMenuAction {
@@ -143,7 +144,6 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
         );
         return;
       case LibraryEntrySemanticKind.volume:
-      case LibraryEntrySemanticKind.chapter:
         await _confirmAndDelete(
           entry,
           () => widget.controller.deleteContentNode(
@@ -152,8 +152,15 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
           ),
         );
         return;
+      case LibraryEntrySemanticKind.chapter:
       case null:
-        await _confirmAndDelete(entry, widget.controller.deleteSelectedEntry);
+        // 文档文件（章节/散文件）：走共享删除流程，与标签栏右键菜单共用。
+        await deleteDocumentFlow(
+          context: context,
+          controller: widget.controller,
+          relativePath: entry.relativePath,
+          displayName: entry.name,
+        );
         return;
     }
   }
@@ -189,28 +196,34 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
   }
 
   Future<void> _renameSelected(LibraryEntry entry) async {
-    final isDocument =
-        !entry.isDirectory && entry.type != LibraryEntryType.otherFile;
-    final initial = isDocument
-        ? p.basenameWithoutExtension(entry.name)
-        : entry.name;
+    // 文档文件（章节/散文件）：走共享文档重命名流程——按路径判断走结构服务或
+    // 普通重命名，与标签栏右键菜单共用同一入口，避免两处复制分支逻辑。
+    if (!entry.isDirectory && entry.type != LibraryEntryType.otherFile) {
+      await renameDocumentFlow(
+        context: context,
+        controller: widget.controller,
+        relativePath: entry.relativePath,
+        displayName: entry.name,
+      );
+      return;
+    }
+    // 目录型结构节点（小说/正文/卷）：统一 prompt + 专用结构方法。
     final name = await _promptName(
       title: '重命名',
       label: '新名称',
-      initialValue: initial,
-      suffix: isDocument ? p.extension(entry.name) : null,
+      initialValue: entry.name,
     );
     if (name == null) {
       return;
     }
-    try {
+    await _runMutation(() async {
       final novelId = entry.novelId == null ? null : NovelId(entry.novelId!);
       await switch (entry.semanticKind) {
         LibraryEntrySemanticKind.novel when novelId != null =>
           widget.controller.renameNovel(novelId, name),
         LibraryEntrySemanticKind.body when novelId != null =>
           widget.controller.renameBody(novelId, name),
-        LibraryEntrySemanticKind.volume || LibraryEntrySemanticKind.chapter
+        LibraryEntrySemanticKind.volume
             when novelId != null && entry.semanticId != null =>
           widget.controller.renameContentNode(
             novelId,
@@ -219,9 +232,7 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
           ),
         _ => widget.controller.renameSelected(name),
       };
-    } on LibraryOperationException catch (error) {
-      _showFailure(error.failure);
-    }
+    });
   }
 
   Future<String?> _promptName({
