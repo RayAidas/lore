@@ -477,8 +477,10 @@ void main() {
   });
 
   test(
-    'continuous mode: renamed chapter reflects its new filename number',
+    'continuous mode permits duplicate numbers across volumes after rename',
     () async {
+      // continuous 模式编号全局共享，但跨卷重命名为已存在的编号不会被拒绝：
+      // 记录此契约，防止未来加冲突校验时无声改变行为。
       await repository.initialize(access);
       final novel = await repository.createNovel(access, title: '长夜行');
       final novelId = novel.snapshot.metadata.id;
@@ -505,11 +507,117 @@ void main() {
         nodeId: volumeChapterId,
         newName: '第1章.md',
       );
-      final renamedNode = renamed.snapshot.contentTree.nodes.firstWhere(
-        (node) => node.id == volumeChapterId,
+      // 被重命名章节的 number 与新文件名一致，且与正文根第1章构成重复编号
+      // （卷与章编号空间独立，故只统计章节）。
+      final ones = renamed.snapshot.contentTree.nodes
+          .where(
+            (node) =>
+                node.type == ContentNodeType.chapter && node.number == 1,
+          )
+          .toList();
+      expect(ones, hasLength(2));
+    },
+  );
+
+  test(
+    'reverts chapter role and number when renamed from extra back to numbered',
+    () async {
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '长夜行');
+      final novelId = novel.snapshot.metadata.id;
+      final chapter = await repository.createChapter(
+        access,
+        novelId: novelId,
+      ); // 第1章
+      final chapterId = chapter.snapshot.contentTree.nodes.last.id;
+
+      // 先改为番外（role→extra, number→null），再改回第5章（role→normal, number→5）。
+      await repository.renameNode(
+        access,
+        novelId: novelId,
+        nodeId: chapterId,
+        newName: '番外.md',
       );
-      // number 与新文件名一致：跨卷同号不被拒绝，但元数据不再错位。
-      expect(renamedNode.number, 1);
+      final reverted = await repository.renameNode(
+        access,
+        novelId: novelId,
+        nodeId: chapterId,
+        newName: '第5章.md',
+      );
+      final revertedNode = reverted.snapshot.contentTree.nodes.firstWhere(
+        (node) => node.id == chapterId,
+      );
+      expect(revertedNode.role, ContentRole.normal);
+      expect(revertedNode.number, 5);
+    },
+  );
+
+  test(
+    'scanner leaves non-ASCII numeral volume names without a number',
+    () async {
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '长夜行');
+      final novelId = novel.snapshot.metadata.id;
+      // 中文数字卷名「第一卷」无法用 ASCII 数字正则解析 → number 为 null。
+      await Directory(
+        '${root.path}/长夜行/正文/第一卷',
+      ).create(recursive: true);
+
+      final reconciled = await repository.reconcile(
+        access,
+        novelId: novelId,
+      );
+      final volume = reconciled.snapshot.contentTree.nodes.firstWhere(
+        (node) => node.type == ContentNodeType.volume,
+      );
+      expect(volume.number, isNull);
+    },
+  );
+
+  test(
+    'scanner recomputes number and role on external chapter rename',
+    () async {
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '长夜行');
+      final novelId = novel.snapshot.metadata.id;
+      await repository.createChapter(access, novelId: novelId); // 第1章
+      // 模拟外部重命名：第1章.md → 序章.md。
+      await File('${root.path}/长夜行/正文/第1章.md').rename(
+        '${root.path}/长夜行/正文/序章.md',
+      );
+
+      final reconciled = await repository.reconcile(
+        access,
+        novelId: novelId,
+      );
+      final node = reconciled.snapshot.contentTree.nodes
+          .where((node) => node.type == ContentNodeType.chapter)
+          .single;
+      expect(node.role, ContentRole.prologue);
+      expect(node.number, isNull);
+    },
+  );
+
+  test(
+    'scanner recomputes volume number on external rename',
+    () async {
+      await repository.initialize(access);
+      final novel = await repository.createNovel(access, title: '长夜行');
+      final novelId = novel.snapshot.metadata.id;
+      await repository.createVolume(access, novelId: novelId); // 第1卷
+      // 模拟外部重命名：第1卷 → 第5卷。
+      await Directory('${root.path}/长夜行/正文/第1卷').rename(
+        '${root.path}/长夜行/正文/第5卷',
+      );
+
+      final reconciled = await repository.reconcile(
+        access,
+        novelId: novelId,
+      );
+      final volume = reconciled.snapshot.contentTree.nodes
+          .where((node) => node.type == ContentNodeType.volume)
+          .single;
+      expect(volume.number, 5);
     },
   );
 }

@@ -307,8 +307,10 @@ mixin _StorageBackedLibrarySupport {
       for (final relativePath in chapterPaths) {
         final matched = matches[relativePath];
         if (matched != null) {
+          // 已匹配节点（含 1:1 重命名检测）按当前文件名重算 number/role，
+          // 否则外部重命名后元数据会与文件名错位。
           nodes.add(
-            matched.copyWith(parentId: parentId, relativePath: relativePath),
+            _renumberNode(matched.copyWith(parentId: parentId), relativePath),
           );
         } else {
           nodes.add(
@@ -334,18 +336,22 @@ mixin _StorageBackedLibrarySupport {
           ? exact
           : renamedVolume;
       final previousPath = matched?.relativePath ?? relative;
-      final volume =
-          matched?.copyWith(relativePath: relative) ??
-          ContentNode(
-            id: ContentId(idGenerator.generate()),
-            type: ContentNodeType.volume,
-            parentId: metadata.body.id,
-            relativePath: relative,
-            order: rootOrder,
-            // 与章节一致：从「第N卷」文件名解析编号；非编号卷名（如「外传」）为 null。
-            number: _volumeNumber(relative),
-            role: ContentRole.normal,
-          );
+      final volume = matched != null
+          // 已匹配卷（含重命名检测）按当前目录名重算 number。
+          ? _renumberNode(
+              matched.copyWith(parentId: metadata.body.id),
+              relative,
+            )
+          : ContentNode(
+              id: ContentId(idGenerator.generate()),
+              type: ContentNodeType.volume,
+              parentId: metadata.body.id,
+              relativePath: relative,
+              order: rootOrder,
+              // 与章节一致：从「第N卷」文件名解析编号；非编号卷名（如「外传」）为 null。
+              number: _volumeNumber(relative),
+              role: ContentRole.normal,
+            );
       if (matched == null) {
         rootOrder += 1000;
       }
@@ -915,6 +921,27 @@ mixin _StorageBackedLibrarySupport {
     if (stem.startsWith('后记')) return ContentRole.epilogue;
     if (stem.startsWith('番外')) return ContentRole.extra;
     return ContentRole.normal;
+  }
+
+  /// 按 [relativePath] 的文件名重算节点派生字段（number、role）并更新路径。
+  ///
+  /// 章节用 `_chapterNumber`、卷用 `_volumeNumber`。重命名为无编号名字（如
+  /// 「第3章」→「楔子」）时 number 解析为 null 并清空——该编号不再被
+  /// `_maxNumber` 计入；若它恰为最大编号，下次新建即复用，否则不会回填
+  /// 空洞，仅保持元数据与文件名一致。章节 role 按前缀（序章/后记/番外）
+  /// 重算，卷恒为 normal。供 `renameNode` 与扫描器的「已匹配/重命名检测」
+  /// 分支共用，确保两条路径行为一致。
+  ContentNode _renumberNode(ContentNode node, String relativePath) {
+    final isChapter = node.type == ContentNodeType.chapter;
+    final parsed = isChapter
+        ? _chapterNumber(relativePath)
+        : _volumeNumber(relativePath);
+    return node.copyWith(
+      relativePath: relativePath,
+      number: parsed,
+      clearNumber: parsed == null,
+      role: isChapter ? _chapterRole(relativePath) : node.role,
+    );
   }
 
   LibraryOperationException _invalid(String message) =>

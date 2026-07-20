@@ -725,21 +725,9 @@ final class StorageBackedLibraryRepository
     final nodes = snapshot.contentTree.nodes
         .map((candidate) {
           if (candidate.id == nodeId) {
-            // 重命名后按新文件名同步重算派生字段，避免元数据与文件名不一致
-            // （否则「删第2章→第3章重命名为第2章→新建」会得到第4章）。
-            // number：重命名为无编号名字（如「第3章」→「楔子」）时清空，
-            // 释放槽位，使下次新建回填该编号，避免幽灵槽位残留。
-            // role：章节角色（序章/后记/番外）同样按新名重算。
-            final isChapter = node.type == ContentNodeType.chapter;
-            final parsed = isChapter
-                ? _chapterNumber(newRelative)
-                : _volumeNumber(newRelative);
-            return candidate.copyWith(
-              relativePath: newRelative,
-              number: parsed,
-              clearNumber: parsed == null,
-              role: isChapter ? _chapterRole(newRelative) : candidate.role,
-            );
+            // 按新文件名重算 number/role，避免元数据与文件名错位
+            // （否则「删第2章→第3章重命名为第2章→新建」会得到第4章）。详见 _renumberNode。
+            return _renumberNode(candidate, newRelative);
           }
           if (node.type == ContentNodeType.volume &&
               candidate.relativePath.startsWith('$oldRelative/')) {
