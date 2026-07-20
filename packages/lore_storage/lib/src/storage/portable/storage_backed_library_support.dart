@@ -342,11 +342,8 @@ mixin _StorageBackedLibrarySupport {
             parentId: metadata.body.id,
             relativePath: relative,
             order: rootOrder,
-            number:
-                nodes
-                    .where((node) => node.type == ContentNodeType.volume)
-                    .length +
-                1,
+            // 与章节一致：从「第N卷」文件名解析编号；非编号卷名（如「外传」）为 null。
+            number: _volumeNumber(relative),
             role: ContentRole.normal,
           );
       if (matched == null) {
