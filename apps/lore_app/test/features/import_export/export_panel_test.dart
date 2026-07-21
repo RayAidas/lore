@@ -45,7 +45,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('导出'));
-    // 取消路径不弹 SnackBar，但 _exporting 状态切换可能调度一帧定时器；
+    // 取消路径不弹 toast，但 _exporting 状态切换可能调度一帧定时器；
     // 用 pump 推进即可，避免 pumpAndSettle 卡在其它测试用例的副作用上。
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pump(const Duration(milliseconds: 50));
@@ -54,11 +54,11 @@ void main() {
     // 即使取消，组好的正文仍以 bytes 形式传入 saveFile（先组后弹）。
     expect(fake.lastSaveBytes, isNotNull);
     expect(fake.lastSaveText, contains('正文段落'));
-    // 取消时不弹成功 SnackBar。
+    // 取消时不弹成功 toast。
     expect(find.textContaining('已导出'), findsNothing);
   });
 
-  testWidgets('export shows success snackbar and bytes contain chapter text', (
+  testWidgets('export shows success toast and bytes contain chapter text', (
     tester,
   ) async {
     final snapshot = buildSnapshot();
@@ -86,9 +86,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('导出'));
-    // 用固定 pump 推进，避免 pumpAndSettle 被 SnackBar/Process.run 的长时
-    // 计时器卡住：导出面板的 maybePop + SnackBar(showSnackBar 4s) + macOS
-    // 上的 `open -R` 都会调度定时器，pumpAndSettle 难以收敛。
+    // 用固定 pump 推进，避免 pumpAndSettle 被 toast/Process.run 的长时
+    // 计时器卡住：导出面板的 maybePop + toast(停留 4s) + macOS 上的
+    // `open -R` 都会调度定时器，pumpAndSettle 难以收敛。
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -136,7 +136,7 @@ void main() {
       await tester.pump();
 
       await tester.tap(find.text('导出'));
-      // 同上：失败的 SnackBar 也会调度定时器，用 pump 推进即可。
+      // 同上：失败的 toast 也会调度定时器，用 pump 推进即可。
       await tester.pump(const Duration(milliseconds: 50));
       await tester.pump(const Duration(milliseconds: 50));
 
@@ -175,7 +175,7 @@ void main() {
 
       await tester.tap(find.text('导出'));
       // PlatformException 在内层 try 被专门捕获，弹失败提示后 return；与其它
-      // 导出用例一致，用固定 pump 推进，避免长 SnackBar 定时器卡 pumpAndSettle。
+      // 导出用例一致，用固定 pump 推进，避免长 toast 定时器卡 pumpAndSettle。
       await tester.pump(const Duration(milliseconds: 50));
       await tester.pump(const Duration(milliseconds: 50));
 

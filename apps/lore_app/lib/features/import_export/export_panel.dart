@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
+import 'package:lore_ui/lore_ui.dart';
 
 import '../workspace/library_failure_snackbar.dart';
 import '../workspace/workspace_controller.dart';
@@ -298,15 +299,15 @@ class _ExportPanelState extends State<ExportPanel> {
       if (!mounted) {
         return;
       }
-      // 先取 messenger 再 pop，避免 pop 后 context 失效。
-      final messenger = ScaffoldMessenger.of(context);
-      Navigator.of(context).maybePop();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('已导出 ${composed.chapterCount} 章到「$path」。'),
-          duration: const Duration(seconds: 4),
-        ),
+      // 先弹 toast 再 pop：toast 走根 Overlay，pop 后仍留存；而 context 在
+      // pop 后失效，故必须在 pop 之前 show。
+      LoreToast.show(
+        context,
+        message: '已导出 ${composed.chapterCount} 章到「$path」。',
+        type: LoreToastType.success,
+        duration: const Duration(seconds: 4),
       );
+      Navigator.of(context).maybePop();
       // 导出成功后在宿主平台定位产出文件（macOS 走 `open -R`）；
       // 失败非致命（导出本身已成功）。实现经 widget.revealInFinder 注入，
       // 单测传 no-op 即可避免真的派生 Finder 进程。
@@ -380,9 +381,9 @@ class _ExportPanelState extends State<ExportPanel> {
     final textTheme = Theme.of(context).textTheme;
     final title = widget.snapshot.metadata.title;
     return Dialog(
-      backgroundColor: colorScheme.surfaceContainerHigh,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: colorScheme.surfaceContainerLowest,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: Padding(
@@ -391,22 +392,34 @@ class _ExportPanelState extends State<ExportPanel> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // —— 标题区 ——
               Row(
                 children: [
-                  Icon(
-                    Icons.file_download_outlined,
-                    size: 22,
-                    color: colorScheme.primary,
+                  Container(
+                    width: 36,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Icon(
+                      Icons.file_download_outlined,
+                      size: 20,
+                      color: colorScheme.onPrimaryContainer,
+                    ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           '导出 · $title',
                           style: textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w600,
+                            letterSpacing: -0.1,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -428,10 +441,8 @@ class _ExportPanelState extends State<ExportPanel> {
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
-              Divider(height: 1, color: colorScheme.outlineVariant),
-              const SizedBox(height: 8),
-              // 选项行。
+              const SizedBox(height: 14),
+              // —— 格式选项 ——
               Row(
                 children: [
                   Expanded(
@@ -451,38 +462,48 @@ class _ExportPanelState extends State<ExportPanel> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              // 全选行。
-              InkWell(
-                onTap: () => _toggleAll(!_allSelected),
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 6,
-                  ),
-                  child: Row(
-                    children: [
-                      Checkbox(
-                        value: _allSelected,
-                        onChanged: _toggleAll,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '全选（${_selected.length}/${_allIds.length}）',
-                        style: textTheme.labelLarge,
-                      ),
-                    ],
+              const SizedBox(height: 12),
+              // —— 全选行 ——
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: InkWell(
+                  onTap: () => _toggleAll(!_allSelected),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Checkbox(
+                          value: _allSelected,
+                          onChanged: _toggleAll,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          '全选（${_selected.length}/${_allIds.length}）',
+                          style: textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
+              // —— 章节列表 ——
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 280),
                 child: ListView(
                   shrinkWrap: true,
-                  padding: EdgeInsets.zero,
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
                   children: [
                     for (final group in _groups) ...[
                       _groupHeader(group),
@@ -494,18 +515,19 @@ class _ExportPanelState extends State<ExportPanel> {
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
+              // —— 文件名 ——
               TextField(
                 controller: _fileNameController,
                 decoration: const InputDecoration(
                   labelText: '文件名',
                   helperText: '保存位置将在下一步选择。',
                   isDense: true,
-                  border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.description_outlined, size: 18),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
+              // —— 操作按钮 ——
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -513,14 +535,7 @@ class _ExportPanelState extends State<ExportPanel> {
                     onPressed: _exporting
                         ? null
                         : () => Navigator.of(context).maybePop(),
-                    style: TextButton.styleFrom(
-                      foregroundColor: colorScheme.onSurfaceVariant,
-                      minimumSize: const Size(0, 40),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
+                    style: loreDialogSecondaryButton(colorScheme),
                     child: const Text('取消'),
                   ),
                   const SizedBox(width: 8),
@@ -528,13 +543,7 @@ class _ExportPanelState extends State<ExportPanel> {
                     onPressed: (_selected.isEmpty || _exporting)
                         ? null
                         : _export,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(0, 40),
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
+                    style: loreDialogPrimaryButton(colorScheme),
                     icon: _exporting
                         ? const SizedBox(
                             width: 14,
@@ -560,49 +569,57 @@ class _ExportPanelState extends State<ExportPanel> {
     // 仅在多分组时提供展开/收起：卷右键场景只有一个分组，收起会把面板清空。
     final canCollapse = _groups.length > 1;
 
-    Widget label = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: [
-          if (canCollapse) ...[
-            Icon(
-              collapsed ? Icons.chevron_right : Icons.expand_more,
-              size: 18,
-              color: colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 2),
-          ],
-          Icon(Icons.folder_outlined, size: 16, color: colorScheme.secondary),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              group.label,
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: colorScheme.onSurface,
-              ),
+    Widget label = Row(
+      children: [
+        if (canCollapse) ...[
+          Icon(
+            collapsed ? Icons.chevron_right_rounded : Icons.expand_more_rounded,
+            size: 18,
+            color: colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 2),
+        ],
+        Icon(Icons.folder_outlined, size: 16, color: colorScheme.secondary),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            group.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: colorScheme.onSurface,
             ),
           ),
-          Text(
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
             '${group.chapters.length} 章',
             style: textTheme.bodySmall?.copyWith(
               color: colorScheme.onSurfaceVariant,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
     // 点击卷名区域只切换展开/收起，便于浏览长卷目录。
     if (canCollapse) {
       label = InkWell(
         onTap: () => _toggleCollapse(group.key),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(6),
         child: label,
       );
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      padding: const EdgeInsets.fromLTRB(6, 6, 8, 4),
       child: Row(
         children: [
           // 复选框单独负责「整卷选择/取消」，不与展开收起的点击区重叠。
@@ -618,22 +635,30 @@ class _ExportPanelState extends State<ExportPanel> {
   }
 
   Widget _chapterRow(ContentNode chapter) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final selected = _selected.contains(chapter.id.value);
     return InkWell(
       onTap: () => _toggleChapter(chapter),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(6),
       child: Padding(
-        padding: const EdgeInsets.only(left: 24, right: 4),
+        padding: const EdgeInsets.only(left: 30, right: 10),
         child: Row(
           children: [
             Checkbox(
-              value: _selected.contains(chapter.id.value),
+              value: selected,
               onChanged: (_) => _toggleChapter(chapter),
               visualDensity: VisualDensity.compact,
             ),
             Expanded(
               child: Text(
                 _chapterLabel(chapter),
-                style: const TextStyle(fontSize: 13),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  color: selected
+                      ? colorScheme.onSurface
+                      : colorScheme.onSurfaceVariant,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -661,30 +686,40 @@ class _OptionChip extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: () => onChanged(!value),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(6),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: value
-              ? colorScheme.primaryContainer.withValues(alpha: 0.55)
-              : colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
+              ? colorScheme.primaryContainer.withValues(alpha: 0.35)
+              : colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(6),
           border: Border.all(
             color: value
-                ? colorScheme.primary.withValues(alpha: 0.4)
+                ? colorScheme.primary.withValues(alpha: 0.5)
                 : colorScheme.outlineVariant,
           ),
         ),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              value ? Icons.check_circle : Icons.radio_button_unchecked,
+              value ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
               size: 16,
               color: value ? colorScheme.primary : colorScheme.onSurfaceVariant,
             ),
-            const SizedBox(width: 6),
-            Text(label, style: const TextStyle(fontSize: 12.5)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: value ? FontWeight.w600 : FontWeight.w500,
+                  color: value
+                      ? colorScheme.onSurface
+                      : colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
           ],
         ),
       ),
