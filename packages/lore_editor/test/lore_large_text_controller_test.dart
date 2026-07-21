@@ -185,4 +185,30 @@ void main() {
     }
     expect(controller.text, isNotEmpty);
   });
+
+  test(
+    'prependSilently inserts a prefix without marking dirty or recording undo',
+    () {
+      final controller = LoreLargeTextController(text: '正文');
+      addTearDown(controller.dispose);
+      controller.markSaved(controller.editVersion);
+      expect(controller.hasUnsavedChanges, isFalse);
+      expect(controller.canUndo, isFalse);
+
+      controller.prependSilently('　　');
+
+      expect(controller.text, '　　正文');
+      // 不标脏（savedVersion 跟进）→ 不会触发自动保存重写磁盘。
+      expect(controller.hasUnsavedChanges, isFalse);
+      // 不记 undo → Cmd+Z 不会撤销这次注入。
+      expect(controller.canUndo, isFalse);
+
+      // 幂等：文档已以缩进开头则不动。
+      controller.prependSilently('　　');
+      expect(controller.text, '　　正文');
+
+      controller.undo();
+      expect(controller.text, '　　正文');
+    },
+  );
 }

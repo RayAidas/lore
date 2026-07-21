@@ -10,9 +10,9 @@ import '../editor_style.dart';
 import 'lore_large_text_controller.dart';
 import 'pasted_text_normalizer.dart';
 
-/// 段首两字缩进（U+3000 × 2）。挂载首段注入与 [_AutoIndentFormatter] 回车开新段
-/// 共用此单一来源，避免魔法字符串重复定义。
-const String _paragraphIndent = '　　';
+/// 段首两字缩进，与导入解析、加载兜底共用 [paragraphIndent]（lore_domain）
+/// 这一单一真值，避免各包各自定义 `'　　'` 导致漂移。
+const String _paragraphIndent = paragraphIndent;
 
 /// Tab 缩进：单全角空格（U+3000），即中文排版「一个字」的宽度，也是
 /// [_paragraphIndent] 的基本单位。按 Tab 在光标处插入一个；选区非空时替换选区。
@@ -167,7 +167,7 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
     if (blocks.isEmpty || blocks.first.text.startsWith(_indent)) {
       return;
     }
-    widget.controller.replaceRange(0, 0, _indent);
+    widget.controller.prependSilently(_indent);
   }
 
   void _handleControllerChanged() {
@@ -1617,9 +1617,10 @@ final class _AutoIndentFormatter extends TextInputFormatter {
       return newValue;
     }
     // 回车落在段首缩进正前方（光标在 block 开头、段首已有两字缩进）：给上方
-    // 新拆出的空段补一份缩进，光标留在上方新段（缩进之后、\n 之前）。block 内
-    // 不含 '\n'，故「段首」唯一对应 insertedStart == 0；下方原段的缩进由现有
-    // 「\n 后紧跟缩进即跳过」逻辑保留，不会重复补。
+    // 新拆出的空段补一份缩进，光标 collapsed 在 offset = _indent.length（上方
+    // 新段缩进之末、\n 之前），affinity=upstream 确保落上方段。block 内不含
+    // '\n'，故「段首」唯一对应 insertedStart == 0；下方原段的缩进由现有「\n 后
+    // 紧跟缩进即跳过」逻辑保留，不会重复补。
     if (inserted == '\n' && insertedStart == 0 && oldText.startsWith(_indent)) {
       return TextEditingValue(
         text: '$_indent$newText',

@@ -1494,4 +1494,70 @@ void main() {
     );
     expect(dimmedAncestor.evaluate(), isEmpty);
   });
+
+  testWidgets(
+    'multi-line paste before an indented paragraph keeps the pasted top line unindented',
+    (tester) async {
+      // inserted != '\n'（多行粘贴）不触发前置分支，走原 expansions：上方粘贴行
+      // 不补缩进、下方原段保留缩进。区别于单回车的前置分支，锁定该语义。
+      final controller = LoreLargeTextController(text: '甲\n　　乙');
+      final scrollController = ScrollController();
+      addTearDown(controller.dispose);
+      addTearDown(scrollController.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: SizedBox(
+              width: 800,
+              height: 500,
+              child: LoreLargeTextEditor(
+                controller: controller,
+                scrollController: scrollController,
+                autofocus: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.enterText(find.byType(TextField).at(1), '丙\n　　乙');
+      await tester.pump();
+
+      expect(controller.text, '甲\n丙\n　　乙');
+      expect(controller.text, isNot(contains('　　丙')));
+    },
+  );
+
+  testWidgets('first-paragraph indent fallback is idempotent across rebuilds', (
+    tester,
+  ) async {
+    final controller = LoreLargeTextController(text: '已有正文');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    Widget build() => MaterialApp(
+      home: Material(
+        child: SizedBox(
+          width: 800,
+          height: 500,
+          child: LoreLargeTextEditor(
+            controller: controller,
+            scrollController: scrollController,
+            indentFirstParagraph: true,
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(build());
+    await tester.pump();
+    expect(controller.text, '　　已有正文');
+
+    // 重建不会重复补缩进（prependSilently 幂等 + 重建不重跑注入）。
+    await tester.pumpWidget(build());
+    await tester.pump();
+    expect(controller.text, '　　已有正文');
+    expect(controller.text, isNot(contains('　　　　')));
+  });
 }

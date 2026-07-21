@@ -29,6 +29,7 @@ final class LoreLargeTextController extends ChangeNotifier
   static const _maximumHistoryEntries = 1000;
   static const _maximumHistoryCharacters = 4 * 1024 * 1024;
   static const _typingMergeWindow = Duration(milliseconds: 750);
+
   /// 高亮 id 形如 `h<seq>`。加载持久化高亮后扫描最大 seq,使新增 id 不碰撞。
   static final _highlightIdPattern = RegExp(r'^h(\d+)$');
 
@@ -245,6 +246,34 @@ final class LoreLargeTextController extends ChangeNotifier
     _selection = TextSelection.collapsed(offset: start + replacement.length);
     _applyTextChange(change);
     _recordEdit(change, beforeSelection, _selection);
+    notifyListeners();
+  }
+
+  /// 在文档开头静默插入 [prefix]：bump editVersion 同时推进 savedVersion，且不
+  /// 记入 undo、清空历史。用于加载时自动补首段缩进——视为「磁盘加载的一部分」
+  /// 而非用户编辑，故不标脏（hasUnsavedChanges 仍为 false）、不触发自动保存
+  /// 重写、Cmd+Z 不撤销。幂等：文档已以 [prefix] 开头则不动；现有选区按
+  /// [prefix] 长度平移。
+  void prependSilently(String prefix) {
+    if (_buffer.text.startsWith(prefix)) {
+      return;
+    }
+    final prefixLen = prefix.length;
+    final change = _replaceRangeAndRebuildBlocks(0, 0, prefix);
+    _selection = _clampSelection(
+      TextSelection(
+        baseOffset: _selection.baseOffset + prefixLen,
+        extentOffset: _selection.extentOffset + prefixLen,
+        affinity: _selection.affinity,
+        isDirectional: _selection.isDirectional,
+      ),
+    );
+    _applyTextChange(change);
+    _editVersion += 1;
+    _savedVersion = _editVersion;
+    _undoStack.clear();
+    _redoStack.clear();
+    _undoStackCharacters = 0;
     notifyListeners();
   }
 

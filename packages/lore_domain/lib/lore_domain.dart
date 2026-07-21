@@ -4,6 +4,7 @@ export 'src/content/content_id.dart';
 export 'src/content/content_tree.dart';
 export 'src/content/content_tree_rules.dart';
 export 'src/content/content_types.dart';
+export 'src/content/paragraph_indent.dart';
 export 'src/content/txt_export_composer.dart';
 export 'src/content/txt_novel_parser.dart';
 export 'src/document/document.dart';

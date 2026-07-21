@@ -197,6 +197,14 @@ void main() {
       expect(_flat(parsed)[0].body, '　　半角四空格首段\n　　全角缩进第二段');
     });
 
+    test('normalizes tab and mixed leading whitespace by half-width sum', () {
+      // 累计半角宽度：tab=4、全角空格=2、半角空格=1。≥4 归一化 `　　`，<4 删除。
+      final parsed = TxtNovelParser.parse(
+        text: '第1章 起\n\t制表符段\n　　全角段\n   三半角段\n  两半角段',
+      );
+      expect(_flat(parsed)[0].body, '　　制表符段\n　　全角段\n三半角段\n两半角段');
+    });
+
     test('sanitizes file name into title suggestion', () {
       final parsed = TxtNovelParser.parse(
         text: '第1章\nx',

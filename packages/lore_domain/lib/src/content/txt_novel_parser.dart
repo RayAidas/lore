@@ -1,4 +1,5 @@
 import 'chapter_title.dart';
+import 'paragraph_indent.dart';
 
 /// 一份待导入的章节（来自 TXT 解析）：副标题 + 正文。
 ///
@@ -282,8 +283,8 @@ abstract final class TxtNovelParser {
     return !_prosePunct.hasMatch(name);
   }
 
-  /// 两字全角段首缩进（U+3000 × 2），与编辑器首行缩进一致。
-  static const String _bodyIndent = '　　';
+  /// 段首缩进，引用 [paragraphIndent] 单一真值（与编辑器一致）。
+  static const String _bodyIndent = paragraphIndent;
 
   /// 清洗正文行：逐行 `trimRight`，去掉首尾空行，再把每行行首缩进归一化为
   /// 两字全角缩进。仅消除行尾杂散空格与正文上下界空行；行首缩进统一为全角，
@@ -310,6 +311,10 @@ abstract final class TxtNovelParser {
   /// 把行首连续空白归一化：累计半角宽度（半角空格=1、全角空格=2、tab=4），
   /// 达到两字（≥4）视为段首缩进，替换为 `　　`；不足两字视为杂散噪音删掉。
   /// 行首无空白则原样。既统一缩进字符使各段段首对齐，又不把零星空格误当缩进。
+  ///
+  /// 有损取舍：< 4（1–3 个半角、单个全角等）的行首空白一律按杂散删掉。小说
+  /// 正文通常 2 字缩进（4 半角 / 2 全角），不受影响；但原文若有 1 字宽的诗歌/
+  /// 对白缩进会被一并去除——本编辑器只认两字缩进，此处不做更细的层级保留。
   static String _normalizeIndent(String line) {
     var i = 0;
     var halfWidths = 0;
