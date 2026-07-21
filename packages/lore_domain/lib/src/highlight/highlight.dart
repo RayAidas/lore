@@ -142,6 +142,7 @@ abstract final class HighlightPalette {
     0xFF90CAF9, // 蓝
     0xFFF48FB1, // 粉
     0xFFFFAB91, // 橙
+    0xFFCE93D8, // 紫
   ];
 }
 

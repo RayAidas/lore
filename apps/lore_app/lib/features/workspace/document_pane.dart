@@ -71,36 +71,69 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
         LoreContextMenuItem(
           label: '',
           onTap: () {},
+          // 色块行:首项为"不高亮"(空心 ×,仅选中段含高亮时可点),其后为调色板颜色。
+          // i==0 → 不高亮;i>0 → palette[i-1]。共 palette.length+1 个色块一行。
           custom: Opacity(
             opacity: hasSelection ? 1.0 : 0.4,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // 5 色块 + 间距需 fit 菜单可用宽(menuWidth≥140 - 两侧 padding 28
-                // = 112);用 18×18 + 间距 4(首项 0)= 106 留 6px 余量,避免溢出。
-                for (var i = 0; i < palette.length; i++)
+                for (var i = 0; i <= palette.length; i++)
                   Padding(
                     padding: EdgeInsets.only(left: i == 0 ? 0 : 4),
-                    child: GestureDetector(
-                      onTap: hasSelection
-                          ? () => controller.addHighlight(
-                                selection.start,
-                                selection.end,
-                                palette[i],
-                              )
-                          : null,
-                      child: Container(
-                        width: 18,
-                        height: 18,
-                        decoration: BoxDecoration(
-                          color: Color(palette[i]),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Theme.of(context).colorScheme.outlineVariant,
+                    child: i == 0
+                        ? GestureDetector(
+                            onTap: intersecting.isNotEmpty
+                                ? () => controller.removeHighlightsIntersecting(
+                                      selection.start,
+                                      selection.end,
+                                    )
+                                : null,
+                            child: Opacity(
+                              opacity: intersecting.isNotEmpty ? 1.0 : 0.4,
+                              child: Container(
+                                width: 18,
+                                height: 18,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outlineVariant,
+                                  ),
+                                ),
+                                child: Icon(
+                                  Icons.close,
+                                  size: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .outlineVariant,
+                                ),
+                              ),
+                            ),
+                          )
+                        : GestureDetector(
+                            onTap: hasSelection
+                                ? () => controller.addHighlight(
+                                      selection.start,
+                                      selection.end,
+                                      palette[i - 1],
+                                    )
+                                : null,
+                            child: Container(
+                              width: 18,
+                              height: 18,
+                              decoration: BoxDecoration(
+                                color: Color(palette[i - 1]),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .outlineVariant,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                    ),
                   ),
               ],
             ),
@@ -111,14 +144,6 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
           enabled: hasSelection,
           onTap: () => _copySelection(controller),
         ),
-        if (intersecting.isNotEmpty)
-          LoreContextMenuItem(
-            label: '取消高亮',
-            onTap: () => controller.removeHighlightsIntersecting(
-              selection.start,
-              selection.end,
-            ),
-          ),
       ],
     );
   }

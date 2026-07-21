@@ -131,6 +131,9 @@ class _LoreContextMenuCard extends StatelessWidget {
   // 内容宽度余量：覆盖卡片描边、子像素舍入以及条目过多时出现的滚动条，
   // 避免最宽标签（如"在 Finder 中显示"）刚好顶到可用宽度而被折成两行。
   static const double _extraWidth = 18;
+  /// custom 项(label='')预留的内容宽,容纳色块行等独立交互内容。
+  /// 菜单宽度 = max(最宽 label, custom 预留) + padding + 余量。
+  static const double _customReservedWidth = 154;
   static const TextStyle _labelStyle = TextStyle(
     fontSize: 13.5,
     fontWeight: FontWeight.w500,
@@ -141,6 +144,13 @@ class _LoreContextMenuCard extends StatelessWidget {
     final direction = Directionality.of(context);
     var widest = 0.0;
     for (final item in items) {
+      if (item.custom != null) {
+        // custom 项不量 label,预留固定内容宽容纳其 widget(色块行等)。
+        if (_customReservedWidth > widest) {
+          widest = _customReservedWidth;
+        }
+        continue;
+      }
       final painter = TextPainter(
         text: TextSpan(text: item.label, style: _labelStyle),
         textDirection: direction,
