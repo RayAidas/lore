@@ -282,13 +282,13 @@ abstract final class TxtNovelParser {
     return !_prosePunct.hasMatch(name);
   }
 
-  /// 清洗正文行：逐行 `trimRight`，再去掉首尾空行（仅含空白的行）拼接。
-  /// 保留行首缩进（首段两字缩进、诗歌/对白缩进有意义），仅消除行尾杂散空格
-  /// 与正文上下界的空行。纯字符串操作、无正则。
-  ///
-  /// 不能用整体 `.trim()`：全角空格 U+3000 属空白，`.trim()` 会连同正文最开头
-  /// 的两字缩进一并删掉，导致导入后章节首段丢失缩进。这里只去首尾空行，并对
-  /// 首段行首调 [_stripLeadingNoise] 删掉半角空白/制表符噪音、留下全角缩进。
+  /// 两字全角段首缩进（U+3000 × 2），与编辑器首行缩进一致。
+  static const String _bodyIndent = '　　';
+
+  /// 清洗正文行：逐行 `trimRight`，去掉首尾空行，再把每行行首缩进归一化为
+  /// 两字全角缩进。仅消除行尾杂散空格与正文上下界空行；行首缩进统一为全角，
+  /// 避免原文用半角空格/制表符作缩进时与编辑器全角缩进混排、各段段首不对齐。
+  /// 纯字符串操作、无正则。
   static String _cleanBody(Iterable<String> rawLines) {
     final lines = [for (final line in rawLines) line.trimRight()];
     var start = 0;
@@ -302,25 +302,35 @@ abstract final class TxtNovelParser {
     if (end <= start) {
       return '';
     }
-    final firstLine = _stripLeadingNoise(lines[start]);
-    final rest = lines.sublist(start + 1, end);
-    return rest.isEmpty ? firstLine : '$firstLine\n${rest.join('\n')}';
+    return [
+      for (final line in lines.sublist(start, end)) _normalizeIndent(line),
+    ].join('\n');
   }
 
-  /// 删掉行首的半角空格与制表符，保留其后的全角空格缩进（U+3000）。
-  /// 半角空白/制表符视为杂散噪音；全角空格是中文段首缩进，须保留——
-  /// 故只跳过 0x20/0x09，遇到其他字符（含全角空格、正文）即停。
-  static String _stripLeadingNoise(String line) {
+  /// 把行首连续空白归一化：累计半角宽度（半角空格=1、全角空格=2、tab=4），
+  /// 达到两字（≥4）视为段首缩进，替换为 `　　`；不足两字视为杂散噪音删掉。
+  /// 行首无空白则原样。既统一缩进字符使各段段首对齐，又不把零星空格误当缩进。
+  static String _normalizeIndent(String line) {
     var i = 0;
+    var halfWidths = 0;
     while (i < line.length) {
       final c = line.codeUnitAt(i);
-      if (c == 0x20 || c == 0x09) {
-        i += 1;
+      if (c == 0x20) {
+        halfWidths += 1;
+      } else if (c == 0x3000) {
+        halfWidths += 2;
+      } else if (c == 0x09) {
+        halfWidths += 4;
       } else {
         break;
       }
+      i += 1;
     }
-    return line.substring(i);
+    if (i == 0) {
+      return line;
+    }
+    final rest = line.substring(i);
+    return halfWidths >= 4 ? '$_bodyIndent$rest' : rest;
   }
 
   /// 取文件名 stem（去目录、去扩展名）并净化为安全书名片段。

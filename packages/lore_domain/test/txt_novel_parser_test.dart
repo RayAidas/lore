@@ -188,10 +188,13 @@ void main() {
       },
     );
 
-    test('drops half-width leading spaces but keeps full-width indent', () {
-      // 半角行首空格是杂散噪音，应去掉；全角缩进是段首缩进，应保留。
-      final parsed = TxtNovelParser.parse(text: '第1章 起点\n  半角噪音首段\n　　全角缩进第二段');
-      expect(_flat(parsed)[0].body, '半角噪音首段\n　　全角缩进第二段');
+    test('normalizes half-width leading spaces to full-width indent', () {
+      // 行首缩进统一归一化为两字全角：半角空格、全角空格都变成 `　　`，
+      // 各段段首字符一致、视觉对齐（原文常混用半角/全角缩进）。
+      final parsed = TxtNovelParser.parse(
+        text: '第1章 起点\n    半角四空格首段\n　　全角缩进第二段',
+      );
+      expect(_flat(parsed)[0].body, '　　半角四空格首段\n　　全角缩进第二段');
     });
 
     test('sanitizes file name into title suggestion', () {
