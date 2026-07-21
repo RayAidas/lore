@@ -592,9 +592,10 @@ void main() {
   });
 
   testWidgets(
-    'does not double-indent when Enter lands before an existing indent',
+    'indents the paragraph split above when Enter lands before an existing indent',
     (tester) async {
-      // 第二段已带缩进；在其缩进之前（offset 0）插入换行，不应再补一组缩进。
+      // 第二段已带缩进；在其缩进之前（offset 0）按回车，应给上方新拆出的空段
+      // 补一份缩进，并把光标留在上方新段（缩进之后）；下方原段缩进不重复补。
       final controller = LoreLargeTextController(text: '甲\n　　乙');
       final scrollController = ScrollController();
       addTearDown(controller.dispose);
@@ -618,8 +619,16 @@ void main() {
       await tester.enterText(find.byType(TextField).at(1), '\n　　乙');
       await tester.pump();
 
+      // 上方新段补了缩进：甲 / 　　（新空段）/ 　　乙（原段）。
+      expect(controller.text, '甲\n　　\n　　乙');
+      // 同一段不出现双重缩进（四个连续全角空格）。
       expect(controller.text, isNot(contains('　　　　')));
-      expect(controller.text, contains('　　乙'));
+      // 光标落在上方新拆出的段（block 1），而非下方原段。
+      expect(controller.selection.extentOffset, 4);
+      expect(
+        controller.blockIndexForOffset(controller.selection.extentOffset),
+        1,
+      );
     },
   );
 
@@ -1380,7 +1389,10 @@ void main() {
 
     // block 1 首次点击即获焦（光标可见）：其 focusNode 持有焦点、未被重建丢弃。
     expect(
-      tester.widget<TextField>(find.byType(TextField).at(1)).focusNode!.hasFocus,
+      tester
+          .widget<TextField>(find.byType(TextField).at(1))
+          .focusNode!
+          .hasFocus,
       isTrue,
     );
   });
@@ -1416,12 +1428,18 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(controller.blockIndexForOffset(controller.selection.extentOffset), 0);
+    expect(
+      controller.blockIndexForOffset(controller.selection.extentOffset),
+      0,
+    );
 
     // ↓：单行 block 0 跨入多行 block 1。
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pumpAndSettle();
-    expect(controller.blockIndexForOffset(controller.selection.extentOffset), 1);
+    expect(
+      controller.blockIndexForOffset(controller.selection.extentOffset),
+      1,
+    );
     final crossedOffset = controller.selection.extentOffset;
 
     // 再 ↓：焦点应已落到 block 1，光标在多行段内下移一行（extent 增大），不卡住。
@@ -1430,7 +1448,9 @@ void main() {
     expect(controller.selection.extentOffset, greaterThan(crossedOffset));
   });
 
-  testWidgets('focus mode autofocus lands on a non-dimmed block', (tester) async {
+  testWidgets('focus mode autofocus lands on a non-dimmed block', (
+    tester,
+  ) async {
     final controller = LoreLargeTextController(text: '第一段\n第二段\n第三段\n第四段');
     final scrollController = ScrollController();
     addTearDown(controller.dispose);
@@ -1457,7 +1477,9 @@ void main() {
     // 挂载即 autofocus：被聚焦的段必须是非淡化段（光标可见）。修复前 autofocus 恒落
     // block 0，而初始 selection 在末段、active=末段，于是 block 0 被淡化——光标起始于
     // 几乎不可见（0.28）的淡化段，表现为「专注模式打开就看不到光标，要点一下才出现」。
-    final fields = tester.widgetList<TextField>(find.byType(TextField)).toList();
+    final fields = tester
+        .widgetList<TextField>(find.byType(TextField))
+        .toList();
     final focusedIndex = fields.indexWhere(
       (f) => f.focusNode?.hasFocus ?? false,
     );

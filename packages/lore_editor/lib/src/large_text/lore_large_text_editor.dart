@@ -1371,10 +1371,7 @@ final class _BlockHighlightPainter extends CustomPainter {
       final paint = Paint()..color = h.color;
       // TextPainter 无 getBoxesForRange;用 getBoxesForSelection 传入 [start,end)
       // 区间(非 collapsed,无 caret 矩形),与 _BlockSelectionPainter 同源。
-      final selection = TextSelection(
-        baseOffset: h.start,
-        extentOffset: h.end,
-      );
+      final selection = TextSelection(baseOffset: h.start, extentOffset: h.end);
       for (final box in painter.getBoxesForSelection(selection)) {
         canvas.drawRect(box.toRect(), paint);
       }
@@ -1616,6 +1613,20 @@ final class _AutoIndentFormatter extends TextInputFormatter {
     final inserted = newText.substring(insertedStart, insertedEnd);
     if (!inserted.contains('\n')) {
       return newValue;
+    }
+    // 回车落在段首缩进正前方（光标在 block 开头、段首已有两字缩进）：给上方
+    // 新拆出的空段补一份缩进，光标留在上方新段（缩进之后、\n 之前）。block 内
+    // 不含 '\n'，故「段首」唯一对应 insertedStart == 0；下方原段的缩进由现有
+    // 「\n 后紧跟缩进即跳过」逻辑保留，不会重复补。
+    if (inserted == '\n' && insertedStart == 0 && oldText.startsWith(_indent)) {
+      return TextEditingValue(
+        text: '$_indent$newText',
+        selection: TextSelection.collapsed(
+          offset: _indent.length,
+          affinity: TextAffinity.upstream,
+        ),
+        composing: TextRange.empty,
+      );
     }
     // 找出新增片段内的 '\n'，且在【全文】中其后未紧跟 '　　' 的——这些才补缩进。
     // 用全文判定（而非只看 inserted）是为了避免"在已有缩进前按 Enter"产生
