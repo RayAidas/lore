@@ -27,8 +27,8 @@ void main() {
     expect(fake.pickFilesCalls, 1);
     expect(harness.novelRepository.importedTitles, isEmpty);
     expect(harness.controller.novels, isEmpty);
-    // 取消时不应弹出任何 SnackBar。
-    expect(find.byType(SnackBar), findsNothing);
+    // 取消时不应弹出导入成功提示。
+    expect(find.textContaining('已导入'), findsNothing);
   });
 
   testWidgets('import parses and writes a TXT into the controller', (

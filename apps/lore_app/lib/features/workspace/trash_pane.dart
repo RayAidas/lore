@@ -129,8 +129,10 @@ final class _TrashPageState extends State<TrashPage> {
     try {
       await widget.controller.restoreTrashItem(item.token);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已恢复：${item.originalRelativePath}')),
+        LoreToast.show(
+          context,
+          message: '已恢复：${item.originalRelativePath}',
+          type: LoreToastType.success,
         );
       }
       await _refresh();

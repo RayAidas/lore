@@ -790,9 +790,7 @@ final class _LibraryWorkspacePageState
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已复制路径'), duration: Duration(seconds: 2)),
-    );
+    LoreToast.show(context, message: '已复制路径', type: LoreToastType.success);
   }
 
   /// 执行批量关闭；若存在因冲突无法关闭的标签，提示用户先处理。
@@ -801,11 +799,11 @@ final class _LibraryWorkspacePageState
     if (!mounted || stuck.isEmpty) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${stuck.length} 个标签因冲突未关闭，请先处理'),
-        duration: const Duration(seconds: 3),
-      ),
+    LoreToast.show(
+      context,
+      message: '${stuck.length} 个标签因冲突未关闭，请先处理',
+      type: LoreToastType.warning,
+      duration: const Duration(seconds: 3),
     );
   }
 
