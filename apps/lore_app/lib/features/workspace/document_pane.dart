@@ -282,7 +282,7 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
           child: Row(
             children: [
               Text(
-                '本文 ${document.characterCount} 字',
+                '${document.characterCount} 字',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                 ),

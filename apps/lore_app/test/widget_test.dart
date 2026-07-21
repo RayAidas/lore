@@ -184,7 +184,7 @@ void main() {
     expect(find.text('编辑'), findsOneWidget);
     expect(find.text('预览'), findsOneWidget);
     expect(find.text('已保存'), findsOneWidget);
-    expect(find.text('本文 4 字'), findsOneWidget);
+    expect(find.text('4 字'), findsOneWidget);
 
     await tester.tap(find.text('信息'));
     await tester.pumpAndSettle();
@@ -192,7 +192,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField), '# 新标题\n正文 内容');
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('本文 8 字'), findsOneWidget);
+    expect(find.text('8 字'), findsOneWidget);
     expect(find.text('8'), findsOneWidget);
 
     await tester.tap(find.text('大纲'));
