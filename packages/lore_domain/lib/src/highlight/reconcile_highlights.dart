@@ -148,7 +148,6 @@ ReconcileResult reconcileHighlights({
       continue;
     }
     final localStart = h.start - paraSpan.start;
-    final localEnd = h.end - paraSpan.start;
     final oldParaLen = paraSpan.end - paraSpan.start;
 
     final newParaIdx = alignment[oldParaIdx];
@@ -162,33 +161,23 @@ ReconcileResult reconcileHighlights({
     final newParaLen = newParaText.length;
 
     final anchor = h.anchorText;
-    int newLocalStart;
-    int newLocalEnd;
     if (anchor.isEmpty) {
-      // 空锚点(零长度高亮的历史快照):无法 indexOf,退回段内比例映射。
-      if (oldParaLen == 0) {
-        newLocalStart = newLocalEnd = 0;
-      } else {
-        newLocalStart = (localStart * newParaLen / oldParaLen).round();
-        newLocalEnd = (localEnd * newParaLen / oldParaLen).round();
-      }
-    } else {
-      // 统一用 indexOf 重定位:段内小改时 anchor 仍在 → 唯一命中;
-      // 段被替换为无关内容时 anchor 必然失配 → lost。这天然区分两种场景,
-      // 无需短锚点比例映射(后者会让无关段也误判 located)。
-      final idx = newParaText.indexOf(anchor);
-      if (idx < 0) {
-        lost.add(h);
-        continue;
-      }
-      if (newParaText.indexOf(anchor, idx + 1) >= 0) {
-        // 多次命中:按旧段内比例位置消歧,选最接近的命中点。
-        newLocalStart = _disambiguate(newParaText, anchor, localStart, oldParaLen);
-      } else {
-        newLocalStart = idx;
-      }
-      newLocalEnd = newLocalStart + anchor.length;
+      // 空锚点(零长度高亮)无法验证段归属 → lost。否则整篇重写后 layer-3
+      // 同位置兜底会把它误重定位到无关段(段对齐但内容全异)。
+      lost.add(h);
+      continue;
     }
+    // 统一 indexOf 重定位:段内小改 anchor 仍在 → 唯一命中;段被替换为无关
+    // 内容 → anchor 失配 lost。多次命中按旧段内比例位置消歧。
+    final idx = newParaText.indexOf(anchor);
+    if (idx < 0) {
+      lost.add(h);
+      continue;
+    }
+    var newLocalStart = newParaText.indexOf(anchor, idx + 1) >= 0
+        ? _disambiguate(newParaText, anchor, localStart, oldParaLen)
+        : idx;
+    var newLocalEnd = newLocalStart + anchor.length;
 
     newLocalStart = newLocalStart.clamp(0, newParaLen);
     newLocalEnd = newLocalEnd.clamp(newLocalStart, newParaLen);

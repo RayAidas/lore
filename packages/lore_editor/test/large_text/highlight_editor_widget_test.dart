@@ -78,4 +78,54 @@ void main() {
     scrollController.dispose();
     controller.dispose();
   });
+
+  testWidgets('触摸长按 500ms 触发 onContextMenu,移动取消', (tester) async {
+    final controller = LoreLargeTextController(text: '触摸长按测试文本内容');
+    final scrollController = ScrollController();
+    Offset? menuPosition;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LoreLargeTextEditor(
+            controller: controller,
+            scrollController: scrollController,
+            onContextMenu: (pos) => menuPosition = pos,
+          ),
+        ),
+      ),
+    );
+    final center = tester.getCenter(find.byType(LoreLargeTextEditor));
+    const kind = PointerDeviceKind.touch;
+    const buttons = kPrimaryMouseButton;
+    // 长按未到 500ms → 不触发。
+    GestureBinding.instance.handlePointerEvent(
+      PointerDownEvent(position: center, kind: kind, buttons: buttons),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(menuPosition, isNull);
+    // 移动超 touchSlop → 取消长按(转为拖选)。
+    GestureBinding.instance.handlePointerEvent(
+      PointerMoveEvent(
+        position: Offset(center.dx + 50, center.dy),
+        kind: kind,
+        buttons: buttons,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 400)); // 累计 700ms 但已取消
+    expect(menuPosition, isNull);
+    GestureBinding.instance.handlePointerEvent(
+      PointerUpEvent(position: center, kind: kind, buttons: buttons),
+    );
+    // 第二次:不动,长按到 500ms → 触发。
+    GestureBinding.instance.handlePointerEvent(
+      PointerDownEvent(position: center, kind: kind, buttons: buttons),
+    );
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(menuPosition, isNotNull);
+    GestureBinding.instance.handlePointerEvent(
+      PointerUpEvent(position: center, kind: kind, buttons: buttons),
+    );
+    scrollController.dispose();
+    controller.dispose();
+  });
 }

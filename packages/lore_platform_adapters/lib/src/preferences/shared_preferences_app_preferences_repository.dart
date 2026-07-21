@@ -96,11 +96,12 @@ final class SharedPreferencesAppPreferencesRepository
       final gridLineMode =
           _gridLineModeFromString(value['gridLineMode']) ??
           AppPreferences.defaults().gridLineMode;
-      // 高亮调色板是 v4 新增字段,v1/v2/v3 blob 里没有——容错读取,缺失回落默认。
-      final highlightPalette = value['highlightPalette'] is List
-          ? (value['highlightPalette']! as List)
-              .map((e) => e is int ? e : 0)
-              .toList(growable: false)
+      // 高亮调色板是 v4 新增字段。仅当存在且**全部元素为 int** 时采用,任一
+      // 非法(如 1.5、"red"、null)整体回退默认,避免静默写 0(透明黑)。
+      final rawPalette = value['highlightPalette'];
+      final highlightPalette = rawPalette is List &&
+              rawPalette.every((e) => e is int)
+          ? List<int>.from(rawPalette)
           : AppPreferences.defaults().highlightPalette;
       // v1 → v2 迁移：仅当行高/段间距仍停留在 v1 默认时替换为 v2 默认（视觉
       // 瘦身）；用户已自定义的值原样保留。v2 blob 的排版值已是当前默认，无需

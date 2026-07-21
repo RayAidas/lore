@@ -96,4 +96,89 @@ void main() {
       c.dispose();
     });
   });
+
+  group('菜单交互(addHighlight / removeHighlightsIntersecting)', () {
+    test('addHighlight 给区间上色,anchorText 自动取原文', () {
+      final c = LoreLargeTextController(text: '0123456789');
+      c.addHighlight(2, 5, 0xFFFFD54F);
+      expect(c.highlights, hasLength(1));
+      expect(c.highlights.first.start, 2);
+      expect(c.highlights.first.end, 5);
+      expect(c.highlights.first.colorArgb, 0xFFFFD54F);
+      expect(c.highlights.first.anchorText, '234');
+      c.dispose();
+    });
+
+    test('addHighlight 拒绝零长度 / 越界区间', () {
+      final c = LoreLargeTextController(text: 'abc');
+      c.addHighlight(1, 1, 0xFFFFD54F);
+      expect(c.highlights, isEmpty);
+      c.addHighlight(2, 99, 0xFFFFD54F);
+      expect(c.highlights, isEmpty);
+      c.dispose();
+    });
+
+    test('removeHighlightsIntersecting 移除所有相交高亮', () {
+      final c = LoreLargeTextController(text: '0123456789');
+      c.setHighlights([
+        Highlight(
+          id: 'a',
+          start: 2,
+          end: 5,
+          colorArgb: 0xFFFFD54F,
+          anchorText: '234',
+        ),
+        Highlight(
+          id: 'b',
+          start: 7,
+          end: 9,
+          colorArgb: 0xFFA5D6A7,
+          anchorText: '78',
+        ),
+      ]);
+      c.removeHighlightsIntersecting(3, 8); // 与 a、b 都相交
+      expect(c.highlights, isEmpty);
+      c.dispose();
+    });
+
+    test('removeHighlightsIntersecting 仅移除相交项', () {
+      final c = LoreLargeTextController(text: '0123456789');
+      c.setHighlights([
+        Highlight(
+          id: 'a',
+          start: 0,
+          end: 2,
+          colorArgb: 0xFFFFD54F,
+          anchorText: '01',
+        ),
+        Highlight(
+          id: 'b',
+          start: 5,
+          end: 8,
+          colorArgb: 0xFFA5D6A7,
+          anchorText: '567',
+        ),
+      ]);
+      c.removeHighlightsIntersecting(5, 8); // 仅与 b 相交
+      expect(c.highlights, hasLength(1));
+      expect(c.highlights.first.id, 'a');
+      c.dispose();
+    });
+
+    test('reload 后新增 id 不与已加载碰撞', () {
+      final c = LoreLargeTextController(text: '0123456789');
+      c.setHighlights([
+        Highlight(
+          id: 'h5',
+          start: 0,
+          end: 2,
+          colorArgb: 0xFFFFD54F,
+          anchorText: '01',
+        ),
+      ]);
+      c.addHighlight(3, 5, 0xFFA5D6A7);
+      expect(c.highlights.last.id, 'h6');
+      c.dispose();
+    });
+  });
 }

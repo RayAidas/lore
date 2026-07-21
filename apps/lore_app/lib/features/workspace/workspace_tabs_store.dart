@@ -75,6 +75,10 @@ final class WorkspaceTabsStore {
     WorkspaceEditorGroupId.primary: null,
   };
   final Map<String, Timer> _externalChangeTimers = {};
+  /// 高亮段落指纹缓存(relativePath → (text, digests)):文本未变时复用,避免
+  /// 每次保存对千段文档重算上千次 sha256。文本变更后自动失效。
+  final Map<String, String> _cachedHighlightText = {};
+  final Map<String, List<String>> _cachedHighlightDigests = {};
   Timer? _sessionSaveTimer;
   WorkspaceEditorGroupId _focusedGroupId = WorkspaceEditorGroupId.primary;
   double _splitRatio = 0.5;
@@ -792,7 +796,7 @@ final class WorkspaceTabsStore {
     if (stored == null) return;
     if (stored.documentRevision == document.snapshot.revision.value) {
       // revision 一致:offset 可信,直接注入。
-      controller.setHighlights(stored.highlights);
+      controller.setHighlights(stored.highlights, markChanged: false);
       return;
     }
     // revision 不一致:文档被外部修改,跑复原引擎。
@@ -804,7 +808,7 @@ final class WorkspaceTabsStore {
       oldParagraphSpans: paragraphSpansFromDigests(stored.paragraphDigests),
       oldHighlights: stored.highlights,
     );
-    controller.setHighlights(result.located);
+    controller.setHighlights(result.located, markChanged: false);
     document.notifyChanged();
     // 自愈:把复原后(已重定位)的高亮按新 revision + 新段落指纹写回。
     if (result.located.isNotEmpty) {
@@ -833,10 +837,17 @@ final class WorkspaceTabsStore {
           ),
         ),
     ];
-    final profile = computeParagraphProfile(text);
+    // 段落指纹仅在文本变更时重算(避免每次保存重算全文 sha256)。
+    final cachedText = _cachedHighlightText[document.relativePath];
+    final cachedDigests = _cachedHighlightDigests[document.relativePath];
+    final digests = (cachedDigests != null && cachedText == text)
+        ? cachedDigests
+        : computeParagraphProfile(text).digests;
+    _cachedHighlightText[document.relativePath] = text;
+    _cachedHighlightDigests[document.relativePath] = digests;
     final collection = HighlightCollection(
       documentRevision: document.snapshot.revision.value,
-      paragraphDigests: profile.digests,
+      paragraphDigests: digests,
       highlights: refreshed,
     );
     try {
@@ -1062,12 +1073,42 @@ final class WorkspaceTabsStore {
       );
       _replaceActivePath(path, updatedPath);
     }
+    // 高亮随文档路径迁移(best-effort,异步;失败则旧路径记录残留,不阻塞重命名)。
+    final novelId = _novelIdForPath(oldPath);
+    if (novelId != null) {
+      unawaited(
+        service
+            .moveHighlights(
+              session,
+              novelId: novelId,
+              oldDocumentId: oldPath,
+              newDocumentId: newPath,
+            )
+            .catchError((Object _) {}),
+      );
+    }
   }
 
   /// 应用删除结果中「关闭被删路径下的标签 + 清理选择」的部分（仅逻辑 +
   /// session 保存，不 notify、不动 treeRevision——由控制器编排）。
   void applyDeletionPathChanges(List<PathChange> pathChanges) {
-    final removedPaths = pathChanges.map((change) => change.oldPath);
+    final removedPaths = pathChanges.map((change) => change.oldPath).toList();
+    // 高亮随文档删除清理(best-effort,异步;目录删除时仅清目录本身记录,
+    // 其下文档的高亮记录可能残留,后续扫描可补)。
+    for (final removed in removedPaths) {
+      final novelId = _novelIdForPath(removed);
+      if (novelId != null) {
+        unawaited(
+          service
+              .deleteHighlights(
+                session,
+                novelId: novelId,
+                documentId: removed,
+              )
+              .catchError((Object _) {}),
+        );
+      }
+    }
     if (_selectedPath != null) {
       final selectedRemoved = removedPaths.any(
         (removed) =>

@@ -75,66 +75,83 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
           // i==0 → 不高亮;i>0 → palette[i-1]。共 palette.length+1 个色块一行。
           custom: Opacity(
             opacity: hasSelection ? 1.0 : 0.4,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var i = 0; i <= palette.length; i++)
-                  Padding(
-                    padding: EdgeInsets.only(left: i == 0 ? 0 : 4),
-                    child: i == 0
-                        ? GestureDetector(
-                            onTap: intersecting.isNotEmpty
-                                ? () => controller.removeHighlightsIntersecting(
-                                      selection.start,
-                                      selection.end,
-                                    )
-                                : null,
-                            child: Opacity(
-                              opacity: intersecting.isNotEmpty ? 1.0 : 0.4,
+            // FittedBox(scaleDown):色块行超出可用宽时整体缩小而非溢出报错
+            // (无障碍字体缩放 / 非整数 DPI 边界防御)。
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (var i = 0; i <= palette.length; i++)
+                    Padding(
+                      padding: EdgeInsets.only(left: i == 0 ? 0 : 4),
+                      child: i == 0
+                          ? GestureDetector(
+                              // 点不高亮先关菜单,与"复制"行为一致。
+                              onTap: intersecting.isNotEmpty
+                                  ? () {
+                                      ContextMenuController.removeAny();
+                                      controller.removeHighlightsIntersecting(
+                                        selection.start,
+                                        selection.end,
+                                      );
+                                    }
+                                  : null,
+                              child: Opacity(
+                                opacity:
+                                    intersecting.isNotEmpty ? 1.0 : 0.4,
+                                child: Container(
+                                  width: 18,
+                                  height: 18,
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color:
+                                          Theme.of(context).colorScheme.outline,
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.close,
+                                    size: 12,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : GestureDetector(
+                              onTap: hasSelection
+                                  ? () {
+                                      ContextMenuController.removeAny();
+                                      controller.addHighlight(
+                                        selection.start,
+                                        selection.end,
+                                        palette[i - 1],
+                                      );
+                                    }
+                                  : null,
                               child: Container(
                                 width: 18,
                                 height: 18,
                                 decoration: BoxDecoration(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .surfaceContainerHighest,
+                                  color: Color(palette[i - 1]),
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: Theme.of(context).colorScheme.outline,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outlineVariant,
                                   ),
                                 ),
-                                child: Icon(
-                                  Icons.close,
-                                  size: 12,
-                                  color: Theme.of(context).colorScheme.onSurface,
-                                ),
                               ),
                             ),
-                          )
-                        : GestureDetector(
-                            onTap: hasSelection
-                                ? () => controller.addHighlight(
-                                      selection.start,
-                                      selection.end,
-                                      palette[i - 1],
-                                    )
-                                : null,
-                            child: Container(
-                              width: 18,
-                              height: 18,
-                              decoration: BoxDecoration(
-                                color: Color(palette[i - 1]),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .outlineVariant,
-                                ),
-                              ),
-                            ),
-                          ),
-                  ),
-              ],
+                    ),
+                ],
+              ),
             ),
           ),
         ),

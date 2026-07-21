@@ -51,27 +51,38 @@ mixin _StorageBackedHighlightRepository on _StorageBackedLibrarySupport
     required String documentId,
     required HighlightCollection collection,
   }) async {
-    final storage = await storageFactory.open(access);
-    final path = await _highlightsPath(storage, novelId);
     final entry = _highlightCollectionToJson(collection);
-    if (await storage.stat(path) == null) {
-      // 首次落盘:新建聚合文件。
-      await _writeNewJson(storage, path, {
-        'schemaVersion': 1,
-        'documents': {documentId: entry},
-      });
-      return;
-    }
-    // read-modify-write:仅替换该文档的 entry,乐观锁写回。外部并发改写会触发
-    // StorageReplaceConflict → externalModification(由调用方重试)。
-    final root = await _readJson(storage, path);
-    final existing = root['documents'];
-    final documents = existing is Map<String, Object?>
-        ? Map<String, Object?>.from(existing)
-        : <String, Object?>{};
-    documents[documentId] = entry;
-    root['documents'] = documents;
-    await _replaceJson(storage, path, root);
+    await _modifyHighlightsFile(
+      access,
+      novelId: novelId,
+      createIfMissing: true,
+      newDocumentsOnCreate: {documentId: entry},
+      mutate: (documents) {
+        documents[documentId] = entry;
+        return true;
+      },
+    );
+  }
+
+  @override
+  Future<void> moveHighlights(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required String oldDocumentId,
+    required String newDocumentId,
+  }) async {
+    if (oldDocumentId == newDocumentId) return;
+    await _modifyHighlightsFile(
+      access,
+      novelId: novelId,
+      createIfMissing: false,
+      newDocumentsOnCreate: const {},
+      mutate: (documents) {
+        if (!documents.containsKey(oldDocumentId)) return false;
+        documents[newDocumentId] = documents.remove(oldDocumentId);
+        return true;
+      },
+    );
   }
 
   @override
@@ -80,21 +91,69 @@ mixin _StorageBackedHighlightRepository on _StorageBackedLibrarySupport
     required NovelId novelId,
     required String documentId,
   }) async {
-    final storage = await storageFactory.open(access);
-    final path = await _highlightsPath(storage, novelId);
-    if (await storage.stat(path) == null) return;
-    final root = await _readJson(storage, path);
-    final existing = root['documents'];
-    if (existing is! Map<String, Object?>) return;
-    final documents = Map<String, Object?>.from(existing)..remove(documentId);
-    if (documents.isEmpty) {
-      // 无任何文档高亮 → 删除聚合文件,保持 .lore 干净。
-      await storage.delete(path, recursive: false);
-    } else {
-      root['documents'] = documents;
-      await _replaceJson(storage, path, root);
+    await _modifyHighlightsFile(
+      access,
+      novelId: novelId,
+      createIfMissing: false,
+      newDocumentsOnCreate: const {},
+      mutate: (documents) {
+        if (!documents.containsKey(documentId)) return false;
+        documents.remove(documentId);
+        return true;
+      },
+      deleteFileWhenEmpty: true,
+    );
+  }
+
+  /// 统一的 read-modify-write + 乐观锁重试。并发改写(externalModification)
+  /// 或首次写竞态(alreadyExists)时重读重试,最多 [_highlightWriteAttempts]
+  /// 次;仍失败才抛,让调用方上报。覆盖 save/move/delete 三个写入入口。
+  Future<void> _modifyHighlightsFile(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required bool createIfMissing,
+    required Map<String, Object?> newDocumentsOnCreate,
+    required bool Function(Map<String, Object?> documents) mutate,
+    bool deleteFileWhenEmpty = false,
+  }) async {
+    var attempt = 0;
+    while (true) {
+      attempt += 1;
+      final storage = await storageFactory.open(access);
+      final path = await _highlightsPath(storage, novelId);
+      final stat = await storage.stat(path);
+      try {
+        if (stat == null) {
+          if (!createIfMissing) return;
+          await _writeNewJson(storage, path, {
+            'schemaVersion': 1,
+            'documents': newDocumentsOnCreate,
+          });
+          return;
+        }
+        final root = await _readJson(storage, path);
+        final existing = root['documents'];
+        final documents = existing is Map<String, Object?>
+            ? Map<String, Object?>.from(existing)
+            : <String, Object?>{};
+        if (!mutate(documents)) return;
+        if (deleteFileWhenEmpty && documents.isEmpty) {
+          await storage.delete(path, recursive: false);
+        } else {
+          root['documents'] = documents;
+          await _replaceJson(storage, path, root);
+        }
+        return;
+      } on LibraryOperationException catch (error) {
+        final code = error.failure.code;
+        final retriable = code == LibraryFailureCode.externalModification ||
+            code == LibraryFailureCode.alreadyExists;
+        if (!retriable || attempt >= _highlightWriteAttempts) rethrow;
+      }
     }
   }
+
+  static const _highlightWriteAttempts = 3;
 }
 
 Map<String, Object?> _highlightCollectionToJson(HighlightCollection c) => {

@@ -185,6 +185,22 @@ final class LibraryWorkspaceService {
     );
   }
 
+  Future<void> moveHighlights(
+    LibrarySession session, {
+    required NovelId novelId,
+    required String oldDocumentId,
+    required String newDocumentId,
+  }) {
+    final repo = highlightRepository;
+    if (repo == null) return Future.value();
+    return repo.moveHighlights(
+      session.access,
+      novelId: novelId,
+      oldDocumentId: oldDocumentId,
+      newDocumentId: newDocumentId,
+    );
+  }
+
   Future<T> _mutate<T>(LibrarySession session, Future<T> Function() operation) {
     final coordinator = mutationCoordinator;
     return coordinator == null

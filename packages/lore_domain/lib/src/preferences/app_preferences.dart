@@ -80,7 +80,7 @@ final class AppPreferences {
   /// 章节正文每行下方的网格线模式（无/实线/虚线）。仅 TXT 编辑器生效。
   final GridLineMode gridLineMode;
 
-  /// 文字高亮调色板:5 个 ARGB 槽位,用户可替换。高亮本身存定格颜色
+  /// 文字高亮调色板:6 个 ARGB 槽位,用户可替换。高亮本身存定格颜色
   /// ([Highlight.colorArgb]),改调色板只影响新建高亮的快捷选色。
   final List<int> highlightPalette;
 

@@ -310,4 +310,63 @@ void main() {
       expect(loaded.editorFontFamily, AppFontFamily.serif);
     },
   );
+
+  test(
+    'loads v3 blob missing highlightPalette as defaults and bumps to v4',
+    () async {
+      // v3 blob(老用户)没有 highlightPalette:迁移到 v4,调色板回落默认,
+      // 既有值(gridLineMode 等)原样保留。
+      SharedPreferences.setMockInitialValues({
+        'lore.app.preferences': jsonEncode({
+          'schemaVersion': 3,
+          'themeMode': 'sepia',
+          'defaultChapterFormat': 'text',
+          'editorLineHeight': 1.8,
+          'editorFontSize': 16,
+          'editorContentWidth': 900,
+          'dailyWordGoal': 1000,
+          'findMatchCase': false,
+          'findUseRegex': false,
+          'typewriterMode': true,
+          'focusMode': false,
+          'firstLineIndent': true,
+          'paragraphSpacing': 20,
+          'editorFontFamily': 'serif',
+          'gridLineMode': 'dashed',
+        }),
+      });
+      final loaded = await repository.load();
+      expect(loaded, isNotNull);
+      expect(loaded!.schemaVersion, 4);
+      expect(loaded.highlightPalette, HighlightPalette.defaults);
+      expect(loaded.gridLineMode, GridLineMode.dashed);
+    },
+  );
+
+  test('falls back to defaults on malformed highlightPalette entries', () async {
+    // 任一非 int(1.5 / "red" / null)→ 整体回退默认,避免静默写 0(透明黑)。
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 4,
+        'themeMode': 'system',
+        'defaultChapterFormat': 'text',
+        'editorLineHeight': 1.45,
+        'editorFontSize': 15,
+        'editorContentWidth': 900,
+        'dailyWordGoal': 2000,
+        'findMatchCase': false,
+        'findUseRegex': false,
+        'typewriterMode': false,
+        'focusMode': false,
+        'firstLineIndent': true,
+        'paragraphSpacing': 14,
+        'editorFontFamily': 'wenkai',
+        'gridLineMode': 'none',
+        'highlightPalette': [1.5, 'red', null, 0xFFFFD54F],
+      }),
+    });
+    final loaded = await repository.load();
+    expect(loaded, isNotNull);
+    expect(loaded!.highlightPalette, HighlightPalette.defaults);
+  });
 }

@@ -410,6 +410,13 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
     _longPressTimer?.cancel();
     _longPressTimer = null;
     _longPressStartPosition = null;
+    // 清理可能进行中的选区拖拽:长按触发菜单后若不清,触摸移动会继续改写
+    // selection,与菜单打开时捕获的快照 desync。右键路径本就未开启拖拽,无副作用。
+    _pointerSelectionAnchor = null;
+    widget.controller.endSelectionDrag();
+    if (_globalSelectionDrag) {
+      setState(() => _globalSelectionDrag = false);
+    }
     widget.onContextMenu?.call(globalPosition);
   }
 

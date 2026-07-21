@@ -26,4 +26,13 @@ abstract interface class HighlightRepository {
     required NovelId novelId,
     required String documentId,
   });
+
+  /// 把文档高亮从 [oldDocumentId] 迁移到 [newDocumentId](章节重命名/移动用)。
+  /// 旧路径无高亮或文件不存在时为空操作。
+  Future<void> moveHighlights(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required String oldDocumentId,
+    required String newDocumentId,
+  });
 }

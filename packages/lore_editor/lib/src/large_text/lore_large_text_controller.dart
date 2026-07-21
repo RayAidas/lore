@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -28,6 +29,8 @@ final class LoreLargeTextController extends ChangeNotifier
   static const _maximumHistoryEntries = 1000;
   static const _maximumHistoryCharacters = 4 * 1024 * 1024;
   static const _typingMergeWindow = Duration(milliseconds: 750);
+  /// 高亮 id 形如 `h<seq>`。加载持久化高亮后扫描最大 seq,使新增 id 不碰撞。
+  static final _highlightIdPattern = RegExp(r'^h(\d+)$');
 
   ChunkedTextBuffer _buffer;
   final List<LargeTextBlock> _blocks = [];
@@ -96,6 +99,16 @@ final class LoreLargeTextController extends ChangeNotifier
   void setHighlights(List<Highlight> value, {bool markChanged = true}) {
     if (listEquals(value, _highlights)) return;
     _highlights = List.of(value);
+    // 同步入站高亮的 id:取最大数字 seq + 1,使后续 addHighlight 的 'h$seq'
+    // 不与刚加载的持久化高亮碰撞(否则 reload 后首条新增会与已有 h0 重号)。
+    var maxSeq = 0;
+    for (final h in _highlights) {
+      final match = _highlightIdPattern.firstMatch(h.id);
+      if (match != null) {
+        maxSeq = math.max(maxSeq, int.parse(match.group(1)!));
+      }
+    }
+    _highlightSeq = math.max(_highlightSeq, maxSeq + 1);
     if (markChanged) {
       _editVersion += 1;
     }

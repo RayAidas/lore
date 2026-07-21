@@ -130,7 +130,7 @@ final class HighlightCollection {
 
 /// 高亮调色板默认色。
 ///
-/// 5 个暖色调槽位,契合 Lore 的 sepia 主题。用户可在偏好中替换槽位颜色
+/// 6 个暖色调槽位,契合 Lore 的 sepia 主题。用户可在偏好中替换槽位颜色
 /// (`AppPreferences.highlightPalette`);高亮本身存定格的 [Highlight.colorArgb],
 /// 改调色板不影响已有高亮。
 abstract final class HighlightPalette {
