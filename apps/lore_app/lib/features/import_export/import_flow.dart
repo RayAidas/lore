@@ -23,7 +23,7 @@ Future<void> importTxtNovelFlow(
   // 统一兜底成友好提示，避免未捕获异常导致红屏。
   FilePickerResult? result;
   try {
-    result = await FilePicker.pickFiles(
+    result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['txt'],
       allowMultiple: false,

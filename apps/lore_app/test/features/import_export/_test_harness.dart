@@ -20,10 +20,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
-// FakeFilePickerPlatform needs the abstract class, which file_picker does not
-// re-export publicly. The path-level import is acceptable for a test-only
-// harness file (it never ships in the app).
-import 'package:file_picker/src/platform/file_picker_platform_interface.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
@@ -385,7 +381,7 @@ class ImportExportTestHarness {
 /// Fake file_picker platform singleton. `extends` (not `implements`) so that
 /// the platform-interface verifyToken check passes; only overrides pickFiles
 /// and saveFile, which are the only paths the import/export flows touch.
-class FakeFilePickerPlatform extends FilePickerPlatform {
+class FakeFilePickerPlatform extends FilePicker {
   /// Scripted return for the next `pickFiles` call. Null cancels the dialog.
   FilePickerResult? pickFilesResult;
 
@@ -412,13 +408,13 @@ class FakeFilePickerPlatform extends FilePickerPlatform {
     FileType type = FileType.any,
     List<String>? allowedExtensions,
     Function(FilePickerStatus)? onFileLoading,
-    int compressionQuality = 0,
+    bool allowCompression = true,
+    int compressionQuality = 30,
     bool allowMultiple = false,
     bool withData = false,
     bool withReadStream = false,
     bool lockParentWindow = false,
     bool readSequential = false,
-    bool cancelUploadOnWindowBlur = true,
   }) async {
     pickFilesCalls += 1;
     if (shouldThrowOnPickFiles) {
@@ -457,14 +453,26 @@ class FakeFilePickerPlatform extends FilePickerPlatform {
       lastSaveBytes == null ? null : utf8.decode(lastSaveBytes!);
 }
 
-/// Swap in [fake] as the process-global FilePickerPlatform.instance and
-/// register a tear-down that restores whatever was there before. Importantly,
-/// restoration is unconditional — the platform singleton is process-global
-/// and leaking the fake would break unrelated tests in the same run.
+/// Swap in [fake] as the process-global FilePicker.platform and register a
+/// tear-down that restores the previous instance when one exists.
+///
+/// v8 的 `FilePicker._instance` 是 late 字段，在 flutter_test VM 里通常尚未
+/// 被平台实现初始化（注册绑定在懒加载的顶层变量上），直接读会抛
+/// `LateInitializationError`。此时没有 original 可还原——fake 会留存到下一
+/// 个用例装自己的 fake 覆盖它（本仓只有 import/export 用例触碰这个单例）。
 FakeFilePickerPlatform installFakeFilePicker(FakeFilePickerPlatform fake) {
-  final original = FilePickerPlatform.instance;
-  FilePickerPlatform.instance = fake;
-  addTearDown(() => FilePickerPlatform.instance = original);
+  FilePicker? original;
+  try {
+    original = FilePicker.platform;
+  } catch (_) {
+    original = null;
+  }
+  FilePicker.platform = fake;
+  addTearDown(() {
+    if (original != null) {
+      FilePicker.platform = original;
+    }
+  });
   return fake;
 }
 

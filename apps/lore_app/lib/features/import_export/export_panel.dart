@@ -274,7 +274,7 @@ class _ExportPanelState extends State<ExportPanel> {
 
       final String? path;
       try {
-        path = await FilePicker.saveFile(
+        path = await FilePicker.platform.saveFile(
           dialogTitle: '导出 TXT',
           fileName: fileName,
           bytes: utf8.encode(composed.text),
