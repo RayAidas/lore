@@ -1,6 +1,7 @@
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show kSecondaryMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -382,6 +383,74 @@ void main() {
     // 在 body 内（而非仅 addTearDown）显式还原平台 override，确保框架
     // _verifyInvariants 检查 debug 变量时已归位。
     debugDefaultTargetPlatformOverride = null;
+    controller.dispose();
+  });
+
+  testWidgets('tab context menu shows expected items', (tester) async {
+    // 锁定 showWorkspaceTabContextMenu 产出的菜单契约：常驻项出现、Finder 项
+    // 受 revealGateway 门控。菜单项 label 调换/漏项/条件错误会被此测试发现。
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final session = LibrarySession(access: access, metadata: metadata);
+    final repository = _FakeWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemoryWorkspaceSessionRepository(),
+      ),
+    );
+    await controller.initialize();
+    await controller.openPath('第一章.md');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workspaceControllerProvider(
+            session,
+          ).overrideWith((ref) => controller),
+        ],
+        child: MaterialApp(
+          home: LibraryWorkspacePage(session: session, onSelectLibrary: () {}),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // 右键标签（限定在 DocumentTabs 内，避开 DocumentPane 的同名路径面包屑）。
+    final gesture = await tester.startGesture(
+      tester.getCenter(
+        find.descendant(
+          of: find.byType(DocumentTabs),
+          matching: find.text('第一章.md'),
+        ),
+      ),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.up();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 常驻项（不依赖桌面平台）应出现。
+    expect(find.text('关闭'), findsOneWidget);
+    expect(find.text('重命名'), findsOneWidget);
+    expect(find.text('复制路径'), findsOneWidget);
+    expect(find.text('移到回收站'), findsOneWidget);
+    // revealGateway 为 null → Finder 项不应出现。
+    expect(find.text('在 Finder 中显示'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
     controller.dispose();
   });
 
