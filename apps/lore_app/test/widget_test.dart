@@ -13,6 +13,7 @@ import 'package:lore_app/app/lore_app.dart';
 import 'package:lore_app/features/library/library_providers.dart';
 import 'package:lore_app/features/workspace/document_pane.dart';
 import 'package:lore_app/features/workspace/document_tabs.dart';
+import 'package:lore_app/features/workspace/library_workspace_page.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
 
 void main() {
@@ -61,6 +62,327 @@ void main() {
 
     expect(controller.selectedEntry, isNull);
     expect(controller.activePath, '第一章.md');
+  });
+
+  testWidgets('fullscreen hides chrome and exposes an exit button', (
+    tester,
+  ) async {
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final session = LibrarySession(access: access, metadata: metadata);
+    final repository = _FakeWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemoryWorkspaceSessionRepository(),
+      ),
+    );
+    await controller.initialize();
+    await controller.openPath('第一章.md');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workspaceControllerProvider(
+            session,
+          ).overrideWith((ref) => controller),
+        ],
+        child: MaterialApp(
+          home: LibraryWorkspacePage(session: session, onSelectLibrary: () {}),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // 普通模式：侧栏、标签页、AppBar 均可见，AppBar 带全屏入口。
+    expect(find.text('书库'), findsOneWidget);
+    expect(find.byType(DocumentTabs), findsOneWidget);
+    expect(find.byType(AppBar), findsOneWidget);
+    expect(find.byTooltip('全屏 (Cmd+Shift+F)'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+F)'));
+    await tester.pump();
+
+    // 全屏：侧栏/标签页/AppBar 消失，文档工具条出现「退出全屏」入口。
+    expect(find.text('书库'), findsNothing);
+    expect(find.byType(DocumentTabs), findsNothing);
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.byTooltip('退出全屏 (Esc)'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('退出全屏 (Esc)'));
+    await tester.pump();
+
+    // 退出全屏：三栏布局恢复。
+    expect(find.text('书库'), findsOneWidget);
+    expect(find.byType(AppBar), findsOneWidget);
+
+    // 卸载 widget 树后手动 dispose 控制器：文档打开后挂载的自动保存/统计
+    // debounce Timer 必须在框架 _verifyInvariants（!timersPending）之前取消。
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+  });
+
+  testWidgets('fullscreen toggle preserves scroll position', (tester) async {
+    // 构造可滚动的长文档：DocumentPane 全屏切换不应让编辑器重挂载、滚动归零。
+    final longBody = List<String>.generate(
+      400,
+      (i) => '第 ${i + 1} 行：${'正文内容' * 6}',
+    ).join('\n');
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final session = LibrarySession(access: access, metadata: metadata);
+    final repository = _FakeWorkspaceRepository(documentText: longBody);
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemoryWorkspaceSessionRepository(),
+      ),
+    );
+    await controller.initialize();
+    await controller.openPath('第一章.md');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workspaceControllerProvider(
+            session,
+          ).overrideWith((ref) => controller),
+        ],
+        child: MaterialApp(
+          home: LibraryWorkspacePage(session: session, onSelectLibrary: () {}),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final scrollController = controller.activeDocument!.scrollController;
+    expect(scrollController.hasClients, isTrue);
+    // 目标偏移须在可滚动范围内，否则 jumpTo 会被 clamp，断言失去意义。
+    final target = scrollController.position.maxScrollExtent > 400
+        ? 400.0
+        : scrollController.position.maxScrollExtent;
+    scrollController.jumpTo(target);
+    await tester.pump();
+    expect(scrollController.offset, closeTo(target, 1));
+
+    // 锁定"不重挂载"不变量：DocumentPane element 身份在切换前后必须相同；
+    // 否则即便 offset 被兜底 restore 拉回也视为回归。
+    final docPaneBefore = tester.element(find.byType(DocumentPane));
+    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+F)'));
+    await tester.pump();
+    await tester.pump();
+    expect(
+      identical(docPaneBefore, tester.element(find.byType(DocumentPane))),
+      isTrue,
+    );
+    expect(scrollController.hasClients, isTrue);
+    expect(scrollController.offset, closeTo(target, 1));
+
+    // 退出全屏：滚动位置仍保留。
+    await tester.tap(find.byTooltip('退出全屏 (Esc)'));
+    await tester.pump();
+    await tester.pump();
+    expect(scrollController.hasClients, isTrue);
+    expect(scrollController.offset, closeTo(target, 1));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+  });
+
+  testWidgets('fullscreen toggle preserves scroll (large-text .txt path)', (
+    tester,
+  ) async {
+    // 复现用户报告：.txt 章节走 LoreLargeTextEditor，全屏切换后内容回到开头。
+    final longBody = List<String>.generate(
+      400,
+      (i) => '第 ${i + 1} 行：${'正文内容' * 6}',
+    ).join('\n');
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final session = LibrarySession(access: access, metadata: metadata);
+    final repository = _FakeWorkspaceRepository(documentText: longBody);
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemoryWorkspaceSessionRepository(),
+      ),
+    );
+    await controller.initialize();
+    await controller.openPath('章节.txt');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workspaceControllerProvider(
+            session,
+          ).overrideWith((ref) => controller),
+        ],
+        child: MaterialApp(
+          home: LibraryWorkspacePage(session: session, onSelectLibrary: () {}),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    final scrollController = controller.activeDocument!.scrollController;
+    expect(scrollController.hasClients, isTrue);
+    final target = scrollController.position.maxScrollExtent > 400
+        ? 400.0
+        : scrollController.position.maxScrollExtent;
+    scrollController.jumpTo(target);
+    await tester.pump();
+    expect(scrollController.offset, closeTo(target, 1));
+
+    final docPaneBefore = tester.element(find.byType(DocumentPane));
+    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+F)'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(
+      identical(docPaneBefore, tester.element(find.byType(DocumentPane))),
+      isTrue,
+    );
+    expect(scrollController.hasClients, isTrue);
+    expect(scrollController.offset, closeTo(target, 1));
+
+    await tester.tap(find.byTooltip('退出全屏 (Esc)'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(scrollController.hasClients, isTrue);
+    expect(scrollController.offset, closeTo(target, 1));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+  });
+
+  testWidgets('fullscreen toggle preserves scroll in split mode', (
+    tester,
+  ) async {
+    // 分屏下全屏：两个分组都留在原位（仅隐藏标签行），DocumentPane 不重挂载。
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final longBody = List<String>.generate(
+      400,
+      (i) => '第 ${i + 1} 行：${'正文内容' * 6}',
+    ).join('\n');
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final session = LibrarySession(access: access, metadata: metadata);
+    final repository = _FakeWorkspaceRepository(documentText: longBody);
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemoryWorkspaceSessionRepository(),
+      ),
+    );
+    await controller.initialize();
+    await controller.openPath('第一章.md');
+    await controller.openPath('第二章.md');
+    controller.splitRight(controller.tabs.last);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workspaceControllerProvider(
+            session,
+          ).overrideWith((ref) => controller),
+        ],
+        child: MaterialApp(
+          home: LibraryWorkspacePage(session: session, onSelectLibrary: () {}),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    expect(controller.isSplit, isTrue);
+    final primaryScroll = controller
+        .activeDocumentForGroup(WorkspaceEditorGroupId.primary)!
+        .scrollController;
+    expect(primaryScroll.hasClients, isTrue);
+    final target = primaryScroll.position.maxScrollExtent > 400
+        ? 400.0
+        : primaryScroll.position.maxScrollExtent;
+    primaryScroll.jumpTo(target);
+    await tester.pump();
+    expect(primaryScroll.offset, closeTo(target, 1));
+
+    // 分屏下两个 DocumentPane（树序：主在前）；锁定主 pane element 身份不变。
+    final docPaneBefore = tester.element(find.byType(DocumentPane).first);
+    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+F)').first);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(
+      identical(docPaneBefore, tester.element(find.byType(DocumentPane).first)),
+      isTrue,
+    );
+    expect(primaryScroll.hasClients, isTrue);
+    expect(primaryScroll.offset, closeTo(target, 1));
+
+    await tester.tap(find.byTooltip('退出全屏 (Esc)').first);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(primaryScroll.offset, closeTo(target, 1));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    // 在 body 内（而非仅 addTearDown）显式还原平台 override，确保框架
+    // _verifyInvariants 检查 debug 变量时已归位。
+    debugDefaultTargetPlatformOverride = null;
+    controller.dispose();
   });
 
   testWidgets('shows directory selection when no library is stored', (
@@ -567,9 +889,13 @@ final class _FakeLibraryRepository implements LibraryRepository {
 
 final class _FakeWorkspaceRepository
     implements LibraryTreeRepository, DocumentRepository {
-  _FakeWorkspaceRepository({this.entries = const []});
+  _FakeWorkspaceRepository({this.entries = const [], this.documentText});
 
   final List<LibraryEntry> entries;
+
+  /// 若提供则 [readDocument] 返回该文本（用于构造可滚动的长文档）；
+  /// 否则返回默认短文本 '# 第一章'。
+  final String? documentText;
 
   @override
   Future<LibraryEntry> createDirectory(
@@ -617,7 +943,7 @@ final class _FakeWorkspaceRepository
   ) async {
     return DocumentSnapshot(
       ref: ref,
-      text: '# 第一章',
+      text: documentText ?? '# 第一章',
       encoding: TextEncoding.utf8,
       lineEnding: LineEnding.lf,
       revision: const DocumentRevision('revision-1'),
