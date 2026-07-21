@@ -216,6 +216,12 @@ final class _LibraryWorkspacePageState
                   meta: true,
                   shift: true,
                 ): _toggleFullscreen,
+                const SingleActivator(
+                  LogicalKeyboardKey.comma,
+                  meta: true,
+                ): () {
+                  showSettingsPanel(context);
+                },
                 if (_isFullscreen)
                   const SingleActivator(LogicalKeyboardKey.escape):
                       _toggleFullscreen,
@@ -290,17 +296,13 @@ final class _LibraryWorkspacePageState
                                 ),
                               ),
                             IconButton(
-                              onPressed: () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (context) =>
-                                      TrashPage(controller: controller),
-                                ),
-                              ),
+                              onPressed: () =>
+                                  showTrashPanel(context, controller),
                               tooltip: '回收站',
                               icon: const Icon(Icons.delete_outline),
                             ),
                             IconButton(
-                              onPressed: () => _openSettings(context),
+                              onPressed: () => showSettingsPanel(context),
                               tooltip: '设置',
                               icon: const Icon(Icons.settings_outlined),
                             ),
@@ -693,12 +695,6 @@ final class _LibraryWorkspacePageState
     if (confirmed) {
       await controller.reloadConflict(document);
     }
-  }
-
-  void _openSettings(BuildContext context) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (context) => const SettingsPage()));
   }
 
   void _openFindReplace(

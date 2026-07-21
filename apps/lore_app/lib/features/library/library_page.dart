@@ -95,11 +95,7 @@ class _SelectionPage extends StatelessWidget {
           IconButton(
             tooltip: '设置',
             icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (context) => const SettingsPage(),
-              ),
-            ),
+            onPressed: () => showSettingsPanel(context),
           ),
         ],
       ),

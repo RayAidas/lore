@@ -12,6 +12,7 @@ import '../preferences/preferences_providers.dart';
 import '../import_export/export_panel.dart';
 import '../import_export/import_flow.dart';
 import 'library_failure_snackbar.dart';
+import 'trash_pane.dart';
 import 'workspace_controller.dart';
 import 'workspace_directory_tree.dart';
 import 'workspace_entry_actions.dart';
@@ -556,9 +557,25 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,
+                    tooltip: '回收站',
+                    onPressed: () {
+                      unawaited(showTrashPanel(context, widget.controller));
+                      // drawer 模式下顺手关闭抽屉：先 push 面板（盖在 drawer 之上），
+                      // 再 pop drawer，关闭面板后直接回到工作区而非 drawer。
+                      if (widget.drawerContext != null) {
+                        Navigator.of(widget.drawerContext!).pop();
+                      }
+                    },
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
                     tooltip: '重新选择书库',
                     onPressed: () => unawaited(_selectLibrary()),
-                    icon: const Icon(Icons.settings_outlined, size: 18),
+                    icon: const Icon(
+                      Icons.drive_folder_upload_outlined,
+                      size: 18,
+                    ),
                   ),
                 ],
               ),
