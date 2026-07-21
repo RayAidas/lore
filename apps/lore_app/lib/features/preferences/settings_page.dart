@@ -158,6 +158,8 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             ),
           ],
         ),
+      ],
+      _SettingsSection.layout: [
         _SettingsGroup(
           title: '编辑器显示',
           children: [
@@ -208,24 +210,6 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
               divisions: 64,
               format: (value) => value.toStringAsFixed(0),
               onChanged: guard(controller.setEditorContentWidth),
-            ),
-          ],
-        ),
-      ],
-      _SettingsSection.layout: [
-        _SettingsGroup(
-          title: '文档',
-          children: [
-            _SettingRow(
-              label: '默认章节格式',
-              trailing: _Dropdown<ChapterFormat>(
-                value: prefs.defaultChapterFormat,
-                onChanged: guard(controller.setDefaultChapterFormat),
-                items: const [
-                  _DropdownOption(ChapterFormat.markdown, 'Markdown'),
-                  _DropdownOption(ChapterFormat.text, 'TXT'),
-                ],
-              ),
             ),
           ],
         ),
@@ -359,12 +343,15 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          for (final section in _SettingsSection.values)
+                          for (final section in _SettingsSection.values) ...[
                             _SettingsSectionBlock(
                               key: _sectionKeys[section],
                               section: section,
                               children: sections[section]!,
                             ),
+                            if (section != _SettingsSection.values.last)
+                              const _SettingsSectionDivider(),
+                          ],
                         ],
                       ),
                     ),
@@ -379,9 +366,9 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
           children: [
             for (final section in _SettingsSection.values) ...[
               _SettingsSectionHeader(section: section),
-              ...sections[section]!,
+              ..._spacedSettingsGroups(sections[section]!),
               if (section != _SettingsSection.values.last)
-                const SizedBox(height: 20),
+                const _SettingsSectionDivider(),
             ],
           ],
         );
@@ -614,6 +601,17 @@ final class _SettingsNavigation extends StatelessWidget {
   }
 }
 
+/// 把多个设置组排成「组间留 16px、末组后不留白」的列表，供桌面 section block
+/// 与窄屏列表两路复用，避免组间距逻辑在两处各自维护而漂移。
+List<Widget> _spacedSettingsGroups(List<Widget> groups) {
+  return [
+    for (var index = 0; index < groups.length; index++) ...[
+      groups[index],
+      if (index < groups.length - 1) const SizedBox(height: 16),
+    ],
+  ];
+}
+
 final class _SettingsSectionBlock extends StatelessWidget {
   const _SettingsSectionBlock({
     required this.section,
@@ -631,9 +629,26 @@ final class _SettingsSectionBlock extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _SettingsSectionHeader(section: section),
-        ...children,
-        if (section != _SettingsSection.values.last) const SizedBox(height: 10),
+        ..._spacedSettingsGroups(children),
       ],
+    );
+  }
+}
+
+/// 大类（外观 / 排版 / 写作偏好）之间的分隔线：比组内细分隔线留更多呼吸量，
+/// 让三个 section 在视觉上清晰断开。
+final class _SettingsSectionDivider extends StatelessWidget {
+  const _SettingsSectionDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Divider(
+        height: 1,
+        color: theme.colorScheme.outlineVariant.withValues(alpha: 0.7),
+      ),
     );
   }
 }

@@ -32,8 +32,6 @@ final class PreferencesController extends AsyncNotifier<AppPreferences> {
 
   Future<void> setThemeMode(AppThemeMode mode) =>
       _update((current) => current.copyWith(themeMode: mode));
-  Future<void> setDefaultChapterFormat(ChapterFormat format) =>
-      _update((current) => current.copyWith(defaultChapterFormat: format));
   Future<void> setEditorLineHeight(double value) =>
       _update((current) => current.copyWith(editorLineHeight: value));
   Future<void> setEditorFontSize(double value) =>

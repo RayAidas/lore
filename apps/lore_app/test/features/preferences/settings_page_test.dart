@@ -36,7 +36,19 @@ void main() {
     expect(find.byKey(const ValueKey('settings-nav-layout')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-nav-writing')), findsOneWidget);
     expect(find.text('主题'), findsOneWidget);
-    expect(find.text('默认章节格式'), findsOneWidget);
+    // 默认章节格式已取消（固定 TXT），设置面板不再出现该行。
+    expect(find.text('默认章节格式'), findsNothing);
+    // 编辑器显示已并入排版；三大类之间各一条分隔线（3 段 → 2 条）。
+    expect(find.text('字体'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == '_SettingsSectionDivider',
+      ),
+      findsNWidgets(2),
+    );
+    // 组内不再有分割线：全面板 Divider 仅剩两条大类分割线（VerticalDivider 是
+    // 不同类型，不被 byType<Divider> 匹配）。
+    expect(find.byType(Divider), findsNWidgets(2));
     expect(find.text('打字机模式'), findsOneWidget);
     expect(find.text('主题与编辑器显示'), findsNothing);
     expect(find.text('文档格式与段落样式'), findsNothing);

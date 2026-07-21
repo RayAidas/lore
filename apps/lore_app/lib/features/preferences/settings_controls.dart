@@ -15,7 +15,8 @@ const List<int> _kHighlightPresetColors = <int>[
   0xFFA1887F, 0xFF8D6E63, 0xFFB0BEC5, 0xFF78909C, 0xFF9E9D24,
 ];
 
-/// 一组带小标题的设置项，项间以细分隔线分隔。
+/// 一组带小标题的设置项。组内不再画分隔线（仅大类之间有），靠行高与组标题
+/// 区隔；组与组之间的间距由外层 section 布局注入，末组后不加。
 final class _SettingsGroup extends StatelessWidget {
   const _SettingsGroup({required this.title, required this.children});
 
@@ -25,31 +26,21 @@ final class _SettingsGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            title,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontSize: 14,
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.2,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          title,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 14,
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.2,
           ),
-          const SizedBox(height: 4),
-          for (var index = 0; index < children.length; index++) ...[
-            children[index],
-            if (index != children.length - 1)
-              Divider(
-                height: 1,
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.7),
-              ),
-          ],
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+        ...children,
+      ],
     );
   }
 }
