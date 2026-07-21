@@ -244,9 +244,9 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
               label: '段间距',
               value: prefs.paragraphSpacing,
               min: 0,
-              max: 40,
-              divisions: 40,
-              format: (value) => value.toStringAsFixed(0),
+              max: 3,
+              divisions: 60,
+              format: (value) => value.toStringAsFixed(2),
               onChanged: guard(controller.setParagraphSpacing),
             ),
             _SettingRow(

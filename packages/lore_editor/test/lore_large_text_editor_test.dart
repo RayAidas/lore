@@ -399,10 +399,10 @@ void main() {
               style: const EditorStyle.defaults().copyWith(
                 typewriterMode: true,
                 // 打字机居中滚动与段间距/行高相关：显式 pin 住，使「第 8 段位于
-                // 视口中线下方」这一前提不被默认排版基线（现 1.45/14）的后续
-                // 调整改写，让本用例聚焦滚动行为本身，而非默认间距。
+                // 视口中线下方」这一前提不被默认排版基线（现 1.45/1.2 倍数）的
+                // 后续调整改写，让本用例聚焦滚动行为本身，而非默认间距。
                 lineHeight: 1.5,
-                paragraphSpacing: 12,
+                paragraphSpacing: 1.0,
               ),
             ),
           ),
@@ -639,7 +639,10 @@ void main() {
     final scrollController = ScrollController();
     addTearDown(controller.dispose);
     addTearDown(scrollController.dispose);
-    const spacing = 24.0;
+    // 段间距现在是字号倍数；渲染段距 = 倍数 × 字号。defaults 字号 18，
+    // 故 1.5 × 18 = 27 是期望的段末 Padding 底部值。
+    const spacing = 1.5;
+    const expectedBottom = spacing * 18.0;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -667,7 +670,7 @@ void main() {
         (widget) =>
             widget is Padding &&
             widget.padding is EdgeInsets &&
-            (widget.padding as EdgeInsets).bottom == spacing,
+            (widget.padding as EdgeInsets).bottom == expectedBottom,
       ),
     );
     // 第一段 hasLineBreak → 段末有段间距 Padding；末段无。

@@ -9,8 +9,8 @@ final class LoreMarkdownPreview extends StatelessWidget {
     this.imageBuilder,
     this.fontFamily,
     this.fontFamilyFallback,
-    this.fontSize = 15,
-    this.lineHeight = 1.5,
+    this.fontSize = 18,
+    this.lineHeight = 1.45,
     super.key,
   });
 

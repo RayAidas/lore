@@ -32,7 +32,7 @@ void main() {
       typewriterMode: true,
       focusMode: true,
       firstLineIndent: false,
-      paragraphSpacing: 24,
+      paragraphSpacing: 1.5,
       editorFontFamily: AppFontFamily.serif,
     );
 
@@ -51,7 +51,7 @@ void main() {
     expect(loaded.typewriterMode, isTrue);
     expect(loaded.focusMode, isTrue);
     expect(loaded.firstLineIndent, isFalse);
-    expect(loaded.paragraphSpacing, 24);
+    expect(loaded.paragraphSpacing, 1.5);
     expect(loaded.editorFontFamily, AppFontFamily.serif);
   });
 
@@ -59,8 +59,9 @@ void main() {
     'loads legacy blob missing immersive toggles with other prefs intact',
     () async {
       // 模拟 1.x 版本写入的旧 blob：没有 typewriterMode/focusMode 键。
-      // 应当加载成功：沉浸开关回退默认 false；v1→v2 迁移按值匹配——行高 2.2
-      // 是自定义值（≠ v1 默认 1.5）故保留，段间距缺失则取 v2 默认；其余偏好不变。
+      // 应当加载成功：沉浸开关回退默认 false；行高 2.2 是自定义值（≠ v1 默认
+      // 1.5）故保留；段间距缺失 → 回落当前默认倍数（不参与 ÷字号换算）；其余
+      // 偏好不变。
       SharedPreferences.setMockInitialValues({
         'lore.app.preferences': jsonEncode({
           'schemaVersion': 1,
@@ -85,7 +86,7 @@ void main() {
       expect(loaded.typewriterMode, isFalse);
       expect(loaded.focusMode, isFalse);
       expect(loaded.firstLineIndent, isTrue);
-      // 行高 2.2 是自定义值（≠ v1 默认）→ 保留；段间距缺失 → 回落 v2 默认。
+      // 行高 2.2 是自定义值（≠ v1 默认）→ 保留；段间距缺失 → 回落当前默认倍数。
       expect(loaded.editorLineHeight, 2.2);
       expect(
         loaded.paragraphSpacing,
@@ -96,54 +97,63 @@ void main() {
     },
   );
 
-  test('v1 blob at old typography defaults is bumped to v2 defaults', () async {
-    // 行高/段间距仍停留在 v1 默认（1.5 / 12）→ 替换为 v2 默认；其余偏好不变。
-    SharedPreferences.setMockInitialValues({
-      'lore.app.preferences': jsonEncode({
-        'schemaVersion': 1,
-        'themeMode': 'system',
-        'defaultChapterFormat': 'text',
-        'editorLineHeight': 1.5,
-        'editorFontSize': 15,
-        'editorContentWidth': 900,
-        'dailyWordGoal': 2000,
-        'findMatchCase': false,
-        'findUseRegex': false,
-        'paragraphSpacing': 12,
-      }),
-    });
-    final loaded = await repository.load();
-    expect(loaded, isNotNull);
-    expect(
-      loaded!.editorLineHeight,
-      AppPreferences.defaults().editorLineHeight,
-    );
-    expect(loaded.paragraphSpacing, AppPreferences.defaults().paragraphSpacing);
-    expect(loaded.editorFontSize, 15);
-    expect(loaded.themeMode, AppThemeMode.system);
-  });
+  test(
+    'v1 blob migrates lineHeight default and converts paragraph spacing px to multiplier',
+    () async {
+      // 行高仍停留在 v1 默认 1.5 → 替换为当前默认；段间距 12px @字号15 → ÷字号
+      // = 0.8 倍数（保留用户看到的段距比例）；其余偏好不变。
+      SharedPreferences.setMockInitialValues({
+        'lore.app.preferences': jsonEncode({
+          'schemaVersion': 1,
+          'themeMode': 'system',
+          'defaultChapterFormat': 'text',
+          'editorLineHeight': 1.5,
+          'editorFontSize': 15,
+          'editorContentWidth': 900,
+          'dailyWordGoal': 2000,
+          'findMatchCase': false,
+          'findUseRegex': false,
+          'paragraphSpacing': 12,
+        }),
+      });
+      final loaded = await repository.load();
+      expect(loaded, isNotNull);
+      expect(
+        loaded!.editorLineHeight,
+        AppPreferences.defaults().editorLineHeight,
+      );
+      // 12px @ 字号 15 → 0.8 倍数（保留用户看到的段距比例）。
+      expect(loaded.paragraphSpacing, 0.8);
+      expect(loaded.editorFontSize, 15);
+      expect(loaded.themeMode, AppThemeMode.system);
+    },
+  );
 
-  test('v1 blob with customized spacing preserves user values', () async {
-    // 用户自定义的行高/段间距（≠ v1 默认）原样保留，迁移不覆盖。
-    SharedPreferences.setMockInitialValues({
-      'lore.app.preferences': jsonEncode({
-        'schemaVersion': 1,
-        'themeMode': 'system',
-        'defaultChapterFormat': 'text',
-        'editorLineHeight': 1.8,
-        'editorFontSize': 15,
-        'editorContentWidth': 900,
-        'dailyWordGoal': 2000,
-        'findMatchCase': false,
-        'findUseRegex': false,
-        'paragraphSpacing': 6,
-      }),
-    });
-    final loaded = await repository.load();
-    expect(loaded, isNotNull);
-    expect(loaded!.editorLineHeight, 1.8);
-    expect(loaded.paragraphSpacing, 6);
-  });
+  test(
+    'v1 blob keeps custom lineHeight and converts custom paragraph spacing ratio',
+    () async {
+      // 行高 1.8 自定义（≠ v1 默认 1.5）→ 保留；段间距 6px @字号15 → ÷字号
+      // = 0.4 倍数（保留用户看到的段距比例）。
+      SharedPreferences.setMockInitialValues({
+        'lore.app.preferences': jsonEncode({
+          'schemaVersion': 1,
+          'themeMode': 'system',
+          'defaultChapterFormat': 'text',
+          'editorLineHeight': 1.8,
+          'editorFontSize': 15,
+          'editorContentWidth': 900,
+          'dailyWordGoal': 2000,
+          'findMatchCase': false,
+          'findUseRegex': false,
+          'paragraphSpacing': 6,
+        }),
+      });
+      final loaded = await repository.load();
+      expect(loaded, isNotNull);
+      expect(loaded!.editorLineHeight, 1.8);
+      expect(loaded.paragraphSpacing, 0.4);
+    },
+  );
 
   test(
     'immersive toggles tolerate wrong-typed values by falling back to false',
@@ -279,10 +289,10 @@ void main() {
   });
 
   test(
-    'loads v2 blob missing gridLineMode as none and bumps schema to v3',
+    'loads v2 blob missing gridLineMode as none and migrates to current schema',
     () async {
-      // v2 blob（老用户）没有 gridLineMode 键：应迁移到 v3，网格线回落 none，
-      // 既有排版值原样保留（v2→v3 不做值迁移）。
+      // v2 blob（老用户）没有 gridLineMode 键：应迁移到当前版本，网格线回落
+      // none；段间距 20px @字号16 → ÷字号 = 1.25 倍数（v4→v5 换算）。
       SharedPreferences.setMockInitialValues({
         'lore.app.preferences': jsonEncode({
           'schemaVersion': 2,
@@ -303,18 +313,18 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 4);
+      expect(loaded!.schemaVersion, 5);
       expect(loaded.gridLineMode, GridLineMode.none);
       expect(loaded.editorLineHeight, 1.8);
-      expect(loaded.paragraphSpacing, 20);
+      expect(loaded.paragraphSpacing, 1.25);
       expect(loaded.editorFontFamily, AppFontFamily.serif);
     },
   );
 
   test(
-    'loads v3 blob missing highlightPalette as defaults and bumps to v4',
+    'loads v3 blob missing highlightPalette as defaults and migrates to current schema',
     () async {
-      // v3 blob(老用户)没有 highlightPalette:迁移到 v4,调色板回落默认,
+      // v3 blob(老用户)没有 highlightPalette:迁移到当前版本,调色板回落默认,
       // 既有值(gridLineMode 等)原样保留。
       SharedPreferences.setMockInitialValues({
         'lore.app.preferences': jsonEncode({
@@ -337,36 +347,107 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 4);
+      expect(loaded!.schemaVersion, 5);
       expect(loaded.highlightPalette, HighlightPalette.defaults);
       expect(loaded.gridLineMode, GridLineMode.dashed);
     },
   );
 
-  test('falls back to defaults on malformed highlightPalette entries', () async {
-    // 任一非 int(1.5 / "red" / null)→ 整体回退默认,避免静默写 0(透明黑)。
-    SharedPreferences.setMockInitialValues({
-      'lore.app.preferences': jsonEncode({
-        'schemaVersion': 4,
-        'themeMode': 'system',
-        'defaultChapterFormat': 'text',
-        'editorLineHeight': 1.45,
-        'editorFontSize': 15,
-        'editorContentWidth': 900,
-        'dailyWordGoal': 2000,
-        'findMatchCase': false,
-        'findUseRegex': false,
-        'typewriterMode': false,
-        'focusMode': false,
-        'firstLineIndent': true,
-        'paragraphSpacing': 14,
-        'editorFontFamily': 'wenkai',
-        'gridLineMode': 'none',
-        'highlightPalette': [1.5, 'red', null, 0xFFFFD54F],
-      }),
-    });
-    final loaded = await repository.load();
-    expect(loaded, isNotNull);
-    expect(loaded!.highlightPalette, HighlightPalette.defaults);
-  });
+  test(
+    'paragraph spacing migration is idempotent across save and reload',
+    () async {
+      // 迁移只在 legacy blob 上发生一次：load v4(px)→迁移为倍数→save(v5)→再 load
+      // 时 migratingFromLegacy=false，倍数不再被除以字号。若有人误把守卫改宽，
+      // 第二次 load 会把 0.8 再除成 ~0.053，此测试立即变红。
+      SharedPreferences.setMockInitialValues({
+        'lore.app.preferences': jsonEncode({
+          'schemaVersion': 4,
+          'themeMode': 'system',
+          'defaultChapterFormat': 'text',
+          'editorLineHeight': 1.45,
+          'editorFontSize': 15,
+          'editorContentWidth': 900,
+          'dailyWordGoal': 2000,
+          'findMatchCase': false,
+          'findUseRegex': false,
+          'typewriterMode': false,
+          'focusMode': false,
+          'firstLineIndent': true,
+          'paragraphSpacing': 12,
+          'editorFontFamily': 'wenkai',
+          'gridLineMode': 'none',
+        }),
+      });
+      final first = await repository.load();
+      expect(first, isNotNull);
+      expect(first!.paragraphSpacing, 0.8); // 12px @ 字号 15
+
+      await repository.save(first);
+      final reloaded = await repository.load();
+      expect(reloaded, isNotNull);
+      expect(reloaded!.schemaVersion, 5);
+      // 仍是 0.8，没有被二次除以字号。
+      expect(reloaded.paragraphSpacing, 0.8);
+    },
+  );
+
+  test(
+    'legacy paragraph spacing exceeding the slider max is clamped on migration',
+    () async {
+      // 老blob 段间距 40px(旧最大值)@字号12 → 40/12 ≈ 3.33,超出滑块上界 3.0
+      // → 夹到 3.0,避免迁移后得到一个滑块够不着的超大倍数。
+      SharedPreferences.setMockInitialValues({
+        'lore.app.preferences': jsonEncode({
+          'schemaVersion': 4,
+          'themeMode': 'system',
+          'defaultChapterFormat': 'text',
+          'editorLineHeight': 1.45,
+          'editorFontSize': 12,
+          'editorContentWidth': 900,
+          'dailyWordGoal': 2000,
+          'findMatchCase': false,
+          'findUseRegex': false,
+          'typewriterMode': false,
+          'focusMode': false,
+          'firstLineIndent': true,
+          'paragraphSpacing': 40,
+          'editorFontFamily': 'wenkai',
+          'gridLineMode': 'none',
+        }),
+      });
+      final loaded = await repository.load();
+      expect(loaded, isNotNull);
+      expect(loaded!.paragraphSpacing, 3.0);
+    },
+  );
+
+  test(
+    'falls back to defaults on malformed highlightPalette entries',
+    () async {
+      // 任一非 int(1.5 / "red" / null)→ 整体回退默认,避免静默写 0(透明黑)。
+      SharedPreferences.setMockInitialValues({
+        'lore.app.preferences': jsonEncode({
+          'schemaVersion': 4,
+          'themeMode': 'system',
+          'defaultChapterFormat': 'text',
+          'editorLineHeight': 1.45,
+          'editorFontSize': 15,
+          'editorContentWidth': 900,
+          'dailyWordGoal': 2000,
+          'findMatchCase': false,
+          'findUseRegex': false,
+          'typewriterMode': false,
+          'focusMode': false,
+          'firstLineIndent': true,
+          'paragraphSpacing': 14,
+          'editorFontFamily': 'wenkai',
+          'gridLineMode': 'none',
+          'highlightPalette': [1.5, 'red', null, 0xFFFFD54F],
+        }),
+      });
+      final loaded = await repository.load();
+      expect(loaded, isNotNull);
+      expect(loaded!.highlightPalette, HighlightPalette.defaults);
+    },
+  );
 }

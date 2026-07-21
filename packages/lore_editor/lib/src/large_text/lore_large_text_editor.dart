@@ -272,11 +272,14 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
                               widget.controller.blocks[index - 1].hasLineBreak,
                           onFocused: () {},
                         );
-                        // 段落末块（hasLineBreak）下方加段间距；同段跨块保持贴合。
+                        // 段落末块（hasLineBreak）下方加段间距（字号倍数 × 字号 =
+                        // 像素）；同段跨块保持贴合。
                         return block.hasLineBreak
                             ? Padding(
                                 padding: EdgeInsets.only(
-                                  bottom: widget.style.paragraphSpacing,
+                                  bottom:
+                                      widget.style.paragraphSpacing *
+                                      widget.style.fontSize,
                                 ),
                                 child: field,
                               )

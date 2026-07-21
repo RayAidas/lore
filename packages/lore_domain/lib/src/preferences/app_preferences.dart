@@ -40,16 +40,16 @@ final class AppPreferences {
     required this.highlightPalette,
   });
 
-  static const schemaVersionCurrent = 4;
+  static const schemaVersionCurrent = 5;
 
-  /// 开箱默认：行高 1.45、段间距 14；标题→首段留白由 EditorStyle 派生
-  ///（段间距 + 14）保证始终宽于段间距。
+  /// 开箱默认：字号 18、行高 1.45、段间距 1.2（字号倍数）；标题→首段留白由
+  /// EditorStyle 派生（(段间距 + 1.0) × 字号）保证始终宽于段间距。
   factory AppPreferences.defaults() => const AppPreferences(
     schemaVersion: schemaVersionCurrent,
     themeMode: AppThemeMode.system,
     defaultChapterFormat: ChapterFormat.text,
     editorLineHeight: 1.45,
-    editorFontSize: 15,
+    editorFontSize: 18,
     editorContentWidth: 900,
     dailyWordGoal: 2000,
     findMatchCase: false,
@@ -57,7 +57,7 @@ final class AppPreferences {
     typewriterMode: false,
     focusMode: false,
     firstLineIndent: true,
-    paragraphSpacing: 14,
+    paragraphSpacing: 1.2,
     editorFontFamily: AppFontFamily.wenkai,
     gridLineMode: GridLineMode.none,
     highlightPalette: HighlightPalette.defaults,
@@ -101,7 +101,8 @@ final class AppPreferences {
   /// 仅 TXT 编辑器生效。
   final bool firstLineIndent;
 
-  /// 段落排版：段落之间的额外间距（逻辑像素）。仅 TXT 编辑器生效。
+  /// 段落排版：段落之间的间距（字号倍数，渲染时 × [editorFontSize]）。仅 TXT
+  /// 编辑器生效。
   final double paragraphSpacing;
 
   AppPreferences copyWith({

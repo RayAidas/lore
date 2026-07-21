@@ -41,7 +41,7 @@ final class EditorStyle {
     this.typewriterMode = false,
     this.focusMode = false,
     this.firstLineIndent = true,
-    this.paragraphSpacing = 14,
+    this.paragraphSpacing = 1.2,
     this.gridLineMode = GridLineMode.none,
     this.titleScale = 1.3,
     this.titleFontWeight = FontWeight.w700,
@@ -49,10 +49,11 @@ final class EditorStyle {
   });
 
   /// 包级排版基线：与 [AppPreferences.defaults] 对齐，使无偏好注入时编辑器
-  /// 独立渲染（测试、预览组件）与应用实际体验一致。行高 1.45、段间距 14。
+  /// 独立渲染（测试、预览组件）与应用实际体验一致。字号 18、行高 1.45、
+  /// 段间距 1.2（字号倍数）。
   const EditorStyle.defaults()
     : lineHeight = 1.45,
-      fontSize = 15,
+      fontSize = 18,
       contentWidth = 900,
       letterSpacing = 0.2,
       fontFamily = null,
@@ -60,7 +61,7 @@ final class EditorStyle {
       typewriterMode = false,
       focusMode = false,
       firstLineIndent = true,
-      paragraphSpacing = 14,
+      paragraphSpacing = 1.2,
       gridLineMode = GridLineMode.none,
       titleScale = 1.3,
       titleFontWeight = FontWeight.w700,
@@ -86,7 +87,7 @@ final class EditorStyle {
   /// 段落首行缩进：新建段落时在段首自动插入两个全角空格（仅 TXT 编辑器消费）。
   final bool firstLineIndent;
 
-  /// 段落之间的额外间距（逻辑像素，仅 TXT 编辑器消费）。
+  /// 段落之间的间距（字号倍数，渲染时 × [fontSize]，仅 TXT 编辑器消费）。
   final double paragraphSpacing;
 
   /// 章节正文每行下方的网格线模式（仅 TXT 编辑器消费）。
@@ -108,15 +109,18 @@ final class EditorStyle {
   ///
   /// 由 [paragraphSpacing] 派生而非独立常量：标题字号更大、行盒更厚，等量
   /// 间距下「标题→首段」视觉上反而比「段→段」更紧（标题字身下沉吃掉留白）。
-  /// 在段间距上叠加固定呼吸量 [_titleGapExtra]，保证标题留白始终明显大于段
-  /// 间距，且用户拖动段间距滑块时标题留白同步跟踪，杜绝比例倒挂。
-  double get titleBottomSpacing => paragraphSpacing + _titleGapExtra;
+  /// 在段间距（字号倍数）上叠加额外呼吸量 [_titleGapExtra]（同为字号倍数），
+  /// 再乘以字号得到像素，保证标题留白始终明显大于段间距，且用户拖动段间距
+  /// 或字号滑块时标题留白同步等比跟踪，杜绝比例倒挂。
+  double get titleBottomSpacing =>
+      (paragraphSpacing + _titleGapExtra) * fontSize;
 
-  /// 标题留白相对段间距的额外呼吸量（绝对像素差，非倍数）。
+  /// 标题留白相对段间距的额外呼吸量（字号倍数增量，非像素）。
   ///
+  /// 与 [paragraphSpacing] 同维度（均为字号倍数），相加后乘以字号得到像素。
   /// 其数值若与某处段间距默认值相同纯属巧合，并非派生关系；调整其一不必
   /// 同步另一个。
-  static const double _titleGapExtra = 14;
+  static const double _titleGapExtra = 1.0;
 
   EditorStyle copyWith({
     double? lineHeight,
