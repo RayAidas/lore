@@ -50,6 +50,14 @@ void main() {
       expect(ChapterTitleText.tryParse(''), isNull);
       expect(ChapterTitleText.tryParse('随便一段正文'), isNull);
     });
+
+    test('超大章节号不崩溃，视为非标题', () {
+      // 超出 int 范围的损坏/恶意首行：int.tryParse 失败 → 视为非标题。
+      expect(
+        ChapterTitleText.tryParse('第99999999999999999999999999章\n正文'),
+        isNull,
+      );
+    });
   });
 
   group('ChapterTitleText.bodyOf', () {

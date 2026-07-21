@@ -55,7 +55,8 @@ abstract final class ChapterTitleText {
     if (match == null) {
       return null;
     }
-    final number = int.parse(match.group(1)!);
+    final number = int.tryParse(match.group(1)!);
+    if (number == null) return null; // 超大/溢出数字视为非章节标题，不崩溃。
     var subtitle = firstLine.substring(match.end);
     // 剥掉前缀与副标题之间最多一个分隔空白；副标题内部的空白保留。
     if (subtitle.startsWith(' ')) {
