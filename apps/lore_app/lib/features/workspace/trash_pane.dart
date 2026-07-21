@@ -5,18 +5,40 @@ import 'package:lore_ui/lore_ui.dart';
 import 'library_failure_snackbar.dart';
 import 'workspace_controller.dart';
 
-/// 回收站页面：列出条目，支持恢复、永久删除与清空。
-class TrashPage extends StatefulWidget {
-  const TrashPage({required this.controller, super.key});
+/// 以辅助面板形态打开回收站（标题/副标题/图标集中在此，供工作区与侧栏复用）。
+Future<void> showTrashPanel(
+  BuildContext context,
+  WorkspaceController controller,
+) {
+  return showLorePanelSheet<void>(
+    context: context,
+    title: '回收站',
+    subtitle: '恢复或彻底删除已移除的内容',
+    icon: Icons.delete_outline,
+    child: TrashPanel(controller: controller),
+  );
+}
+
+/// 回收站面板内容（无 Scaffold 包装）：列出条目，支持恢复、永久删除与清空。
+///
+/// 供自适应辅助面板复用。[WorkspaceController] 在删除/恢复/清空后广播变化，
+/// 本面板通过 listener 自动重新载入列表，无需在每次操作后手动 reload。
+class TrashPanel extends StatefulWidget {
+  const TrashPanel({required this.controller, super.key});
 
   final WorkspaceController controller;
 
   @override
-  State<TrashPage> createState() => _TrashPageState();
+  State<TrashPanel> createState() => _TrashPanelState();
 }
 
-final class _TrashPageState extends State<TrashPage> {
-  Future<List<TrashItem>>? _future;
+final class _TrashPanelState extends State<TrashPanel> {
+  List<TrashItem>? _items;
+  Object? _error;
+  bool _loading = true;
+  // 重载序列号：丢弃过期结果，避免并发 reload 乱序覆盖（操作触发的 notify 与
+  // 本面板自身的 reload 可能交错，晚完成的旧请求不应覆盖新请求）。
+  int _reloadGen = 0;
 
   @override
   void initState() {
@@ -31,19 +53,34 @@ final class _TrashPageState extends State<TrashPage> {
     super.dispose();
   }
 
-  /// controller 在删除/恢复后 notify，自动重新载入回收站列表。
+  /// controller 在删除/恢复/清空后 notify，自动重新载入回收站列表。
   void _onControllerChanged() {
     if (mounted) {
-      setState(_reload);
+      _reload();
     }
   }
 
-  void _reload() {
-    _future = widget.controller.listTrashItems();
-  }
-
-  Future<void> _refresh() async {
-    setState(_reload);
+  Future<void> _reload() async {
+    final gen = ++_reloadGen;
+    try {
+      final items = await widget.controller.listTrashItems();
+      if (!mounted || gen != _reloadGen) {
+        return;
+      }
+      setState(() {
+        _items = items;
+        _error = null;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted || gen != _reloadGen) {
+        return;
+      }
+      setState(() {
+        _error = error;
+        _loading = false;
+      });
+    }
   }
 
   String _typeLabel(TrashItemType type) => switch (type) {
@@ -62,66 +99,144 @@ final class _TrashPageState extends State<TrashPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('回收站')),
-      body: FutureBuilder<List<TrashItem>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('${snapshot.error}'));
-          }
-          final items = snapshot.data ?? const <TrashItem>[];
-          if (items.isEmpty) {
-            return const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.delete_outline, size: 40),
-                  SizedBox(height: 12),
-                  Text('回收站为空'),
-                ],
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    Widget body;
+    final hasItems = _items != null && _items!.isNotEmpty;
+    if (_loading) {
+      body = const Center(child: CircularProgressIndicator());
+    } else if (_error != null) {
+      body = Center(child: Text('$_error'));
+    } else if (!hasItems) {
+      body = Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.08),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.delete_outline,
+                  size: 30,
+                  color: colorScheme.primary,
+                ),
               ),
-            );
-          }
-          return ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return ListTile(
-                leading: Icon(_typeIcon(item.type)),
-                title: Text(item.originalRelativePath),
-                subtitle: Text(
-                  '${_typeLabel(item.type)} · ${item.deletedAt.toLocal()}',
+              const SizedBox(height: 16),
+              Text('回收站为空', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(
+                '删除的内容会先到这里，可随时恢复。',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
                 ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextButton(
-                      onPressed: () => _restore(item),
-                      child: const Text('恢复'),
-                    ),
-                    IconButton(
-                      tooltip: '永久删除',
-                      icon: const Icon(Icons.delete_forever_outlined),
-                      onPressed: () => _purge(item),
-                    ),
-                  ],
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    } else {
+      body = ListView.separated(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        itemCount: _items!.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 4),
+        itemBuilder: (context, index) {
+          final item = _items![index];
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    _typeIcon(item.type),
+                    size: 18,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                 ),
-              );
-            },
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        item.originalRelativePath,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      Text(
+                        '${_typeLabel(item.type)} · ${item.deletedAt.toLocal()}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _restore(item),
+                  child: const Text('恢复'),
+                ),
+                IconButton(
+                  tooltip: '永久删除',
+                  icon: const Icon(Icons.delete_forever_outlined, size: 20),
+                  onPressed: () => _purge(item),
+                ),
+              ],
+            ),
           );
         },
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _empty,
-        icon: const Icon(Icons.delete_sweep_outlined),
-        label: const Text('清空回收站'),
-      ),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(child: body),
+        if (hasItems) ...[
+          Divider(height: 1, color: colorScheme.outlineVariant),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            child: Row(
+              children: [
+                Text(
+                  '${_items!.length} 项',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const Spacer(),
+                FilledButton.tonalIcon(
+                  onPressed: _empty,
+                  icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+                  label: const Text('清空回收站'),
+                  style: FilledButton.styleFrom(
+                    foregroundColor: colorScheme.error,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -131,10 +246,10 @@ final class _TrashPageState extends State<TrashPage> {
       if (mounted) {
         LoreToast.success(context, '已恢复：${item.originalRelativePath}');
       }
-      await _refresh();
     } on LibraryOperationException catch (error) {
       _showFailure(error.failure);
     }
+    // 不手动 reload：controller 已 _notify()，会触发 _onControllerChanged → _reload。
   }
 
   Future<void> _purge(TrashItem item) async {
@@ -147,7 +262,6 @@ final class _TrashPageState extends State<TrashPage> {
     }
     try {
       await widget.controller.purgeTrashItem(item.token);
-      await _refresh();
     } on LibraryOperationException catch (error) {
       _showFailure(error.failure);
     }
@@ -163,7 +277,6 @@ final class _TrashPageState extends State<TrashPage> {
     }
     try {
       await widget.controller.emptyTrash();
-      await _refresh();
     } on LibraryOperationException catch (error) {
       _showFailure(error.failure);
     }
