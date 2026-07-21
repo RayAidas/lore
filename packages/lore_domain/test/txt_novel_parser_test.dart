@@ -176,6 +176,24 @@ void main() {
       expect(_flat(parsed)[1].body, '正文B');
     });
 
+    test(
+      'preserves first-paragraph full-width indent while trimming noise',
+      () {
+        // 原文每段都带两字全角缩进：首段缩进须保留（导入后章节首段要有缩进），
+        // 标题后的空行与行尾杂散空格仍应被去掉。
+        final parsed = TxtNovelParser.parse(
+          text: '第1章 起点\n\n　　起点正文。  \n　　第二段。\n\n',
+        );
+        expect(_flat(parsed)[0].body, '　　起点正文。\n　　第二段。');
+      },
+    );
+
+    test('drops half-width leading spaces but keeps full-width indent', () {
+      // 半角行首空格是杂散噪音，应去掉；全角缩进是段首缩进，应保留。
+      final parsed = TxtNovelParser.parse(text: '第1章 起点\n  半角噪音首段\n　　全角缩进第二段');
+      expect(_flat(parsed)[0].body, '半角噪音首段\n　　全角缩进第二段');
+    });
+
     test('sanitizes file name into title suggestion', () {
       final parsed = TxtNovelParser.parse(
         text: '第1章\nx',

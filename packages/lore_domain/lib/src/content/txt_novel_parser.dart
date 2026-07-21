@@ -282,11 +282,45 @@ abstract final class TxtNovelParser {
     return !_prosePunct.hasMatch(name);
   }
 
-  /// 清洗正文行：逐行 `trimRight` 后拼接，再整体去首尾空白。保留行首缩进
-  /// （诗歌/对白缩进有意义），仅消除行尾杂散空格。纯字符串操作、无正则。
+  /// 清洗正文行：逐行 `trimRight`，再去掉首尾空行（仅含空白的行）拼接。
+  /// 保留行首缩进（首段两字缩进、诗歌/对白缩进有意义），仅消除行尾杂散空格
+  /// 与正文上下界的空行。纯字符串操作、无正则。
+  ///
+  /// 不能用整体 `.trim()`：全角空格 U+3000 属空白，`.trim()` 会连同正文最开头
+  /// 的两字缩进一并删掉，导致导入后章节首段丢失缩进。这里只去首尾空行，并对
+  /// 首段行首调 [_stripLeadingNoise] 删掉半角空白/制表符噪音、留下全角缩进。
   static String _cleanBody(Iterable<String> rawLines) {
-    final joined = rawLines.map((line) => line.trimRight()).join('\n');
-    return joined.trim();
+    final lines = [for (final line in rawLines) line.trimRight()];
+    var start = 0;
+    while (start < lines.length && lines[start].trim().isEmpty) {
+      start += 1;
+    }
+    var end = lines.length;
+    while (end > start && lines[end - 1].trim().isEmpty) {
+      end -= 1;
+    }
+    if (end <= start) {
+      return '';
+    }
+    final firstLine = _stripLeadingNoise(lines[start]);
+    final rest = lines.sublist(start + 1, end);
+    return rest.isEmpty ? firstLine : '$firstLine\n${rest.join('\n')}';
+  }
+
+  /// 删掉行首的半角空格与制表符，保留其后的全角空格缩进（U+3000）。
+  /// 半角空白/制表符视为杂散噪音；全角空格是中文段首缩进，须保留——
+  /// 故只跳过 0x20/0x09，遇到其他字符（含全角空格、正文）即停。
+  static String _stripLeadingNoise(String line) {
+    var i = 0;
+    while (i < line.length) {
+      final c = line.codeUnitAt(i);
+      if (c == 0x20 || c == 0x09) {
+        i += 1;
+      } else {
+        break;
+      }
+    }
+    return line.substring(i);
   }
 
   /// 取文件名 stem（去目录、去扩展名）并净化为安全书名片段。
