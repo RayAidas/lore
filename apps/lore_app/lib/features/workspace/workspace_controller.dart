@@ -742,17 +742,31 @@ final class WorkspaceController extends ChangeNotifier {
   Future<void> purgeTrashItem(String token) async {
     final trash = trashRepository;
     if (trash == null) {
-      return;
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.platformUnsupported,
+          message: '回收站不可用。',
+        ),
+      );
     }
     await trash.purge(session.access, trashToken: token);
+    // 广播回收站列表变化：清空/永久删除虽不改目录树，但回收站面板与其它
+    // 订阅者需感知（补齐此前遗漏的 notify，避免页面不在栈顶时状态不同步）。
+    _notify();
   }
 
   Future<void> emptyTrash() async {
     final trash = trashRepository;
     if (trash == null) {
-      return;
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.platformUnsupported,
+          message: '回收站不可用。',
+        ),
+      );
     }
     await trash.empty(session.access);
+    _notify();
   }
 
   Future<NovelOverview> loadNovelOverview(
