@@ -76,22 +76,24 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                for (final c in palette)
+                // 5 色块 + 间距需 fit 菜单可用宽(menuWidth≥140 - 两侧 padding 28
+                // = 112);用 18×18 + 间距 4(首项 0)= 106 留 6px 余量,避免溢出。
+                for (var i = 0; i < palette.length; i++)
                   Padding(
-                    padding: const EdgeInsets.only(right: 6),
+                    padding: EdgeInsets.only(left: i == 0 ? 0 : 4),
                     child: GestureDetector(
                       onTap: hasSelection
                           ? () => controller.addHighlight(
                                 selection.start,
                                 selection.end,
-                                c,
+                                palette[i],
                               )
                           : null,
                       child: Container(
-                        width: 22,
-                        height: 22,
+                        width: 18,
+                        height: 18,
                         decoration: BoxDecoration(
-                          color: Color(c),
+                          color: Color(palette[i]),
                           shape: BoxShape.circle,
                           border: Border.all(
                             color: Theme.of(context).colorScheme.outlineVariant,
