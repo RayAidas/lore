@@ -16,6 +16,8 @@ import 'package:lore_app/features/workspace/document_pane.dart';
 import 'package:lore_app/features/workspace/document_tabs.dart';
 import 'package:lore_app/features/workspace/library_workspace_page.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
+import 'package:lore_app/features/workspace/workspace_inspector.dart';
+import 'package:lore_app/features/workspace/workspace_metrics.dart';
 
 void main() {
   setUp(() {
@@ -454,6 +456,91 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets('inspector content hides below 1180px while rail stays', (
+    tester,
+  ) async {
+    // 锁定 _inspectorContentBreakpoint=1180 边界：之上内容可用，之下收起但轨道常驻。
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final session = LibrarySession(access: access, metadata: metadata);
+    final repository = _FakeWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemoryWorkspaceSessionRepository(),
+      ),
+    );
+    await controller.initialize();
+    await controller.openPath('第一章.md');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workspaceControllerProvider(
+            session,
+          ).overrideWith((ref) => controller),
+        ],
+        child: MaterialApp(
+          home: LibraryWorkspacePage(session: session, onSelectLibrary: () {}),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey('workspace-inspector-tab-assistant')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('workspace-inspector-content')),
+      findsOneWidget,
+    );
+
+    // 恰好 1180：断点之上（>=），内容仍可用。
+    tester.view.physicalSize = const Size(1180, 900);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('workspace-inspector-content')),
+      findsOneWidget,
+    );
+
+    // 1179：低于断点，内容经 post-frame 收起，轨道仍在。
+    tester.view.physicalSize = const Size(1179, 900);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('workspace-inspector-content')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('workspace-inspector-rail')),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    // 在 body 内（而非仅 addTearDown）显式还原平台 override，确保框架
+    // _verifyInvariants 检查 debug 变量时已归位。
+    debugDefaultTargetPlatformOverride = null;
+    controller.dispose();
+  });
+
   testWidgets('shows directory selection when no library is stored', (
     tester,
   ) async {
@@ -477,10 +564,12 @@ void main() {
   });
 
   testWidgets('shows ready library entries', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     const access = LibraryAccess(
       token: '/tmp/library',
       displayPath: '/tmp/library',
@@ -568,6 +657,43 @@ void main() {
     expect(find.text('助手'), findsOneWidget);
     expect(find.text('大纲'), findsOneWidget);
     expect(find.text('信息'), findsOneWidget);
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('workspace-inspector-rail')))
+          .width,
+      workspaceInspectorRailWidth,
+    );
+    expect(find.byKey(const ValueKey('lore-brand-mark')), findsOneWidget);
+    final loreBrandText = tester.widget<Text>(
+      find.descendant(of: find.byType(AppBar), matching: find.text('Lore')),
+    );
+    expect(loreBrandText.style?.fontFamily, 'LXGWWenKai');
+    expect(
+      find.byKey(const ValueKey('workspace-inspector-content')),
+      findsNothing,
+    );
+    expect(find.byTooltip('向右分屏'), findsNothing);
+    expect(find.byTooltip('重新选择书库'), findsOneWidget);
+    expect(find.byTooltip('展开工具栏'), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('workspace-inspector-tab-assistant')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('workspace-inspector-content')),
+      findsOneWidget,
+    );
+    expect(find.text('AI 写作助手'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('workspace-inspector-tab-assistant')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('workspace-inspector-content')),
+      findsNothing,
+    );
 
     await tester.tap(find.text('第一章.md'));
     await tester.pumpAndSettle();
@@ -576,22 +702,56 @@ void main() {
     expect(find.text('预览'), findsOneWidget);
     expect(find.text('已保存'), findsOneWidget);
     expect(find.text('4 字'), findsOneWidget);
+    final sidebarFooter = find.byKey(const ValueKey('library-sidebar-footer'));
+    final documentStatusBar = find.byKey(const ValueKey('document-status-bar'));
+    expect(tester.getSize(sidebarFooter).height, workspaceChromeBarHeight);
+    expect(tester.getSize(documentStatusBar).height, workspaceChromeBarHeight);
+    expect(
+      tester.getTopLeft(sidebarFooter).dy,
+      closeTo(tester.getTopLeft(documentStatusBar).dy, 1),
+    );
 
-    await tester.tap(find.text('信息'));
+    await tester.tap(
+      find.byKey(const ValueKey('workspace-inspector-tab-info')),
+    );
     await tester.pumpAndSettle();
     expect(find.text('4'), findsOneWidget);
+
+    final inspector = find.byKey(const ValueKey('workspace-inspector-content'));
+    final inspectorResizeHandle = find.byKey(
+      const ValueKey('workspace-inspector-resize-handle'),
+    );
+    expect(tester.getSize(inspector).width, 320);
+    await tester.drag(inspectorResizeHandle, const Offset(-60, 0));
+    await tester.pump();
+    expect(tester.getSize(inspector).width, closeTo(380, 1));
+    await tester.drag(inspectorResizeHandle, const Offset(-200, 0));
+    await tester.pump();
+    expect(tester.getSize(inspector).width, closeTo(480, 1));
+    await tester.drag(inspectorResizeHandle, const Offset(400, 0));
+    await tester.pump();
+    expect(tester.getSize(inspector).width, closeTo(240, 1));
 
     await tester.enterText(find.byType(TextField), '# 新标题\n正文 内容');
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('8 字'), findsOneWidget);
     expect(find.text('8'), findsOneWidget);
 
-    await tester.tap(find.text('大纲'));
+    await tester.tap(
+      find.byKey(const ValueKey('workspace-inspector-tab-outline')),
+    );
     await tester.pumpAndSettle();
     expect(find.text('新标题'), findsOneWidget);
 
     tester.view.physicalSize = const Size(500, 900);
     await tester.pumpAndSettle();
+    expect(find.text('助手'), findsOneWidget);
+    expect(find.text('大纲'), findsOneWidget);
+    expect(find.text('信息'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('workspace-inspector-content')),
+      findsNothing,
+    );
     await tester.tap(find.byIcon(Icons.menu));
     await tester.pumpAndSettle();
     final drawer = find.byType(Drawer);
@@ -601,6 +761,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(Drawer), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets(

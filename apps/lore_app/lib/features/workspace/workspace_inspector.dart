@@ -5,51 +5,168 @@ import 'inspector_empty.dart';
 import 'open_document_extensions.dart';
 import 'workspace_controller.dart';
 
-/// 右侧工具栏：助手 / 大纲 / 信息 三栏。
+/// 竖向工具轨道的固定宽度（轨道 SizedBox 与每个标签单元共用）。公开供布局
+/// 与测试共享同一处常量，避免魔法数漂移。
+const double workspaceInspectorRailWidth = 50;
+
+enum WorkspaceInspectorTab {
+  assistant(
+    label: '助手',
+    icon: Icons.auto_awesome_outlined,
+    keyName: 'assistant',
+  ),
+  outline(label: '大纲', icon: Icons.format_list_bulleted, keyName: 'outline'),
+  info(label: '信息', icon: Icons.info_outline, keyName: 'info');
+
+  const WorkspaceInspectorTab({
+    required this.label,
+    required this.icon,
+    required this.keyName,
+  });
+
+  final String label;
+  final IconData icon;
+  final String keyName;
+}
+
+/// 右侧工具内容区，由最右侧的 [WorkspaceInspectorRail] 控制当前内容。
 final class WorkspaceInspector extends StatelessWidget {
-  const WorkspaceInspector({required this.controller, super.key});
+  const WorkspaceInspector({
+    required this.controller,
+    required this.tab,
+    super.key,
+  });
 
   final WorkspaceController controller;
+  final WorkspaceInspectorTab tab;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Material(
       color: colorScheme.surfaceContainerLowest,
-      child: DefaultTabController(
-        length: 3,
+      child: switch (tab) {
+        WorkspaceInspectorTab.assistant => const _AssistantPanel(),
+        WorkspaceInspectorTab.outline => _OutlinePanel(
+          document: controller.activeDocument,
+        ),
+        WorkspaceInspectorTab.info => _DocumentInfoPanel(
+          document: controller.activeDocument,
+        ),
+      },
+    );
+  }
+}
+
+/// 始终停靠在工作区最右侧的竖向工具标签。
+final class WorkspaceInspectorRail extends StatelessWidget {
+  const WorkspaceInspectorRail({
+    required this.selectedTab,
+    required this.onSelected,
+    super.key,
+  });
+
+  final WorkspaceInspectorTab? selectedTab;
+  final ValueChanged<WorkspaceInspectorTab> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Material(
+      color: colorScheme.surfaceContainerLow,
+      child: SizedBox(
+        key: const ValueKey('workspace-inspector-rail'),
+        width: workspaceInspectorRailWidth,
         child: Column(
           children: [
-            const SizedBox(
-              height: 60,
-              child: TabBar(
-                dividerHeight: 0,
-                tabs: [
-                  Tab(
-                    height: 60,
-                    icon: Icon(Icons.auto_awesome_outlined),
-                    text: '助手',
-                  ),
-                  Tab(
-                    height: 60,
-                    icon: Icon(Icons.format_list_bulleted),
-                    text: '大纲',
-                  ),
-                  Tab(height: 60, icon: Icon(Icons.info_outline), text: '信息'),
-                ],
+            const SizedBox(height: 6),
+            for (final tab in WorkspaceInspectorTab.values)
+              _InspectorRailTab(
+                tab: tab,
+                selected: selectedTab == tab,
+                onPressed: () => onSelected(tab),
               ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  const _AssistantPanel(),
-                  _OutlinePanel(document: controller.activeDocument),
-                  _DocumentInfoPanel(document: controller.activeDocument),
-                ],
-              ),
-            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+final class _InspectorRailTab extends StatelessWidget {
+  const _InspectorRailTab({
+    required this.tab,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final WorkspaceInspectorTab tab;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tab.label,
+      child: Semantics(
+        selected: selected,
+        button: true,
+        label: tab.label,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 1),
+          child: Material(
+            color: selected
+                ? colorScheme.primaryContainer.withValues(alpha: 0.68)
+                : Colors.transparent,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.horizontal(left: Radius.circular(8)),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: ValueKey('workspace-inspector-tab-${tab.keyName}'),
+              onTap: onPressed,
+              child: Container(
+                width: workspaceInspectorRailWidth,
+                height: 52,
+                decoration: BoxDecoration(
+                  border: Border(
+                    left: BorderSide(
+                      color: selected
+                          ? colorScheme.primary
+                          : Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      tab.icon,
+                      size: 18,
+                      color: selected
+                          ? colorScheme.primary
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      tab.label,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: selected
+                            ? colorScheme.primary
+                            : colorScheme.onSurfaceVariant,
+                        fontSize: 10.5,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

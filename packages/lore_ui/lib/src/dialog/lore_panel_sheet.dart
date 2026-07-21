@@ -9,6 +9,10 @@ const double lorePanelDefaultMaxWidth = 560;
 /// 桌面面板左右留出的边距，让面板悬浮、背景透出工作区。
 const double _lorePanelDesktopMargin = 64;
 
+/// 桌面面板上下留白（外层 [Padding] 的 vertical）。maxHeight 据此兜底，
+/// 避免矮窗口下 面板高 + 上下 padding 超过视口、面板被裁出屏幕。
+const double _lorePanelDesktopVerticalPadding = 56;
+
 /// 以自适应形态呈现一个辅助面板（设置 / 回收站等）。
 ///
 /// 与全屏路由不同，面板不会接管整个窗口：宽屏（≥ [lorePanelWideBreakpoint]）
@@ -29,7 +33,7 @@ Future<T?> showLorePanelSheet<T>({
   IconData? icon,
   String? subtitle,
   double maxWidth = lorePanelDefaultMaxWidth,
-  double desktopMaxHeightFactor = 0.85,
+  double desktopMaxHeightFactor = 0.8,
   bool barrierDismissable = true,
 }) {
   final media = MediaQuery.sizeOf(context);
@@ -39,13 +43,21 @@ Future<T?> showLorePanelSheet<T>({
       320.0,
       maxWidth,
     );
-    final maxHeight = media.height * desktopMaxHeightFactor;
+    // maxHeight 不超过 视口高 − 上下 padding，否则 Center + Padding 会把面板
+    // 顶/底推出视口（factor 较大或窗口较矮时）。
+    final maxHeight = (media.height * desktopMaxHeightFactor).clamp(
+      0.0,
+      media.height - _lorePanelDesktopVerticalPadding * 2,
+    );
     return showDialog<T>(
       context: context,
       barrierDismissible: barrierDismissable,
       builder: (_) => Center(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 56),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 32,
+            vertical: _lorePanelDesktopVerticalPadding,
+          ),
           child: _LorePanel(
             title: title,
             subtitle: subtitle,
@@ -109,21 +121,22 @@ class _LorePanel extends StatelessWidget {
         ? BoxConstraints(maxHeight: maxHeight)
         : BoxConstraints.tightFor(width: width).copyWith(maxHeight: maxHeight);
     return ConstrainedBox(
+      key: const ValueKey('lore-panel'),
       constraints: constraints,
       child: Container(
         decoration: BoxDecoration(
           color: colorScheme.surface,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(color: colorScheme.outlineVariant),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
-              blurRadius: 40,
-              offset: const Offset(0, 16),
+              color: Colors.black.withValues(alpha: 0.16),
+              blurRadius: 28,
+              offset: const Offset(0, 12),
             ),
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 8,
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 6,
               offset: const Offset(0, 2),
             ),
           ],
@@ -133,32 +146,41 @@ class _LorePanel extends StatelessWidget {
           // 透明、不裁剪，背景与阴影均由外层 Container 的 decoration 负责。
           color: Colors.transparent,
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(10),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 18, 12, 14),
+                Container(
+                  key: const ValueKey('lore-panel-header'),
+                  padding: const EdgeInsets.fromLTRB(20, 14, 10, 12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerLow,
+                    border: Border(
+                      bottom: BorderSide(color: colorScheme.outlineVariant),
+                    ),
+                  ),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: subtitle == null
+                        ? CrossAxisAlignment.center
+                        : CrossAxisAlignment.start,
                     children: [
                       if (icon != null) ...[
                         Container(
-                          width: 36,
-                          height: 36,
+                          width: 32,
+                          height: 32,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
                             color: colorScheme.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(7),
                           ),
                           child: Icon(
                             icon,
-                            size: 20,
+                            size: 18,
                             color: colorScheme.primary,
                           ),
                         ),
-                        const SizedBox(width: 14),
+                        const SizedBox(width: 12),
                       ],
                       Expanded(
                         child: Column(
@@ -167,7 +189,7 @@ class _LorePanel extends StatelessWidget {
                           children: [
                             Text(
                               title,
-                              style: theme.textTheme.titleLarge?.copyWith(
+                              style: theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: -0.2,
                               ),
@@ -188,7 +210,12 @@ class _LorePanel extends StatelessWidget {
                       IconButton(
                         tooltip: '关闭',
                         onPressed: () => Navigator.of(context).maybePop(),
-                        icon: const Icon(Icons.close_rounded, size: 20),
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size.square(34),
+                          maximumSize: const Size.square(34),
+                          padding: EdgeInsets.zero,
+                        ),
+                        icon: const Icon(Icons.close_rounded, size: 18),
                       ),
                     ],
                   ),

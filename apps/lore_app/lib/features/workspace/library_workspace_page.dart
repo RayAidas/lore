@@ -41,8 +41,9 @@ final class LibraryWorkspacePage extends ConsumerStatefulWidget {
 final class _LibraryWorkspacePageState
     extends ConsumerState<LibraryWorkspacePage>
     with WidgetsBindingObserver {
-  bool _showInspector = true;
   bool _showSidebar = true;
+  WorkspaceInspectorTab? _activeInspectorTab;
+  bool _inspectorCollapseScheduled = false;
 
   /// 页面级全屏（沉浸写作）：隐藏 AppBar/侧栏/工具栏/标签页。[DocumentPane]
   /// 始终留在 [_buildEditorGroup] 原位（chrome 折叠为零尺寸占位而非移除），
@@ -51,6 +52,9 @@ final class _LibraryWorkspacePageState
 
   final ValueNotifier<double> _sidebarWidth = ValueNotifier(
     _defaultSidebarWidth,
+  );
+  final ValueNotifier<double> _inspectorWidth = ValueNotifier(
+    _defaultInspectorWidth,
   );
   FindReplaceController? _findController;
   bool _findReplaceMode = false;
@@ -126,6 +130,7 @@ final class _LibraryWorkspacePageState
   void dispose() {
     _findController?.dispose();
     _sidebarWidth.dispose();
+    _inspectorWidth.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -138,14 +143,21 @@ final class _LibraryWorkspacePageState
       builder: (context, _) {
         return LayoutBuilder(
           builder: (context, constraints) {
+            final desktop = supportsDesktopSplit;
             final permanentSidebar = constraints.maxWidth >= 760;
-            final inspectorAvailable = constraints.maxWidth >= 1180;
+            final inspectorContentAvailable =
+                constraints.maxWidth >= _inspectorContentBreakpoint;
+            final inspectorRailVisible = desktop && !_isFullscreen;
             final inspectorVisible =
-                inspectorAvailable && _showInspector && !_isFullscreen;
+                inspectorRailVisible &&
+                inspectorContentAvailable &&
+                _activeInspectorTab != null;
+            if (!inspectorContentAvailable && _activeInspectorTab != null) {
+              _collapseInspectorAfterLayout();
+            }
             // 全屏下侧栏折叠为零宽度占位而非移除，使 chrome 显隐不动内容子树位置。
             final showSidebar =
                 permanentSidebar && _showSidebar && !_isFullscreen;
-            final desktop = supportsDesktopSplit;
             return CallbackShortcuts(
               bindings: {
                 const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () {
@@ -244,77 +256,70 @@ final class _LibraryWorkspacePageState
                   appBar: _isFullscreen
                       ? null
                       : AppBar(
-                          toolbarHeight: 52,
-                          titleSpacing: permanentSidebar ? 20 : 0,
+                          toolbarHeight: 46,
+                          titleSpacing: permanentSidebar ? 16 : 0,
                           title: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                Icons.auto_stories_outlined,
-                                size: 20,
-                                color: Theme.of(context).colorScheme.primary,
+                              Container(
+                                key: const ValueKey('lore-brand-mark'),
+                                width: 24,
+                                height: 24,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Icon(
+                                  Icons.menu_book_rounded,
+                                  size: 15,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onPrimary,
+                                ),
                               ),
-                              const SizedBox(width: 10),
-                              const Text('Lore'),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Lore',
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurface,
+                                      fontFamily: 'LXGWWenKai',
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 0.4,
+                                      height: 1,
+                                    ),
+                              ),
                             ],
                           ),
                           actions: [
-                            if (desktop && controller.activeDocument != null)
-                              IconButton(
-                                onPressed: () {
-                                  if (controller.isSplit) {
-                                    controller.closeSplit();
-                                  } else {
-                                    controller.splitRight(
-                                      controller.activeDocument!,
-                                    );
-                                  }
-                                },
-                                tooltip: controller.isSplit ? '关闭分屏' : '向右分屏',
-                                icon: Icon(
-                                  controller.isSplit
-                                      ? Icons.close_fullscreen
-                                      : Icons.vertical_split_outlined,
-                                ),
-                              ),
                             if (controller.activeDocument != null)
                               IconButton(
                                 onPressed: _toggleFullscreen,
                                 tooltip: '全屏 (Cmd+Shift+F)',
-                                icon: const Icon(Icons.fullscreen),
-                              ),
-                            if (inspectorAvailable)
-                              IconButton(
-                                onPressed: () => setState(
-                                  () => _showInspector = !_showInspector,
-                                ),
-                                tooltip: inspectorVisible ? '收起工具栏' : '展开工具栏',
-                                icon: Icon(
-                                  inspectorVisible
-                                      ? Icons.view_sidebar
-                                      : Icons.view_sidebar_outlined,
-                                ),
+                                style: _appBarIconButtonStyle,
+                                icon: const Icon(Icons.fullscreen, size: 19),
                               ),
                             IconButton(
                               onPressed: () =>
                                   showTrashPanel(context, controller),
                               tooltip: '回收站',
-                              icon: const Icon(Icons.delete_outline),
+                              style: _appBarIconButtonStyle,
+                              icon: const Icon(Icons.delete_outline, size: 18),
                             ),
                             IconButton(
                               onPressed: () => showSettingsPanel(context),
                               tooltip: '设置',
-                              icon: const Icon(Icons.settings_outlined),
-                            ),
-                            IconButton(
-                              onPressed: () =>
-                                  unawaited(_selectLibrary(controller)),
-                              tooltip: '重新选择书库',
+                              style: _appBarIconButtonStyle,
                               icon: const Icon(
-                                Icons.drive_folder_upload_outlined,
+                                Icons.settings_outlined,
+                                size: 18,
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                           ],
                         ),
                   body: Column(
@@ -395,14 +400,70 @@ final class _LibraryWorkspacePageState
                               ),
                             ),
                             inspectorVisible
-                                ? const VerticalDivider(width: 1)
+                                ? GestureDetector(
+                                    key: const ValueKey(
+                                      'workspace-inspector-resize-handle',
+                                    ),
+                                    behavior: HitTestBehavior.opaque,
+                                    onHorizontalDragUpdate: (details) {
+                                      _inspectorWidth.value =
+                                          (_inspectorWidth.value -
+                                                  details.delta.dx)
+                                              .clamp(
+                                                _minimumInspectorWidth,
+                                                _maximumInspectorWidth,
+                                              );
+                                    },
+                                    child: MouseRegion(
+                                      cursor: SystemMouseCursors.resizeColumn,
+                                      child: SizedBox(
+                                        width: _inspectorResizeHandleWidth,
+                                        child: Center(
+                                          child: VerticalDivider(
+                                            width: 1,
+                                            color: Theme.of(
+                                              context,
+                                            ).dividerColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  )
                                 : const SizedBox.shrink(),
                             inspectorVisible
-                                ? SizedBox(
-                                    width: 320,
-                                    child: WorkspaceInspector(
-                                      controller: controller,
+                                ? ValueListenableBuilder<double>(
+                                    valueListenable: _inspectorWidth,
+                                    builder: (context, width, _) => SizedBox(
+                                      key: const ValueKey(
+                                        'workspace-inspector-content',
+                                      ),
+                                      width: width,
+                                      child: WorkspaceInspector(
+                                        controller: controller,
+                                        tab: _activeInspectorTab!,
+                                      ),
                                     ),
+                                  )
+                                : const SizedBox.shrink(),
+                            inspectorRailVisible
+                                ? const VerticalDivider(width: 1)
+                                : const SizedBox.shrink(),
+                            inspectorRailVisible
+                                ? WorkspaceInspectorRail(
+                                    selectedTab: inspectorVisible
+                                        ? _activeInspectorTab
+                                        : null,
+                                    onSelected: (tab) {
+                                      if (!inspectorContentAvailable) {
+                                        return;
+                                      }
+                                      setState(() {
+                                        _activeInspectorTab =
+                                            _activeInspectorTab == tab
+                                            ? null
+                                            : tab;
+                                      });
+                                    },
                                   )
                                 : const SizedBox.shrink(),
                           ],
@@ -723,17 +784,17 @@ final class _LibraryWorkspacePageState
     });
   }
 
-  Future<void> _selectLibrary(WorkspaceController controller) async {
-    if (await controller.flushAll()) {
-      widget.onSelectLibrary();
-    } else if (mounted) {
-      _showFailure(
-        const LibraryFailure(
-          code: LibraryFailureCode.externalModification,
-          message: '请先处理未保存文档或外部修改冲突。',
-        ),
-      );
+  void _collapseInspectorAfterLayout() {
+    if (_inspectorCollapseScheduled) {
+      return;
     }
+    _inspectorCollapseScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _inspectorCollapseScheduled = false;
+      if (mounted && _activeInspectorTab != null) {
+        setState(() => _activeInspectorTab = null);
+      }
+    });
   }
 
   void _showFailure(LibraryFailure failure) {
@@ -748,6 +809,18 @@ const double _defaultSidebarWidth = 276;
 const double _minimumSidebarWidth = 220;
 const double _maximumSidebarWidth = 420;
 const double _sidebarResizeHandleWidth = 9;
+const double _defaultInspectorWidth = 320;
+const double _minimumInspectorWidth = 240;
+const double _maximumInspectorWidth = 480;
+const double _inspectorResizeHandleWidth = 7;
+const double _inspectorContentBreakpoint = 1180;
+
+final ButtonStyle _appBarIconButtonStyle = IconButton.styleFrom(
+  minimumSize: const Size.square(34),
+  maximumSize: const Size.square(34),
+  padding: EdgeInsets.zero,
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+);
 
 /// 全屏切换后恢复滚动偏移的容差（像素），小于此值视为无需恢复。
 const double _scrollRestoreTolerancePx = 1;

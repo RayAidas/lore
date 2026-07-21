@@ -16,6 +16,7 @@ import 'trash_pane.dart';
 import 'workspace_controller.dart';
 import 'workspace_directory_tree.dart';
 import 'workspace_entry_actions.dart';
+import 'workspace_metrics.dart';
 
 /// 目录树右键菜单的可选动作。
 enum _ContextMenuAction {
@@ -531,9 +532,16 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                     )
                   : const Center(child: CircularProgressIndicator()),
             ),
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 7, 8, 7),
+            Container(
+              key: const ValueKey('library-sidebar-footer'),
+              height: workspaceChromeBarHeight,
+              padding: const EdgeInsets.only(left: 14, right: 6),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerLowest,
+                border: Border(
+                  top: BorderSide(color: Theme.of(context).dividerColor),
+                ),
+              ),
               child: Row(
                 children: [
                   Icon(
@@ -556,8 +564,8 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                     ),
                   ),
                   IconButton(
-                    visualDensity: VisualDensity.compact,
                     tooltip: '回收站',
+                    style: _sidebarFooterButtonStyle,
                     onPressed: () {
                       unawaited(showTrashPanel(context, widget.controller));
                       // drawer 模式下顺手关闭抽屉：先 push 面板（盖在 drawer 之上），
@@ -569,8 +577,8 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
                     icon: const Icon(Icons.delete_outline, size: 18),
                   ),
                   IconButton(
-                    visualDensity: VisualDensity.compact,
                     tooltip: '重新选择书库',
+                    style: _sidebarFooterButtonStyle,
                     onPressed: () => unawaited(_selectLibrary()),
                     icon: const Icon(
                       Icons.drive_folder_upload_outlined,
@@ -684,3 +692,10 @@ ButtonStyle _sidebarIconButtonStyle(ColorScheme colorScheme) {
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
   );
 }
+
+final ButtonStyle _sidebarFooterButtonStyle = IconButton.styleFrom(
+  minimumSize: const Size.square(28),
+  maximumSize: const Size.square(28),
+  padding: EdgeInsets.zero,
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+);

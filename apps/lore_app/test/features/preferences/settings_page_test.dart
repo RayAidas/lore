@@ -1,0 +1,166 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lore_app/features/preferences/settings_page.dart';
+import 'package:lore_ui/lore_ui.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  testWidgets('desktop settings use scroll-synced anchor navigation', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: LoreTheme.light(),
+          home: const Scaffold(body: SettingsContent()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('settings-navigation')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('settings-nav-appearance')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('settings-nav-layout')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-nav-writing')), findsOneWidget);
+    expect(find.text('主题'), findsOneWidget);
+    expect(find.text('默认章节格式'), findsOneWidget);
+    expect(find.text('打字机模式'), findsOneWidget);
+    expect(find.text('主题与编辑器显示'), findsNothing);
+    expect(find.text('文档格式与段落样式'), findsNothing);
+    expect(find.text('专注、目标与查找选项'), findsNothing);
+    expect(find.text('新查找窗口的默认选项'), findsNothing);
+    expect(find.byType(DropdownButton<dynamic>), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == '_Dropdown<AppThemeMode>',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('settings-nav-selection-appearance')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('settings-nav-layout')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('settings-nav-selection-layout')),
+      findsOneWidget,
+    );
+    final scrollTop = tester
+        .getTopLeft(find.byKey(const ValueKey('settings-content-scroll')))
+        .dy;
+    final layoutTop = tester
+        .getTopLeft(find.byKey(const ValueKey('settings-section-layout')))
+        .dy;
+    expect(layoutTop, closeTo(scrollTop, 2));
+
+    await tester.tap(find.byKey(const ValueKey('settings-nav-writing')));
+    await tester.pumpAndSettle();
+    expect(find.text('打字机模式'), findsOneWidget);
+    expect(find.text('每日字数目标'), findsOneWidget);
+    expect(find.text('正则表达式'), findsOneWidget);
+    expect(find.text('首行缩进两字'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('settings-nav-selection-writing')),
+      findsOneWidget,
+    );
+    expect(find.byType(Switch), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == '_CompactSwitch',
+      ),
+      findsNWidgets(5),
+    );
+
+    await tester.drag(
+      find.byKey(const ValueKey('settings-content-scroll')),
+      const Offset(0, 1200),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('settings-nav-selection-appearance')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('settings dialog uses a restrained desktop size', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: LoreTheme.light(),
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showSettingsPanel(context),
+              child: const Text('打开设置'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开设置'));
+    await tester.pumpAndSettle();
+
+    final panelSize = tester.getSize(find.byKey(const ValueKey('lore-panel')));
+    expect(panelSize.width, closeTo(760, 1));
+    expect(panelSize.height, lessThanOrEqualTo(648));
+    expect(find.text('外观、编辑器与写作偏好'), findsNothing);
+  });
+
+  testWidgets('scrolling to bottom selects the last section', (tester) async {
+    // 短视口让内容可滚动；锁定"手动滚到底 → 末项 writing 被选中"路径
+    // （extentAfter≈0 兜底 + 手动滚动同步导航两条此前未覆盖的逻辑）。
+    tester.view.physicalSize = const Size(900, 400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: LoreTheme.light(),
+          home: const Scaffold(body: SettingsContent()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('settings-nav-selection-appearance')),
+      findsOneWidget,
+    );
+
+    // 向上拖（指针 dy 负 → 内容下滚）到底。
+    await tester.drag(
+      find.byKey(const ValueKey('settings-content-scroll')),
+      const Offset(0, -2000),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('settings-nav-selection-writing')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('settings-nav-selection-appearance')),
+      findsNothing,
+    );
+  });
+}

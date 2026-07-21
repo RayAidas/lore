@@ -13,8 +13,9 @@ Future<void> showTrashPanel(
   return showLorePanelSheet<void>(
     context: context,
     title: '回收站',
-    subtitle: '恢复或彻底删除已移除的内容',
     icon: Icons.delete_outline,
+    maxWidth: 680,
+    desktopMaxHeightFactor: 0.68,
     child: TrashPanel(controller: controller),
   );
 }
@@ -97,6 +98,32 @@ final class _TrashPanelState extends State<TrashPanel> {
     TrashItemType.entry => Icons.insert_drive_file_outlined,
   };
 
+  String _displayName(TrashItem item) {
+    final segments = item.originalRelativePath.split('/');
+    return segments.lastWhere(
+      (segment) => segment.isNotEmpty,
+      orElse: () => item.originalRelativePath,
+    );
+  }
+
+  String _parentPath(TrashItem item) {
+    final segments = item.originalRelativePath
+        .split('/')
+        .where((segment) => segment.isNotEmpty)
+        .toList();
+    if (segments.length <= 1) {
+      return '书库根目录';
+    }
+    return segments.take(segments.length - 1).join('/');
+  }
+
+  String _formatDeletedAt(DateTime value) {
+    final local = value.toLocal();
+    String twoDigits(int part) => part.toString().padLeft(2, '0');
+    return '${local.year}-${twoDigits(local.month)}-${twoDigits(local.day)} '
+        '${twoDigits(local.hour)}:${twoDigits(local.minute)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -106,30 +133,58 @@ final class _TrashPanelState extends State<TrashPanel> {
     if (_loading) {
       body = const Center(child: CircularProgressIndicator());
     } else if (_error != null) {
-      body = Center(child: Text('$_error'));
+      body = Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                size: 28,
+                color: colorScheme.error,
+              ),
+              const SizedBox(height: 10),
+              Text('无法加载回收站', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Text(
+                '$_error',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(onPressed: _reload, child: const Text('重试')),
+            ],
+          ),
+        ),
+      );
     } else if (!hasItems) {
       body = Center(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 64,
-                height: 64,
+                width: 48,
+                height: 48,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: colorScheme.primary.withValues(alpha: 0.08),
-                  shape: BoxShape.circle,
+                  color: colorScheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(9),
                 ),
                 child: Icon(
-                  Icons.delete_outline,
-                  size: 30,
-                  color: colorScheme.primary,
+                  Icons.delete_outline_rounded,
+                  size: 24,
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(height: 16),
-              Text('回收站为空', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 12),
+              Text('回收站为空', style: theme.textTheme.titleSmall),
               const SizedBox(height: 4),
               Text(
                 '删除的内容会先到这里，可随时恢复。',
@@ -144,44 +199,52 @@ final class _TrashPanelState extends State<TrashPanel> {
       );
     } else {
       body = ListView.separated(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
         itemCount: _items!.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 4),
+        separatorBuilder: (_, _) => Divider(
+          height: 1,
+          indent: 44,
+          color: colorScheme.outlineVariant.withValues(alpha: 0.72),
+        ),
         itemBuilder: (context, index) {
           final item = _items![index];
           return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: 32,
+                  height: 32,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(10),
+                    color: colorScheme.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(7),
                   ),
                   child: Icon(
                     _typeIcon(item.type),
-                    size: 18,
-                    color: colorScheme.onSurfaceVariant,
+                    size: 17,
+                    color: colorScheme.primary,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        item.originalRelativePath,
+                        _displayName(item),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       Text(
-                        '${_typeLabel(item.type)} · ${item.deletedAt.toLocal()}',
+                        '${_typeLabel(item.type)} · '
+                        '${_formatDeletedAt(item.deletedAt)} · '
+                        '${_parentPath(item)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
@@ -191,13 +254,24 @@ final class _TrashPanelState extends State<TrashPanel> {
                     ],
                   ),
                 ),
-                TextButton(
+                TextButton.icon(
                   onPressed: () => _restore(item),
-                  child: const Text('恢复'),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 32),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                  icon: const Icon(Icons.restore_rounded, size: 16),
+                  label: const Text('恢复'),
                 ),
                 IconButton(
                   tooltip: '永久删除',
-                  icon: const Icon(Icons.delete_forever_outlined, size: 20),
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size.square(32),
+                    maximumSize: const Size.square(32),
+                    padding: EdgeInsets.zero,
+                    foregroundColor: colorScheme.error,
+                  ),
+                  icon: const Icon(Icons.delete_forever_outlined, size: 18),
                   onPressed: () => _purge(item),
                 ),
               ],
@@ -214,7 +288,7 @@ final class _TrashPanelState extends State<TrashPanel> {
         if (hasItems) ...[
           Divider(height: 1, color: colorScheme.outlineVariant),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            padding: const EdgeInsets.fromLTRB(20, 8, 14, 10),
             child: Row(
               children: [
                 Text(
@@ -224,12 +298,13 @@ final class _TrashPanelState extends State<TrashPanel> {
                   ),
                 ),
                 const Spacer(),
-                FilledButton.tonalIcon(
+                TextButton.icon(
                   onPressed: _empty,
-                  icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+                  icon: const Icon(Icons.delete_sweep_outlined, size: 17),
                   label: const Text('清空回收站'),
-                  style: FilledButton.styleFrom(
+                  style: TextButton.styleFrom(
                     foregroundColor: colorScheme.error,
+                    minimumSize: const Size(0, 34),
                   ),
                 ),
               ],

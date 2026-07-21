@@ -35,6 +35,24 @@ void main() {
     expect(find.text('面板内容'), findsOneWidget);
     // 标题栏自带关闭按钮。
     expect(find.byTooltip('关闭'), findsOneWidget);
+    final panel = find.byKey(const ValueKey('lore-panel'));
+    final decoratedPanel = tester.widget<Container>(
+      find.descendant(of: panel, matching: find.byType(Container)).first,
+    );
+    final decoration = decoratedPanel.decoration! as BoxDecoration;
+    expect(decoration.borderRadius, BorderRadius.circular(10));
+    final header = tester.widget<Container>(
+      find.byKey(const ValueKey('lore-panel-header')),
+    );
+    final headerDecoration = header.decoration! as BoxDecoration;
+    expect(
+      headerDecoration.color,
+      LoreTheme.light().colorScheme.surfaceContainerLow,
+    );
+    expect(
+      (headerDecoration.border! as Border).bottom.style,
+      BorderStyle.solid,
+    );
 
     // 关闭按钮点击后面板消失、Future 完成。
     await tester.tap(find.byTooltip('关闭'));

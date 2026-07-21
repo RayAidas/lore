@@ -16,6 +16,7 @@ import 'library_failure_snackbar.dart';
 import 'local_markdown_image.dart';
 import 'open_document_extensions.dart';
 import 'workspace_controller.dart';
+import 'workspace_metrics.dart';
 
 /// 文档编辑/预览主面板：工具条 + 冲突/错误横幅 + 编辑器或预览 + 状态栏。
 final class DocumentPane extends ConsumerStatefulWidget {
@@ -407,7 +408,8 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
           ),
         ),
         Container(
-          height: 34,
+          key: const ValueKey('document-status-bar'),
+          height: workspaceChromeBarHeight,
           padding: const EdgeInsets.symmetric(horizontal: 18),
           decoration: BoxDecoration(
             color: colorScheme.surfaceContainerLowest,
