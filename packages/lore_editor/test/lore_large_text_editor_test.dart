@@ -1345,4 +1345,129 @@ void main() {
       expect(secondPainter.drawTopLine, isTrue);
     },
   );
+
+  testWidgets('focus mode focuses a tapped paragraph on the first tap', (
+    tester,
+  ) async {
+    // 回归：专注模式下点击淡化段，首次点击即应落光标。修复前以 widget.dimmed
+    // 条件增删 Opacity 包裹——淡化↔恢复切换会改变 Focus 子树的类型，Flutter
+    // 随之重建 content 子树（含 TextField 与其 _focusNode），把刚刚 requestFocus
+    // 的焦点丢弃，表现为「点击段落只激活却不落光标、需要重复点击」。
+    final controller = LoreLargeTextController(text: '第一段\n第二段\n第三段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              style: const EditorStyle.defaults().copyWith(focusMode: true),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // 初始 selection 在末尾（block 2 激活、未淡化），block 1 被淡化。点 block 1。
+    await tester.tap(find.byType(TextField).at(1));
+    await tester.pumpAndSettle();
+
+    // block 1 首次点击即获焦（光标可见）：其 focusNode 持有焦点、未被重建丢弃。
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(1)).focusNode!.hasFocus,
+      isTrue,
+    );
+  });
+
+  testWidgets('focus mode arrow down traverses a multi-line paragraph', (
+    tester,
+  ) async {
+    // 回归：专注模式下方向键跨入多行段后应能继续移动，不卡住。根因同上——跨段
+    // 触发目标段淡化↔恢复重建，焦点丢失，后续方向键无 block 获焦而失效。
+    final long = List.generate(200, (i) => '字').join();
+    final controller = LoreLargeTextController(text: '短一\n$long\n末段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    // selection 置于首段开头：挂载即 active=block 0，autofocus 让 block 0 获焦，
+    // 避免点击本身触发淡化切换（那会先踩到本 bug）。
+    controller.selection = const TextSelection.collapsed(offset: 0);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              autofocus: true,
+              style: const EditorStyle.defaults().copyWith(focusMode: true),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(controller.blockIndexForOffset(controller.selection.extentOffset), 0);
+
+    // ↓：单行 block 0 跨入多行 block 1。
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(controller.blockIndexForOffset(controller.selection.extentOffset), 1);
+    final crossedOffset = controller.selection.extentOffset;
+
+    // 再 ↓：焦点应已落到 block 1，光标在多行段内下移一行（extent 增大），不卡住。
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(controller.selection.extentOffset, greaterThan(crossedOffset));
+  });
+
+  testWidgets('focus mode autofocus lands on a non-dimmed block', (tester) async {
+    final controller = LoreLargeTextController(text: '第一段\n第二段\n第三段\n第四段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+              autofocus: true,
+              style: const EditorStyle.defaults().copyWith(focusMode: true),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 挂载即 autofocus：被聚焦的段必须是非淡化段（光标可见）。修复前 autofocus 恒落
+    // block 0，而初始 selection 在末段、active=末段，于是 block 0 被淡化——光标起始于
+    // 几乎不可见（0.28）的淡化段，表现为「专注模式打开就看不到光标，要点一下才出现」。
+    final fields = tester.widgetList<TextField>(find.byType(TextField)).toList();
+    final focusedIndex = fields.indexWhere(
+      (f) => f.focusNode?.hasFocus ?? false,
+    );
+    expect(focusedIndex, greaterThanOrEqualTo(0));
+    final dimmedAncestor = find.ancestor(
+      of: find.byType(TextField).at(focusedIndex),
+      matching: find.byWidgetPredicate(
+        (widget) => widget is Opacity && widget.opacity == 0.28,
+      ),
+    );
+    expect(dimmedAncestor.evaluate(), isEmpty);
+  });
 }
