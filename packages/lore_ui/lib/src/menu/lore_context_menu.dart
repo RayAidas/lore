@@ -133,7 +133,8 @@ class _LoreContextMenuCard extends StatelessWidget {
   static const double _extraWidth = 18;
   /// custom 项(label='')预留的内容宽,容纳色块行等独立交互内容。
   /// 菜单宽度 = max(最宽 label, custom 预留) + padding + 余量。
-  static const double _customReservedWidth = 154;
+  /// 134 → menuWidth 180,刚好容纳"不高亮 + 6 色"7 个色块(150)+ padding。
+  static const double _customReservedWidth = 134;
   static const TextStyle _labelStyle = TextStyle(
     fontSize: 13.5,
     fontWeight: FontWeight.w500,

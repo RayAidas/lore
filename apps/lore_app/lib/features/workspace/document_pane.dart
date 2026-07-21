@@ -95,19 +95,18 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                                 width: 18,
                                 height: 18,
                                 decoration: BoxDecoration(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest,
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .outlineVariant,
+                                    color: Theme.of(context).colorScheme.outline,
                                   ),
                                 ),
                                 child: Icon(
                                   Icons.close,
                                   size: 12,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .outlineVariant,
+                                  color: Theme.of(context).colorScheme.onSurface,
                                 ),
                               ),
                             ),
