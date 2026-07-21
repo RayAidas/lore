@@ -3,6 +3,8 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'package:lore_domain/lore_domain.dart';
+
 import '../document_controller.dart';
 import 'chunked_text_buffer.dart';
 
@@ -39,6 +41,7 @@ final class LoreLargeTextController extends ChangeNotifier
   var _savedVersion = 0;
   var _blocksRevision = 0;
   var _selectionDragActive = false;
+  List<Highlight> _highlights = const [];
 
   List<LargeTextBlock> get blocks => _blocksView;
 
@@ -78,6 +81,19 @@ final class LoreLargeTextController extends ChangeNotifier
   int get blocksRevision => _blocksRevision;
 
   bool get selectionDragActive => _selectionDragActive;
+
+  /// 当前高亮列表(只读视图)。渲染层据此绘制,编辑时由 [_applyTextChange]
+  /// 增量维护 offset,持久化层据此落盘。
+  List<Highlight> get highlights => _highlights;
+
+  /// 替换全部高亮(菜单上色/取消、外部 reconcile 注入用)。**唯一**单独触发
+  /// notifyListeners 的高亮写入入口——编辑路径的增量维护走 [_applyTextChange],
+  /// 与 selection 共用调用方的 notify,避免双重广播。
+  void setHighlights(List<Highlight> value) {
+    if (listEquals(value, _highlights)) return;
+    _highlights = List.of(value);
+    notifyListeners();
+  }
 
   void beginSelectionDrag() {
     _selectionDragActive = true;
@@ -151,6 +167,7 @@ final class LoreLargeTextController extends ChangeNotifier
         _rebuildBlocks();
       }
     }
+    _applyTextChange(change);
     notifyListeners();
   }
 
@@ -165,6 +182,7 @@ final class LoreLargeTextController extends ChangeNotifier
     _editVersion += 1;
     _selection = TextSelection.collapsed(offset: start + replacement.length);
     _recordEdit(change, beforeSelection, _selection);
+    _applyTextChange(change);
     notifyListeners();
   }
 
@@ -173,6 +191,7 @@ final class LoreLargeTextController extends ChangeNotifier
     final change = _replaceRangeAndRebuildBlocks(start, end, replacement);
     _editVersion += 1;
     _selection = TextSelection.collapsed(offset: start + replacement.length);
+    _applyTextChange(change);
     _recordEdit(change, beforeSelection, _selection);
     notifyListeners();
   }
@@ -207,6 +226,7 @@ final class LoreLargeTextController extends ChangeNotifier
     _undoStack.clear();
     _redoStack.clear();
     _undoStackCharacters = 0;
+    _highlights = const [];
     _rebuildBlocks();
     notifyListeners();
   }
@@ -219,6 +239,7 @@ final class LoreLargeTextController extends ChangeNotifier
     _selection = _clampSelection(
       selection ?? TextSelection.collapsed(offset: text.length),
     );
+    _applyTextChange(change);
     _recordEdit(change, beforeSelection, _selection);
     notifyListeners();
   }
@@ -230,11 +251,12 @@ final class LoreLargeTextController extends ChangeNotifier
     }
     final edit = _undoStack.removeLast();
     _undoStackCharacters -= edit.insertedText.length + edit.removedText.length;
-    _replaceRangeAndRebuildBlocks(
+    final change = _replaceRangeAndRebuildBlocks(
       edit.start,
       edit.start + edit.insertedText.length,
       edit.removedText,
     );
+    _applyTextChange(change);
     _redoStack.add(edit);
     _editVersion += 1;
     _selection = _clampSelection(edit.beforeSelection);
@@ -247,11 +269,12 @@ final class LoreLargeTextController extends ChangeNotifier
       return;
     }
     final edit = _redoStack.removeLast();
-    _replaceRangeAndRebuildBlocks(
+    final change = _replaceRangeAndRebuildBlocks(
       edit.start,
       edit.start + edit.removedText.length,
       edit.insertedText,
     );
+    _applyTextChange(change);
     _undoStack.add(edit);
     _undoStackCharacters += edit.insertedText.length + edit.removedText.length;
     _editVersion += 1;
@@ -390,6 +413,18 @@ final class LoreLargeTextController extends ChangeNotifier
         before <= 0xDBFF &&
         after >= 0xDC00 &&
         after <= 0xDFFF;
+  }
+
+  /// 编辑后增量维护高亮 offset。仅平移,不 notify——通知由各写入入口的
+  /// notifyListeners 统一发出(与 selection 共用,避免双重广播)。
+  void _applyTextChange(TextBufferChange change) {
+    if (_highlights.isEmpty) return;
+    _highlights = shiftHighlights(
+      _highlights,
+      at: change.start,
+      delLen: change.removedText.length,
+      addLen: change.insertedText.length,
+    );
   }
 
   TextSelection _clampSelection(TextSelection selection) {

@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +18,9 @@ const String _paragraphIndent = '　　';
 /// [_paragraphIndent] 的基本单位。按 Tab 在光标处插入一个；选区非空时替换选区。
 const String _tabIndent = '　';
 
+/// 单个 block 内的局部高亮区间:已 clamp 到本 block 坐标,颜色已含渲染透明度。
+typedef _LocalHighlight = ({int start, int end, Color color});
+
 final class LoreLargeTextEditor extends StatefulWidget {
   const LoreLargeTextEditor({
     required this.controller,
@@ -25,6 +31,7 @@ final class LoreLargeTextEditor extends StatefulWidget {
     this.focusNode,
     this.indentFirstParagraph = false,
     this.header,
+    this.onContextMenu,
     super.key,
   });
 
@@ -37,6 +44,10 @@ final class LoreLargeTextEditor extends StatefulWidget {
   /// sliver，因此会随正文一起滚动——供章节文档把标题塞进编辑器滚动区使用。
   /// 传入 `null` 时视口只有正文块。
   final Widget? header;
+
+  /// 文本区域收到右键(macOS)或长按(Android)时触发,传入全局坐标。由上层
+  /// (document_pane)组装上下文菜单(高亮色块/复制/取消高亮)。为 null 时禁用菜单。
+  final void Function(Offset globalPosition)? onContextMenu;
 
   /// 是否为正文首段自动补两字缩进（与回车开新段的 [_AutoIndentFormatter] 一致）。
   /// 章节文档（标题与正文分离）开启：挂载时若首段为空就注入 `　　`，使「点进
@@ -63,6 +74,8 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
   var _globalSelectionDrag = false;
   late int _observedBlocksRevision;
   bool _transferringExternalFocus = false;
+  Timer? _longPressTimer;
+  Offset? _longPressStartPosition;
 
   /// 段首两字缩进，与 [_AutoIndentFormatter._indent] 共用 [_paragraphIndent]。
   static const String _indent = _paragraphIndent;
@@ -103,6 +116,7 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
 
   @override
   void dispose() {
+    _longPressTimer?.cancel();
     widget.controller.removeListener(_handleControllerChanged);
     widget.focusNode?.removeListener(_handleExternalFocus);
     _blockRegistry.ensureBlockVisibleAndFocus = null;
@@ -313,8 +327,25 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
   }
 
   void _handlePointerDown(PointerDownEvent event) {
+    // 右键(macOS):直接弹上下文菜单,不走选区逻辑。
+    if (event.buttons == kSecondaryMouseButton) {
+      _invokeContextMenu(event.position);
+      return;
+    }
     if (event.buttons != kPrimaryMouseButton) {
       return;
+    }
+    // 触摸长按(Android):500ms 计时,位移超 touchSlop 或抬起则取消。绕过手势
+    // 竞技场(TextField 已 enableInteractiveSelection:false,无内部长按冲突)。
+    if (event.kind == PointerDeviceKind.touch) {
+      _longPressStartPosition = event.position;
+      _longPressTimer?.cancel();
+      _longPressTimer = Timer(const Duration(milliseconds: 500), () {
+        final position = _longPressStartPosition;
+        if (position != null) {
+          _invokeContextMenu(position);
+        }
+      });
     }
     final anchor = _blockRegistry.documentOffsetFor(
       event.position,
@@ -334,6 +365,15 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
+    // 长按计时中位移超 touchSlop → 取消(转为正常拖选)。
+    final startPosition = _longPressStartPosition;
+    if (_longPressTimer != null && startPosition != null) {
+      if ((event.position - startPosition).distance > kTouchSlop) {
+        _longPressTimer?.cancel();
+        _longPressTimer = null;
+        _longPressStartPosition = null;
+      }
+    }
     final anchor = _pointerSelectionAnchor;
     if (anchor == null || event.buttons != kPrimaryMouseButton) {
       return;
@@ -354,11 +394,23 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
   }
 
   void _handlePointerEnd(PointerEvent event) {
+    _longPressTimer?.cancel();
+    _longPressTimer = null;
+    _longPressStartPosition = null;
     _pointerSelectionAnchor = null;
     widget.controller.endSelectionDrag();
     if (_globalSelectionDrag) {
       setState(() => _globalSelectionDrag = false);
     }
+  }
+
+  /// 触发上下文菜单回调(右键或长按)。取消任何进行中的长按计时后,把全局
+  /// 坐标交给上层组装菜单。
+  void _invokeContextMenu(Offset globalPosition) {
+    _longPressTimer?.cancel();
+    _longPressTimer = null;
+    _longPressStartPosition = null;
+    widget.onContextMenu?.call(globalPosition);
   }
 
   void _autoScroll(Offset globalPosition) {
@@ -1079,6 +1131,31 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
     );
   }
 
+  /// 落在本 block 内的高亮子集:全局区间与 `[blockStart, blockStart+blockLength)`
+  /// 求交、平移到局部坐标,颜色叠加渲染透明度。跨 chunk 边界的高亮自动分摊到
+  /// 各 block(每块只画交集)。
+  List<_LocalHighlight> _localHighlightsForBlock(
+    int blockStart,
+    int blockLength,
+  ) {
+    final highlights = widget.documentController.highlights;
+    if (highlights.isEmpty || blockLength == 0) return const [];
+    final blockEnd = blockStart + blockLength;
+    final result = <_LocalHighlight>[];
+    for (final h in highlights) {
+      if (h.end <= blockStart || h.start >= blockEnd) continue;
+      final localStart = (h.start - blockStart).clamp(0, blockLength);
+      final localEnd = (h.end - blockStart).clamp(0, blockLength);
+      if (localEnd <= localStart) continue;
+      result.add((
+        start: localStart,
+        end: localEnd,
+        color: Color(h.colorArgb).withValues(alpha: 0.35),
+      ));
+    }
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     final textStyle = Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -1134,6 +1211,23 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
               ),
             ),
           ),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: _BlockHighlightPainter(
+                text: widget.block.text,
+                style: textStyle,
+                highlights: _localHighlightsForBlock(
+                  blockStart,
+                  widget.block.text.length,
+                ),
+                textDirection: textDirection,
+                textScaler: textScaler,
+                layoutFor: layoutFor,
+              ),
+            ),
+          ),
+        ),
         Positioned.fill(
           child: IgnorePointer(
             child: CustomPaint(
@@ -1239,6 +1333,55 @@ final class _BlockSelectionPainter extends CustomPainter {
         oldDelegate.color != color ||
         oldDelegate.textDirection != textDirection ||
         oldDelegate.textScaler != textScaler;
+  }
+}
+
+/// 高亮背景:在文字下方绘制各高亮区间的半透明色块。与 [_BlockSelectionPainter]
+/// 同模式(复用 state 缓存的 layout painter),但用 `getBoxesForRange`(不带
+/// caret)且支持多个独立区间。
+final class _BlockHighlightPainter extends CustomPainter {
+  _BlockHighlightPainter({
+    required this.text,
+    required this.style,
+    required this.highlights,
+    required this.textDirection,
+    required this.textScaler,
+    required this.layoutFor,
+  });
+
+  final String text;
+  final TextStyle? style;
+  final List<_LocalHighlight> highlights;
+  final TextDirection textDirection;
+  final TextScaler textScaler;
+  final TextPainter Function(double width) layoutFor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (highlights.isEmpty || text.isEmpty) return;
+    final painter = layoutFor(size.width);
+    for (final h in highlights) {
+      final paint = Paint()..color = h.color;
+      // TextPainter 无 getBoxesForRange;用 getBoxesForSelection 传入 [start,end)
+      // 区间(非 collapsed,无 caret 矩形),与 _BlockSelectionPainter 同源。
+      final selection = TextSelection(
+        baseOffset: h.start,
+        extentOffset: h.end,
+      );
+      for (final box in painter.getBoxesForSelection(selection)) {
+        canvas.drawRect(box.toRect(), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BlockHighlightPainter oldDelegate) {
+    // 故意不比较 layoutFor(闭包无有意义相等性,其输入已被 text/style/...覆盖)。
+    return oldDelegate.text != text ||
+        oldDelegate.style != style ||
+        oldDelegate.textDirection != textDirection ||
+        oldDelegate.textScaler != textScaler ||
+        !listEquals(oldDelegate.highlights, highlights);
   }
 }
 
