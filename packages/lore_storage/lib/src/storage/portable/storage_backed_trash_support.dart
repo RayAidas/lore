@@ -95,33 +95,25 @@ mixin _StorageBackedTrashSupport on _StorageBackedLibrarySupport {
   Future<void> _appendTrash(
     LibraryStorageSession storage,
     _TrashRecord record,
-  ) async {
-    final records = await _trashRecords(storage)
-      ..add(record);
-    await _writeTrashRecords(storage, records);
-  }
+  ) => _modifyTrashRecords(storage, (current) => [...current, record]);
 
   Future<void> _removeTrashRecord(
     LibraryStorageSession storage,
     String token,
-  ) async {
-    final records = await _trashRecords(storage)
-      ..removeWhere((record) => record.item.token == token);
-    await _writeTrashRecords(storage, records);
-  }
+  ) => _modifyTrashRecords(
+    storage,
+    (current) => current.where((r) => r.item.token != token).toList(),
+  );
 
   Future<void> _markTrashCommitted(
     LibraryStorageSession storage,
     String token,
-  ) async {
-    final records = await _trashRecords(storage);
-    final index = records.indexWhere((record) => record.item.token == token);
+  ) => _modifyTrashRecords(storage, (current) {
+    final index = current.indexWhere((r) => r.item.token == token);
     if (index < 0) throw _notFound();
-    if (records[index].pending) {
-      records[index] = records[index].copyWith(pending: false);
-      await _writeTrashRecords(storage, records);
-    }
-  }
+    if (!current[index].pending) return null;
+    return [...current]..[index] = current[index].copyWith(pending: false);
+  });
 
   Future<void> _writeTrashRecords(
     LibraryStorageSession storage,
@@ -135,6 +127,33 @@ mixin _StorageBackedTrashSupport on _StorageBackedLibrarySupport {
       await _writeNewJson(storage, _trashManifest, value);
     } else {
       await _replaceJson(storage, _trashManifest, value);
+    }
+  }
+
+  static const _trashWriteAttempts = 3;
+
+  /// trash manifest 的 read-modify-write + 乐观锁重试。
+  ///
+  /// 并发改写 ([LibraryFailureCode.externalModification]) 时重读、重算、
+  /// 重写，最多 [_trashWriteAttempts] 次；mutate 返回 `null` 表示无需落盘。
+  /// 与 library manifest / 高亮仓库的重试范本对齐，避免并发删/还原时
+  /// trash 记录静默丢失（物理文件已移入回收站却不在 manifest 中）。
+  Future<void> _modifyTrashRecords(
+    LibraryStorageSession storage,
+    List<_TrashRecord>? Function(List<_TrashRecord> current) mutate,
+  ) async {
+    for (var attempt = 0; attempt <= _trashWriteAttempts; attempt++) {
+      try {
+        final records = await _trashRecords(storage);
+        final next = mutate(records);
+        if (next == null) return;
+        await _writeTrashRecords(storage, next);
+        return;
+      } on LibraryOperationException catch (error) {
+        final retriable =
+            error.failure.code == LibraryFailureCode.externalModification;
+        if (!retriable || attempt == _trashWriteAttempts) rethrow;
+      }
     }
   }
 

@@ -254,9 +254,9 @@ void main() {
       // 被恢复的旧内容回到原位置，占位的「新建内容」不在原位置。
       expect(await File(originalPath).readAsString(), isNot('新建内容'));
       // 占位内容被移进回收站（可逆），而非物理删除——可从 trash 找回。
-      final occupant = (await repository.listItems(access)).singleWhere(
-        (item) => item.type == TrashItemType.entry,
-      );
+      final occupant = (await repository.listItems(
+        access,
+      )).singleWhere((item) => item.type == TrashItemType.entry);
       final trashedOccupant = File(
         p.join(root.path, occupant.trashRelativePath),
       );

@@ -694,37 +694,29 @@ mixin _StorageBackedLibrarySupport {
   Future<void> _addRegistration(
     LibraryStorageSession storage,
     NovelRegistration registration,
-  ) async {
-    final library = await _readJson(storage, _libraryManifest);
-    final registrations = _registrations(library);
-    if (!registrations.any((item) => item.id == registration.id)) {
-      registrations.add(registration);
+  ) => _modifyLibraryManifest(storage, (current) {
+    if (current.any((item) => item.id == registration.id)) {
+      return current;
     }
-    await _saveRegistrations(storage, library, registrations);
-  }
+    return [...current, registration];
+  });
 
   Future<void> _replaceRegistration(
     LibraryStorageSession storage,
     NovelId id,
     String path,
-  ) async {
-    final library = await _readJson(storage, _libraryManifest);
-    final registrations = _registrations(library);
-    final index = registrations.indexWhere((item) => item.id == id);
+  ) => _modifyLibraryManifest(storage, (current) {
+    final index = current.indexWhere((item) => item.id == id);
     if (index < 0) throw _notFound();
-    registrations[index] = NovelRegistration(id: id, relativePath: path);
-    await _saveRegistrations(storage, library, registrations);
-  }
+    return [...current]
+      ..[index] = NovelRegistration(id: id, relativePath: path);
+  });
 
-  Future<void> _removeRegistration(
-    LibraryStorageSession storage,
-    NovelId id,
-  ) async {
-    final library = await _readJson(storage, _libraryManifest);
-    final registrations = _registrations(library)
-      ..removeWhere((item) => item.id == id);
-    await _saveRegistrations(storage, library, registrations);
-  }
+  Future<void> _removeRegistration(LibraryStorageSession storage, NovelId id) =>
+      _modifyLibraryManifest(
+        storage,
+        (current) => current.where((item) => item.id != id).toList(),
+      );
 
   Future<void> _saveRegistrations(
     LibraryStorageSession storage,
@@ -737,6 +729,33 @@ mixin _StorageBackedLibrarySupport {
         .map((item) => {'id': item.id.value, 'path': item.relativePath})
         .toList();
     await _replaceJson(storage, _libraryManifest, library);
+  }
+
+  static const _manifestWriteAttempts = 3;
+
+  /// library.json 的 read-modify-write + 乐观锁重试。
+  ///
+  /// 并发改写 ([LibraryFailureCode.externalModification]) 时重读、重算、
+  /// 重写，最多 [_manifestWriteAttempts] 次；mutate 返回 `null` 表示无需
+  /// 落盘。与高亮仓库的重试范本对齐，避免 registration 写入在并发下静默
+  /// 失败而留下已落地目录 + manifest 不一致的半成品。
+  Future<void> _modifyLibraryManifest(
+    LibraryStorageSession storage,
+    List<NovelRegistration>? Function(List<NovelRegistration> current) mutate,
+  ) async {
+    for (var attempt = 0; attempt <= _manifestWriteAttempts; attempt++) {
+      try {
+        final library = await _readJson(storage, _libraryManifest);
+        final next = mutate(_registrations(library));
+        if (next == null) return;
+        await _saveRegistrations(storage, library, next);
+        return;
+      } on LibraryOperationException catch (error) {
+        final retriable =
+            error.failure.code == LibraryFailureCode.externalModification;
+        if (!retriable || attempt == _manifestWriteAttempts) rethrow;
+      }
+    }
   }
 
   NovelMetadata _copyNovel(
