@@ -63,6 +63,7 @@ class ExportPanel extends StatefulWidget {
     required this.controller,
     required this.snapshot,
     required this.restrictVolumeId,
+    this.revealInFinder = _revealInFinderDefault,
     super.key,
   });
 
@@ -70,8 +71,23 @@ class ExportPanel extends StatefulWidget {
   final NovelSnapshot snapshot;
   final ContentId? restrictVolumeId;
 
+  /// 导出成功后在宿主平台定位产出文件（macOS 走 `open -R`）。可注入以便
+  /// 单测替换，避免跑测试时真的派生 Finder 进程。
+  final Future<void> Function(String path) revealInFinder;
+
   @override
   State<ExportPanel> createState() => _ExportPanelState();
+}
+
+/// 默认的 Finder 定位实现：仅 macOS 调 `open -R`，失败非致命。
+Future<void> _revealInFinderDefault(String path) async {
+  if (Platform.isMacOS) {
+    try {
+      await Process.run('open', ['-R', path]);
+    } catch (_) {
+      // 忽略：定位失败不影响已完成的导出。
+    }
+  }
 }
 
 class _ExportPanelState extends State<ExportPanel> {
@@ -291,14 +307,10 @@ class _ExportPanelState extends State<ExportPanel> {
           duration: const Duration(seconds: 4),
         ),
       );
-      // macOS：在 Finder 中定位产出文件；失败非致命（导出本身已成功）。
-      if (Platform.isMacOS) {
-        try {
-          await Process.run('open', ['-R', path]);
-        } catch (_) {
-          // 忽略：定位失败不影响已完成的导出。
-        }
-      }
+      // 导出成功后在宿主平台定位产出文件（macOS 走 `open -R`）；
+      // 失败非致命（导出本身已成功）。实现经 widget.revealInFinder 注入，
+      // 单测传 no-op 即可避免真的派生 Finder 进程。
+      await widget.revealInFinder(path);
     } on LibraryOperationException catch (error) {
       if (mounted) {
         showLibraryFailure(context, error.failure);
