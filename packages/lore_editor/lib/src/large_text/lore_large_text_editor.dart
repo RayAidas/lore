@@ -156,13 +156,15 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
     });
   }
 
-  /// 章节正文首段若为空且开启了首行缩进，注入两字缩进。幂等：首段已有内容则不动。
+  /// 章节正文首段须带两字缩进：挂载时若首段无缩进——空段，或导入/历史章节
+  /// 顶格的首段——在开头注入 `　　`。幂等：首段已有缩进则不动。覆盖导入 TXT
+  /// 首段常顶格（无缩进）的情况，使每章首段一律带缩进，与回车开新段一致。
   void _ensureFirstParagraphIndent() {
     if (!widget.indentFirstParagraph || !widget.style.firstLineIndent) {
       return;
     }
     final blocks = widget.controller.blocks;
-    if (blocks.isEmpty || blocks.first.text.isNotEmpty) {
+    if (blocks.isEmpty || blocks.first.text.startsWith(_indent)) {
       return;
     }
     widget.controller.replaceRange(0, 0, _indent);

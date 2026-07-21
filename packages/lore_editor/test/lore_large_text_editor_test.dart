@@ -736,33 +736,35 @@ void main() {
     expect(controller.text, '');
   });
 
-  testWidgets('does not indent first paragraph that already has content', (
-    tester,
-  ) async {
-    final controller = LoreLargeTextController(text: '已有正文');
-    final scrollController = ScrollController();
-    addTearDown(controller.dispose);
-    addTearDown(scrollController.dispose);
+  testWidgets(
+    'indents first paragraph without indent even when it has content',
+    (tester) async {
+      final controller = LoreLargeTextController(text: '已有正文');
+      final scrollController = ScrollController();
+      addTearDown(controller.dispose);
+      addTearDown(scrollController.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Material(
-          child: SizedBox(
-            width: 800,
-            height: 500,
-            child: LoreLargeTextEditor(
-              controller: controller,
-              scrollController: scrollController,
-              indentFirstParagraph: true,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: SizedBox(
+              width: 800,
+              height: 500,
+              child: LoreLargeTextEditor(
+                controller: controller,
+                scrollController: scrollController,
+                indentFirstParagraph: true,
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
 
-    expect(controller.text, '已有正文');
-  });
+      // 首段顶格（无缩进）也补：覆盖导入 TXT 首段顶格、历史章节首段无缩进等情况。
+      expect(controller.text, '　　已有正文');
+    },
+  );
 
   testWidgets('arrow down moves the caret into the next paragraph', (
     tester,
