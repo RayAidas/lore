@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_editor/lore_editor.dart';
+import 'package:lore_ui/lore_ui.dart';
 
 import '../preferences/font_options.dart';
 import '../preferences/preferences_providers.dart';
@@ -48,6 +50,85 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
   void dispose() {
     _bodyFocusNode.dispose();
     super.dispose();
+  }
+
+  /// 选中文字后右键(macOS)/长按(Android)触发:色块行上色、复制、取消高亮。
+  void _showEditorContextMenu(Offset position) {
+    final controller = document.editorController;
+    if (controller is! LoreLargeTextController) return;
+    final selection = controller.selection;
+    final hasSelection = selection.isValid && !selection.isCollapsed;
+    final prefs =
+        ref.read(appPreferencesProvider).value ?? AppPreferences.defaults();
+    final palette = prefs.highlightPalette;
+    final intersecting = hasSelection
+        ? controller.highlightsIntersecting(selection.start, selection.end)
+        : const <Highlight>[];
+    showLoreContextMenu(
+      context: context,
+      position: position,
+      items: [
+        LoreContextMenuItem(
+          label: '',
+          onTap: () {},
+          custom: Opacity(
+            opacity: hasSelection ? 1.0 : 0.4,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final c in palette)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: GestureDetector(
+                      onTap: hasSelection
+                          ? () => controller.addHighlight(
+                                selection.start,
+                                selection.end,
+                                c,
+                              )
+                          : null,
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: Color(c),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        LoreContextMenuItem(
+          label: '复制',
+          enabled: hasSelection,
+          onTap: () => _copySelection(controller),
+        ),
+        if (intersecting.isNotEmpty)
+          LoreContextMenuItem(
+            label: '取消高亮',
+            onTap: () => controller.removeHighlightsIntersecting(
+              selection.start,
+              selection.end,
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _copySelection(LoreLargeTextController controller) {
+    final selection = controller.selection;
+    if (selection.isCollapsed) return;
+    Clipboard.setData(
+      ClipboardData(
+        text: controller.text.substring(selection.start, selection.end),
+      ),
+    );
   }
 
   WorkspaceController get controller => widget.controller;
@@ -262,6 +343,7 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                               autofocus:
                                   !hasTitle ||
                                   document.editorController.text.isNotEmpty,
+                              onContextMenu: _showEditorContextMenu,
                             ),
                           LoreTextController textController => LoreTextEditor(
                             key: ValueKey(document),

@@ -1,4 +1,5 @@
 import '../content/content_types.dart';
+import '../highlight/highlight.dart';
 
 /// 用户可配置的应用级外观与编辑器偏好。
 ///
@@ -36,9 +37,10 @@ final class AppPreferences {
     required this.paragraphSpacing,
     required this.editorFontFamily,
     required this.gridLineMode,
+    required this.highlightPalette,
   });
 
-  static const schemaVersionCurrent = 3;
+  static const schemaVersionCurrent = 4;
 
   /// 开箱默认：行高 1.45、段间距 14；标题→首段留白由 EditorStyle 派生
   ///（段间距 + 14）保证始终宽于段间距。
@@ -58,6 +60,7 @@ final class AppPreferences {
     paragraphSpacing: 14,
     editorFontFamily: AppFontFamily.wenkai,
     gridLineMode: GridLineMode.none,
+    highlightPalette: HighlightPalette.defaults,
   );
 
   final int schemaVersion;
@@ -76,6 +79,10 @@ final class AppPreferences {
 
   /// 章节正文每行下方的网格线模式（无/实线/虚线）。仅 TXT 编辑器生效。
   final GridLineMode gridLineMode;
+
+  /// 文字高亮调色板:5 个 ARGB 槽位,用户可替换。高亮本身存定格颜色
+  /// ([Highlight.colorArgb]),改调色板只影响新建高亮的快捷选色。
+  final List<int> highlightPalette;
 
   /// 每日写作字数目标，0 表示禁用。
   final int dailyWordGoal;
@@ -112,6 +119,7 @@ final class AppPreferences {
     double? paragraphSpacing,
     AppFontFamily? editorFontFamily,
     GridLineMode? gridLineMode,
+    List<int>? highlightPalette,
   }) {
     return AppPreferences(
       schemaVersion: schemaVersion,
@@ -129,6 +137,7 @@ final class AppPreferences {
       paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
       editorFontFamily: editorFontFamily ?? this.editorFontFamily,
       gridLineMode: gridLineMode ?? this.gridLineMode,
+      highlightPalette: highlightPalette ?? this.highlightPalette,
     );
   }
 }

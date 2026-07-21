@@ -58,6 +58,8 @@ final class PreferencesController extends AsyncNotifier<AppPreferences> {
       _update((current) => current.copyWith(paragraphSpacing: value));
   Future<void> setGridLineMode(GridLineMode value) =>
       _update((current) => current.copyWith(gridLineMode: value));
+  Future<void> setHighlightPalette(List<int> value) =>
+      _update((current) => current.copyWith(highlightPalette: value));
 
   Future<void> _update(AppPreferences Function(AppPreferences) apply) async {
     final service = ref.read(appPreferencesServiceProvider);

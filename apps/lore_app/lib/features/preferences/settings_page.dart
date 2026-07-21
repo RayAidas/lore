@@ -163,6 +163,34 @@ class _SettingsBody extends ConsumerWidget {
             ],
           ),
         ),
+        ListTile(
+          leading: const Icon(Icons.highlight_outlined),
+          title: const Text('高亮颜色'),
+          subtitle: const Text('选中文本右键高亮时的色板(点击色块修改)'),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < prefs.highlightPalette.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: GestureDetector(
+                    onTap: () => _editPaletteSlot(context, ref, i),
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Color(prefs.highlightPalette[i]),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
         const Divider(),
         _SectionHeader('沉浸写作'),
         SwitchListTile(
@@ -234,7 +262,58 @@ class _SettingsBody extends ConsumerWidget {
     }
     await ref.read(appPreferencesProvider.notifier).setDailyWordGoal(parsed);
   }
+
+  Future<void> _editPaletteSlot(
+    BuildContext context,
+    WidgetRef ref,
+    int slot,
+  ) async {
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('选择颜色'),
+        content: SizedBox(
+          width: 240,
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              for (final c in _kHighlightPresetColors)
+                GestureDetector(
+                  onTap: () => Navigator.of(ctx).pop(c),
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: Color(c),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Theme.of(ctx).colorScheme.outlineVariant,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected == null) return;
+    final next = List<int>.from(prefs.highlightPalette);
+    if (slot < next.length) {
+      next[slot] = selected;
+      await ref.read(appPreferencesProvider.notifier).setHighlightPalette(next);
+    }
+  }
 }
+
+/// 调色板编辑用的扩展预设色。
+const List<int> _kHighlightPresetColors = <int>[
+  0xFFFFD54F, 0xFFFFB300, 0xFFFF7043, 0xFFEF5350,
+  0xFFEC407A, 0xFFF48FB1, 0xFFAB47BC, 0xFF7E57C2,
+  0xFF42A5F5, 0xFF90CAF9, 0xFF26A69A, 0xFFA5D6A7,
+  0xFF66BB6A, 0xFF9E9D24, 0xFF8D6E63, 0xFFB0BEC5,
+];
 
 final class _SectionHeader extends StatelessWidget {
   const _SectionHeader(this.text);

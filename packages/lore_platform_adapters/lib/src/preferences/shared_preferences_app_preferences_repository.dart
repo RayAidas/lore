@@ -15,13 +15,13 @@ final class SharedPreferencesAppPreferencesRepository
   SharedPreferencesAppPreferencesRepository();
 
   static const _key = 'lore.app.preferences';
-  static const _schemaVersion = 3;
+  static const _schemaVersion = 4;
 
-  /// load 时接受的历史 schema 版本：v1、v2 均就地迁移到当前 v3。
+  /// load 时接受的历史 schema 版本：v1、v2、v3 均就地迁移到当前 v4。
   ///
   /// v1→v2 收紧行高/段间距默认（按值匹配替换，保留用户自定义）；v2→v3 仅新增
-  /// 网格线字段（缺失取默认 none），不动既有排版值。两步迁移对同一输入幂等。
-  static const _legacySchemaVersions = {1, 2};
+  /// 网格线字段；v3→v4 仅新增高亮调色板字段（缺失取默认），不动既有值。
+  static const _legacySchemaVersions = {1, 2, 3};
 
   /// v1 排版默认值：迁移时识别「仍停留在旧默认」的值，仅这些值被替换为 v2 默认。
   static const _v1EditorLineHeight = 1.5;
@@ -96,6 +96,12 @@ final class SharedPreferencesAppPreferencesRepository
       final gridLineMode =
           _gridLineModeFromString(value['gridLineMode']) ??
           AppPreferences.defaults().gridLineMode;
+      // 高亮调色板是 v4 新增字段,v1/v2/v3 blob 里没有——容错读取,缺失回落默认。
+      final highlightPalette = value['highlightPalette'] is List
+          ? (value['highlightPalette']! as List)
+              .map((e) => e is int ? e : 0)
+              .toList(growable: false)
+          : AppPreferences.defaults().highlightPalette;
       // v1 → v2 迁移：仅当行高/段间距仍停留在 v1 默认时替换为 v2 默认（视觉
       // 瘦身）；用户已自定义的值原样保留。v2 blob 的排版值已是当前默认，无需
       // 迁移。按值匹配使迁移对同一输入幂等，不会每次冷启动把自定义抹回默认。
@@ -123,6 +129,7 @@ final class SharedPreferencesAppPreferencesRepository
         paragraphSpacing: resolvedParagraphSpacing,
         editorFontFamily: editorFontFamily,
         gridLineMode: gridLineMode,
+        highlightPalette: highlightPalette,
       );
     } on FormatException {
       return null;
@@ -156,6 +163,7 @@ final class SharedPreferencesAppPreferencesRepository
       'paragraphSpacing': preferences.paragraphSpacing,
       'editorFontFamily': preferences.editorFontFamily.name,
       'gridLineMode': preferences.gridLineMode.name,
+      'highlightPalette': preferences.highlightPalette,
     };
   }
 

@@ -42,6 +42,7 @@ final class LoreLargeTextController extends ChangeNotifier
   var _blocksRevision = 0;
   var _selectionDragActive = false;
   List<Highlight> _highlights = const [];
+  int _highlightSeq = 0;
 
   List<LargeTextBlock> get blocks => _blocksView;
 
@@ -89,10 +90,48 @@ final class LoreLargeTextController extends ChangeNotifier
   /// 替换全部高亮(菜单上色/取消、外部 reconcile 注入用)。**唯一**单独触发
   /// notifyListeners 的高亮写入入口——编辑路径的增量维护走 [_applyTextChange],
   /// 与 selection 共用调用方的 notify,避免双重广播。
-  void setHighlights(List<Highlight> value) {
+  ///
+  /// [markChanged] 为真时 bump editVersion,使该变更被计入未保存状态并触发
+  /// 自动保存(菜单上色/取消);加载注入时传 false,避免刚打开就标脏。
+  void setHighlights(List<Highlight> value, {bool markChanged = true}) {
     if (listEquals(value, _highlights)) return;
     _highlights = List.of(value);
+    if (markChanged) {
+      _editVersion += 1;
+    }
     notifyListeners();
+  }
+
+  /// 用 [colorArgb] 给 `[start, end)` 区间新增一条高亮,anchorText 自动取原文。
+  void addHighlight(int start, int end, int colorArgb) {
+    if (end <= start || start < 0 || end > length) return;
+    final anchor = _buffer.substring(start, end);
+    final next = Highlight(
+      id: 'h${_highlightSeq++}',
+      start: start,
+      end: end,
+      colorArgb: colorArgb,
+      anchorText: anchor,
+    );
+    setHighlights([..._highlights, next]);
+  }
+
+  /// 移除与 `[start, end)` 相交的全部高亮(供"取消高亮"用)。
+  void removeHighlightsIntersecting(int start, int end) {
+    if (_highlights.isEmpty || end <= start) return;
+    final remaining = _highlights
+        .where((h) => h.end <= start || h.start >= end)
+        .toList();
+    if (remaining.length != _highlights.length) {
+      setHighlights(remaining);
+    }
+  }
+
+  /// 返回与 `[start, end)` 相交的高亮(用于"取消高亮"项的可见性判断)。
+  List<Highlight> highlightsIntersecting(int start, int end) {
+    return _highlights
+        .where((h) => h.end > start && h.start < end)
+        .toList(growable: false);
   }
 
   void beginSelectionDrag() {

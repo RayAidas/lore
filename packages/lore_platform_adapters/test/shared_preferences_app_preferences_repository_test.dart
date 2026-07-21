@@ -303,7 +303,7 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 3);
+      expect(loaded!.schemaVersion, 4);
       expect(loaded.gridLineMode, GridLineMode.none);
       expect(loaded.editorLineHeight, 1.8);
       expect(loaded.paragraphSpacing, 20);

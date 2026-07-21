@@ -15,12 +15,17 @@ final class LoreContextMenuItem {
     required this.onTap,
     this.destructive = false,
     this.enabled = true,
+    this.custom,
   });
 
   final String label;
   final VoidCallback onTap;
   final bool destructive;
   final bool enabled;
+
+  /// 自定义内容:非 null 时菜单渲染此 widget 代替普通标签行(色块行等需要
+  /// 独立交互的项)。此时 [label]/[onTap] 仍必填,但不再被渲染使用。
+  final Widget? custom;
 }
 
 /// 在 [position]（全局坐标）处弹出一个上下文菜单。
@@ -202,6 +207,12 @@ class _LoreContextMenuItemView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (item.custom case final custom?) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        child: custom,
+      );
+    }
     final colorScheme = Theme.of(context).colorScheme;
     final enabled = item.enabled;
     final color = !enabled
