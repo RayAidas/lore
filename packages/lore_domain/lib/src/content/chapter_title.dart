@@ -70,8 +70,9 @@ abstract final class ChapterTitleText {
   /// Markdown 的 `#` 后须至少一个空白（拒绝 `#第N章`）。
   static bool hasTitlePrefix(String fullText) {
     final lineBreak = fullText.indexOf('\n');
-    final firstLine =
-        lineBreak < 0 ? fullText : fullText.substring(0, lineBreak);
+    final firstLine = lineBreak < 0
+        ? fullText
+        : fullText.substring(0, lineBreak);
     return _txtPrefixPattern.hasMatch(firstLine) ||
         _mdPrefixPattern.hasMatch(firstLine);
   }

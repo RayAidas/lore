@@ -132,35 +132,32 @@ void main() {
     expect(controller.activePath, nameB);
   });
 
-  testWidgets(
-    'primary tap immediately after a secondary tap still activates '
-    '(right-click does not swallow the next left-click)',
-    (tester) async {
-      // 回归：右键后 _secondaryArmed 被置位，若无 primary-down 复位，
-      // 紧接着的第一次左键会被误判为右键残留而被吞掉。
-      final controller = buildController();
-      addTearDown(controller.dispose);
-      await controller.openPath(nameA);
-      await controller.openPath(nameB);
-      expect(controller.activePath, nameB);
+  testWidgets('primary tap immediately after a secondary tap still activates '
+      '(right-click does not swallow the next left-click)', (tester) async {
+    // 回归：右键后 _secondaryArmed 被置位，若无 primary-down 复位，
+    // 紧接着的第一次左键会被误判为右键残留而被吞掉。
+    final controller = buildController();
+    addTearDown(controller.dispose);
+    await controller.openPath(nameA);
+    await controller.openPath(nameB);
+    expect(controller.activePath, nameB);
 
-      await tester.pumpWidget(harness(controller, onContextMenu: (_, _) {}));
-      await tester.pump();
+    await tester.pumpWidget(harness(controller, onContextMenu: (_, _) {}));
+    await tester.pump();
 
-      final secondary = await tester.startGesture(
-        tester.getCenter(find.text(nameA)),
-        kind: PointerDeviceKind.mouse,
-        buttons: kSecondaryMouseButton,
-      );
-      await secondary.up();
-      await tester.pumpAndSettle();
+    final secondary = await tester.startGesture(
+      tester.getCenter(find.text(nameA)),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await secondary.up();
+    await tester.pumpAndSettle();
 
-      await tester.tap(find.text(nameA));
-      await tester.pump();
+    await tester.tap(find.text(nameA));
+    await tester.pump();
 
-      expect(controller.activePath, nameA);
-    },
-  );
+    expect(controller.activePath, nameA);
+  });
 }
 
 final class _FakeRepo extends _BaseRepo {
@@ -184,7 +181,8 @@ final class _FakeRepo extends _BaseRepo {
   }
 }
 
-abstract base class _BaseRepo implements LibraryTreeRepository, DocumentRepository {
+abstract base class _BaseRepo
+    implements LibraryTreeRepository, DocumentRepository {
   @override
   Future<LibraryEntry> createDirectory(
     LibraryAccess access, {
