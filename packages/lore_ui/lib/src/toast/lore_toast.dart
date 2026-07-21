@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../theme/lore_theme.dart';
+
 /// Toast 语义类型，决定图标徽章配色与默认图标。
 enum LoreToastType { success, info, warning, error }
 
@@ -16,6 +18,10 @@ abstract final class LoreToast {
   /// 当前正显示的 toast（全局唯一）。
   static OverlayEntry? _current;
 
+  /// [_current] 所属的 Overlay。跨 Overlay（多 navigator、widget tree 重建）
+  /// 时据此判断能否安全移除上一条，避免对已失效的 Overlay 操作而抛错。
+  static OverlayState? _currentOverlay;
+
   /// 在 [context] 所属的根 [Overlay] 顶部居中弹出一个 toast。
   ///
   /// 调用方需自行确认 `context.mounted`。取 root overlay，使 toast 盖在
@@ -29,18 +35,14 @@ abstract final class LoreToast {
   }) {
     final overlay = Overlay.of(context, rootOverlay: true);
 
-    // 先移除上一个 toast，保证同时只有一个。
-    final previous = _current;
-    _current = null;
-    if (previous != null && previous.mounted) {
-      try {
-        previous.remove();
-      } catch (_) {
-        // ignore: empty_catches
-        // 连续重建 widget tree（如单测）时，旧 Overlay 可能已 dispose，
-        // remove 会抛错；生产环境 Overlay 常驻不会触发，此处静默以保证健壮。
-      }
+    // 仅当上一条与当前 toast 同属一个 Overlay 时才 remove（安全）；若分属
+    // 不同 Overlay（多 navigator，或旧 widget tree 已销毁），直接丢弃引用——
+    // 旧 entry 随其所属 Overlay 自行卸载，无需也无法在此 remove。
+    if (!identical(_currentOverlay, overlay)) {
+      _current = null;
     }
+    _current?.remove();
+    _current = null;
 
     late final OverlayEntry entry;
     entry = OverlayEntry(
@@ -52,6 +54,7 @@ abstract final class LoreToast {
         onDismissed: () {
           if (identical(_current, entry)) {
             _current = null;
+            _currentOverlay = null;
           }
           if (entry.mounted) {
             entry.remove();
@@ -60,6 +63,7 @@ abstract final class LoreToast {
       ),
     );
     _current = entry;
+    _currentOverlay = overlay;
     overlay.insert(entry);
   }
 }
@@ -75,14 +79,14 @@ class _ToastSpec {
 _ToastSpec _specFor(LoreToastType type, ColorScheme colorScheme) {
   switch (type) {
     case LoreToastType.success:
-      return const _ToastSpec(
+      return _ToastSpec(
         defaultIcon: Icons.check_circle_rounded,
-        foregroundColor: Color(0xFF2E7D5B),
+        foregroundColor: colorScheme.successForeground,
       );
     case LoreToastType.warning:
-      return const _ToastSpec(
+      return _ToastSpec(
         defaultIcon: Icons.warning_amber_rounded,
-        foregroundColor: Color(0xFFB26500),
+        foregroundColor: colorScheme.warningForeground,
       );
     case LoreToastType.error:
       return _ToastSpec(

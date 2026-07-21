@@ -237,3 +237,18 @@ abstract final class LoreTheme {
     );
   }
 }
+
+/// 语义色扩展：success / warning 不在 Material [ColorScheme] 标准槽位中，
+/// 这里按亮度（亮色含 sepia / 暗色）给出对比度达标的颜色，供 toast 等组件
+/// 随主题自动协调，而非硬编码。
+extension LoreSemanticColors on ColorScheme {
+  /// 成功语义前景色：亮色主题（含 sepia）用深绿，暗色用亮绿以保证对比度。
+  Color get successForeground => brightness == Brightness.dark
+      ? const Color(0xFF6FBF8E)
+      : const Color(0xFF2E7D5B);
+
+  /// 警告语义前景色：亮色主题（含 sepia）用琥珀，暗色用亮琥珀。
+  Color get warningForeground => brightness == Brightness.dark
+      ? const Color(0xFFE0A04A)
+      : const Color(0xFFB26500);
+}
