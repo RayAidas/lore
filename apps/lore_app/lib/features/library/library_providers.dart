@@ -66,6 +66,10 @@ final documentRepositoryProvider = Provider<DocumentRepository>((ref) {
   return ref.watch(storageBackedLibraryRepositoryProvider);
 });
 
+final highlightRepositoryProvider = Provider<HighlightRepository>((ref) {
+  return ref.watch(storageBackedLibraryRepositoryProvider);
+});
+
 final novelRepositoryProvider = Provider<NovelRepository>((ref) {
   return ref.watch(storageBackedLibraryRepositoryProvider);
 });
@@ -120,6 +124,7 @@ final libraryWorkspaceServiceProvider = Provider<LibraryWorkspaceService>((
     documentRepository: ref.watch(documentRepositoryProvider),
     sessionRepository: ref.watch(workspaceSessionRepositoryProvider),
     mutationCoordinator: ref.watch(libraryMutationCoordinatorProvider),
+    highlightRepository: ref.watch(highlightRepositoryProvider),
   );
 });
 

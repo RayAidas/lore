@@ -1,6 +1,7 @@
 import 'package:lore_domain/lore_domain.dart';
 
 import '../ports/document_repository.dart';
+import '../ports/highlight_repository.dart';
 import '../ports/library_tree_repository.dart';
 import '../ports/workspace_session_repository.dart';
 import 'deletion.dart';
@@ -14,12 +15,14 @@ final class LibraryWorkspaceService {
     required this.documentRepository,
     required this.sessionRepository,
     this.mutationCoordinator,
+    this.highlightRepository,
   });
 
   final LibraryTreeRepository treeRepository;
   final DocumentRepository documentRepository;
   final WorkspaceSessionRepository sessionRepository;
   final LibraryMutationCoordinator? mutationCoordinator;
+  final HighlightRepository? highlightRepository;
 
   Future<List<LibraryEntry>> listChildren(
     LibrarySession session, {
@@ -135,6 +138,51 @@ final class LibraryWorkspaceService {
     WorkspaceSessionSnapshot snapshot,
   ) {
     return sessionRepository.save(session.metadata.id, snapshot);
+  }
+
+  Future<HighlightCollection?> loadHighlights(
+    LibrarySession session, {
+    required NovelId novelId,
+    required String documentId,
+  }) {
+    final repo = highlightRepository;
+    return repo == null
+        ? Future<HighlightCollection?>.value()
+        : repo.loadHighlights(
+            session.access,
+            novelId: novelId,
+            documentId: documentId,
+          );
+  }
+
+  Future<void> saveHighlights(
+    LibrarySession session, {
+    required NovelId novelId,
+    required String documentId,
+    required HighlightCollection collection,
+  }) {
+    final repo = highlightRepository;
+    if (repo == null) return Future.value();
+    return repo.saveHighlights(
+      session.access,
+      novelId: novelId,
+      documentId: documentId,
+      collection: collection,
+    );
+  }
+
+  Future<void> deleteHighlights(
+    LibrarySession session, {
+    required NovelId novelId,
+    required String documentId,
+  }) {
+    final repo = highlightRepository;
+    if (repo == null) return Future.value();
+    return repo.deleteHighlights(
+      session.access,
+      novelId: novelId,
+      documentId: documentId,
+    );
   }
 
   Future<T> _mutate<T>(LibrarySession session, Future<T> Function() operation) {

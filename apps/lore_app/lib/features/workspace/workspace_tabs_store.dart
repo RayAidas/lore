@@ -527,6 +527,7 @@ final class WorkspaceTabsStore {
       }
       document.notifyChanged();
     }
+    await _persistHighlights(document);
     _scheduleSessionSave();
     return true;
   }
@@ -701,6 +702,7 @@ final class WorkspaceTabsStore {
       scrollOffset: scrollOffset,
     );
     _tabs.add(document);
+    await _loadHighlightsIntoDocument(document);
     if (activate) {
       _activePath = ref.relativePath;
       _selectedPath = ref.relativePath;
@@ -768,6 +770,87 @@ final class WorkspaceTabsStore {
     return document;
   }
 
+  /// 加载文档的持久化高亮并注入 controller。若文档自上次落盘后被外部修改
+  /// (revision 不一致),用 [reconcileHighlights] 复原引擎重定位高亮,并把
+  /// 复原结果自愈写回。失败上报但不阻塞文档打开。
+  Future<void> _loadHighlightsIntoDocument(OpenDocument document) async {
+    final controller = document.editorController;
+    if (controller is! LoreLargeTextController) return;
+    final novelId = _novelIdForPath(document.relativePath);
+    if (novelId == null) return;
+    HighlightCollection? stored;
+    try {
+      stored = await service.loadHighlights(
+        session,
+        novelId: novelId,
+        documentId: document.relativePath,
+      );
+    } on LibraryOperationException catch (error) {
+      _reportFailure(error.failure);
+      return;
+    }
+    if (stored == null) return;
+    if (stored.documentRevision == document.snapshot.revision.value) {
+      // revision 一致:offset 可信,直接注入。
+      controller.setHighlights(stored.highlights);
+      return;
+    }
+    // revision 不一致:文档被外部修改,跑复原引擎。
+    final profile = computeParagraphProfile(controller.text);
+    final result = reconcileHighlights(
+      oldDigests: stored.paragraphDigests,
+      newDigests: profile.digests,
+      newParagraphTexts: profile.texts,
+      oldParagraphSpans: paragraphSpansFromDigests(stored.paragraphDigests),
+      oldHighlights: stored.highlights,
+    );
+    controller.setHighlights(result.located);
+    document.notifyChanged();
+    // 自愈:把复原后(已重定位)的高亮按新 revision + 新段落指纹写回。
+    if (result.located.isNotEmpty) {
+      await _persistHighlights(document);
+    }
+  }
+
+  /// 把当前高亮落盘:刷新 anchorText 为最新文本、用最新文档 revision 与段落
+  /// 指纹。在正文保存成功后调用(R-3:位于 _performSave 的循环外,避免死循环)。
+  /// 失败上报但不阻塞正文保存结果。
+  Future<void> _persistHighlights(OpenDocument document) async {
+    final controller = document.editorController;
+    if (controller is! LoreLargeTextController) return;
+    final novelId = _novelIdForPath(document.relativePath);
+    if (novelId == null) return;
+    final highlights = controller.highlights;
+    if (highlights.isEmpty) return;
+    final text = controller.text;
+    final length = text.length;
+    final refreshed = [
+      for (final h in highlights)
+        h.copyWith(
+          anchorText: text.substring(
+            h.start.clamp(0, length),
+            h.end.clamp(0, length),
+          ),
+        ),
+    ];
+    final profile = computeParagraphProfile(text);
+    final collection = HighlightCollection(
+      documentRevision: document.snapshot.revision.value,
+      paragraphDigests: profile.digests,
+      highlights: refreshed,
+    );
+    try {
+      await service.saveHighlights(
+        session,
+        novelId: novelId,
+        documentId: document.relativePath,
+        collection: collection,
+      );
+    } on LibraryOperationException catch (error) {
+      _reportFailure(error.failure);
+    }
+  }
+
   Future<OpenDocument?> _loadDeferredDocument(DeferredDocument deferred) async {
     final groupId = groupForTab(deferred);
     final groupTabs = _tabsByGroup[groupId]!;
@@ -793,6 +876,7 @@ final class WorkspaceTabsStore {
       );
       groupTabs[index] = document;
       deferred.dispose();
+      await _loadHighlightsIntoDocument(document);
       _notify();
       return document;
     } on LibraryOperationException catch (error) {
