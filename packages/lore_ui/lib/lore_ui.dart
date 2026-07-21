@@ -1,5 +1,6 @@
 export 'src/dialog/lore_confirm_dialog.dart';
 export 'src/dialog/lore_dialog_styles.dart';
+export 'src/dialog/lore_panel_sheet.dart';
 export 'src/dialog/lore_text_prompt_dialog.dart';
 export 'src/dialog/lore_type_to_confirm_dialog.dart';
 export 'src/toast/lore_toast.dart';
