@@ -75,6 +75,7 @@ final class WorkspaceTabsStore {
     WorkspaceEditorGroupId.primary: null,
   };
   final Map<String, Timer> _externalChangeTimers = {};
+
   /// 高亮段落指纹缓存(relativePath → (text, digests)):文本未变时复用,避免
   /// 每次保存对千段文档重算上千次 sha256。文本变更后自动失效。
   final Map<String, String> _cachedHighlightText = {};
@@ -1100,11 +1101,7 @@ final class WorkspaceTabsStore {
       if (novelId != null) {
         unawaited(
           service
-              .deleteHighlights(
-                session,
-                novelId: novelId,
-                documentId: removed,
-              )
+              .deleteHighlights(session, novelId: novelId, documentId: removed)
               .catchError((Object _) {}),
         );
       }

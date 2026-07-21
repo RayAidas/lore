@@ -99,27 +99,27 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                                     }
                                   : null,
                               child: Opacity(
-                                opacity:
-                                    intersecting.isNotEmpty ? 1.0 : 0.4,
+                                opacity: intersecting.isNotEmpty ? 1.0 : 0.4,
                                 child: Container(
                                   width: 18,
                                   height: 18,
                                   decoration: BoxDecoration(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .surfaceContainerHighest,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceContainerHighest,
                                     shape: BoxShape.circle,
                                     border: Border.all(
-                                      color:
-                                          Theme.of(context).colorScheme.outline,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.outline,
                                     ),
                                   ),
                                   child: Icon(
                                     Icons.close,
                                     size: 12,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurface,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurface,
                                   ),
                                 ),
                               ),
@@ -142,9 +142,9 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                                   color: Color(palette[i - 1]),
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .outlineVariant,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.outlineVariant,
                                   ),
                                 ),
                               ),
