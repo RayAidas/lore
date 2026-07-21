@@ -83,7 +83,12 @@ final class NovelOverviewService {
     var total = 0;
     final characterByNodeId = <ContentId, int>{};
     for (final node in chapterNodes) {
-      final count = await _readChapterCount(session, snapshot.rootPath, node);
+      final count = await _readChapterCountOrNull(
+        session,
+        snapshot.rootPath,
+        node,
+      );
+      if (count == null) continue;
       characterByNodeId[node.id] = count;
       total += count;
     }
@@ -149,30 +154,9 @@ final class NovelOverviewService {
     return counts;
   }
 
-  Future<int> _readChapterCount(
-    LibrarySession session,
-    String rootPath,
-    ContentNode node,
-  ) async {
-    final isText = node.relativePath.toLowerCase().endsWith('.txt');
-    final ref = DocumentRef(
-      relativePath: _joinPath(rootPath, node.relativePath),
-      format: isText ? DocumentFormat.text : DocumentFormat.markdown,
-    );
-    try {
-      final snapshot = await documentRepository.readDocument(
-        session.access,
-        ref,
-      );
-      return _characterCount(snapshot.text);
-    } on LibraryOperationException {
-      return 0;
-    }
-  }
-
-  /// 与 [_readChapterCount] 同算法，但读失败返回 `null`（而非 0），供回填
-  /// 使用——读不出的章节应保留 `characterCount == null`（下次再试），不能
-  /// 被误记为 0（空章节）。
+  /// 读取单章正文字数（仅长度，不解析）。读失败返回 `null`：读不出的章节
+  /// 不计入概览总数，也不回填 `content.json` 的 `characterCount`（保留
+  /// `null` 待下次再试）——避免把瞬时 IO 失败误记为「空章节 (0 字)」。
   Future<int?> _readChapterCountOrNull(
     LibrarySession session,
     String rootPath,
