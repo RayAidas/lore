@@ -29,7 +29,29 @@ mixin _StorageBackedTrashRepository
         case RestoreConflictStrategy.skip:
           return record.item;
         case RestoreConflictStrategy.overwrite:
-          await storage.delete(target, recursive: true);
+          {
+            // 把当前已占位的活动内容移进回收站（可逆），而非递归物理删除——
+            // 否则「删除 A → 新建同名 A' → overwrite 恢复 A」会让 A' 不可恢复
+            // 地消失（且不经 trash）。记录随下方 records 统一落盘。
+            final overwriteToken = idGenerator.generate();
+            final overwriteTrashPath = _trashTarget(overwriteToken, target);
+            await _ensureTrash(storage, overwriteToken);
+            await _ensureTrashParents(storage, overwriteToken, target);
+            await storage.move(target, overwriteTrashPath);
+            records.add(
+              _TrashRecord(
+                pending: false,
+                item: TrashItem(
+                  token: overwriteToken,
+                  type: TrashItemType.entry,
+                  originalRelativePath: target.value,
+                  trashRelativePath: overwriteTrashPath.value,
+                  deletedAt: clock.nowUtc(),
+                  restorable: true,
+                ),
+              ),
+            );
+          }
         case RestoreConflictStrategy.rename:
           target = await _availableRestorePath(storage, target);
       }

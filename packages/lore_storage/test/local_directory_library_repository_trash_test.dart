@@ -228,6 +228,43 @@ void main() {
     },
   );
 
+  test(
+    'restore with overwrite moves occupant into trash instead of deleting',
+    () async {
+      final novel = await repository.createNovel(access, title: 'TestNovel');
+      final novelId = novel.snapshot.metadata.id;
+      final chapter = await repository.createChapter(access, novelId: novelId);
+      final chapterNodeId = ContentId(chapter.entry!.semanticId!);
+      final originalPath = p.join(root.path, 'TestNovel', '正文', '第1章.md');
+      final result = await repository.deleteNode(
+        access,
+        novelId: novelId,
+        nodeId: chapterNodeId,
+      );
+
+      // 原位置重新出现同名文件（模拟用户删除后新建了同名章节）。
+      await File(originalPath).writeAsString('新建内容');
+
+      await repository.restore(
+        access,
+        trashToken: result.trashToken,
+        strategy: RestoreConflictStrategy.overwrite,
+      );
+
+      // 被恢复的旧内容回到原位置，占位的「新建内容」不在原位置。
+      expect(await File(originalPath).readAsString(), isNot('新建内容'));
+      // 占位内容被移进回收站（可逆），而非物理删除——可从 trash 找回。
+      final occupant = (await repository.listItems(access)).singleWhere(
+        (item) => item.type == TrashItemType.entry,
+      );
+      final trashedOccupant = File(
+        p.join(root.path, occupant.trashRelativePath),
+      );
+      expect(await trashedOccupant.exists(), isTrue);
+      expect(await trashedOccupant.readAsString(), '新建内容');
+    },
+  );
+
   test('purge permanently removes trash item', () async {
     final novel = await repository.createNovel(access, title: 'TestNovel');
     final novelId = novel.snapshot.metadata.id;
