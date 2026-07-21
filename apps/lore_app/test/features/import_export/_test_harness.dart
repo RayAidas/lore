@@ -18,13 +18,13 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 // FakeFilePickerPlatform needs the abstract class, which file_picker does not
 // re-export publicly. The path-level import is acceptable for a test-only
 // harness file (it never ships in the app).
 import 'package:file_picker/src/platform/file_picker_platform_interface.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
 import 'package:lore_application/lore_application.dart';
@@ -120,8 +120,9 @@ class _MemoryNovelRepository implements NovelRepository {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('_MemoryNovelRepository.${invocation.memberName}');
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
+    '_MemoryNovelRepository.${invocation.memberName}',
+  );
 }
 
 /// In-memory content-tree repository that only answers `reconcile` (called
@@ -198,8 +199,7 @@ class _MemoryWorkspaceRepository
   }
 
   @override
-  Stream<DocumentChange> watchDocuments(LibraryAccess access) =>
-      changes.stream;
+  Stream<DocumentChange> watchDocuments(LibraryAccess access) => changes.stream;
 
   @override
   Future<List<LibraryEntry>> listChildren(
@@ -354,8 +354,7 @@ class ImportExportTestHarness {
     final contentTreeRepository = growableNovels.isEmpty
         ? _MemoryContentTreeRepository()
         : _SeededContentTreeRepository(
-            (id) =>
-                growableNovels.firstWhere((n) => n.metadata.id == id),
+            (id) => growableNovels.firstWhere((n) => n.metadata.id == id),
           );
     final controller = WorkspaceController(
       session: session,
@@ -401,6 +400,11 @@ class FakeFilePickerPlatform extends FilePickerPlatform {
   int pickFilesCalls = 0;
   int saveFileCalls = 0;
 
+  /// When true, the next `pickFiles`/`saveFile` call throws a [PlatformException]
+  /// to exercise the import/export flows' entitlement / channel-failure handling.
+  bool shouldThrowOnPickFiles = false;
+  bool shouldThrowOnSaveFile = false;
+
   @override
   Future<FilePickerResult?> pickFiles({
     String? dialogTitle,
@@ -417,6 +421,12 @@ class FakeFilePickerPlatform extends FilePickerPlatform {
     bool cancelUploadOnWindowBlur = true,
   }) async {
     pickFilesCalls += 1;
+    if (shouldThrowOnPickFiles) {
+      throw PlatformException(
+        code: 'ENTITLEMENT_NOT_FOUND',
+        message: 'test: picker unavailable',
+      );
+    }
     return pickFilesResult;
   }
 
@@ -431,6 +441,12 @@ class FakeFilePickerPlatform extends FilePickerPlatform {
     bool lockParentWindow = false,
   }) async {
     saveFileCalls += 1;
+    if (shouldThrowOnSaveFile) {
+      throw PlatformException(
+        code: 'ENTITLEMENT_REQUIRED_WRITE',
+        message: 'test: saver unavailable',
+      );
+    }
     lastSaveBytes = bytes;
     return saveFilePath;
   }

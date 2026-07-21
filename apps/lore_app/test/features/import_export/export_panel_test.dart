@@ -11,14 +11,10 @@ void main() {
   NovelSnapshot buildSnapshot() => oneChapterNovelSnapshot();
 
   Future<Map<String, String>> chapterTexts(NovelSnapshot snapshot) async {
-    final chapter = snapshot.contentTree.nodes
-        .singleWhere((n) => n.type == ContentNodeType.chapter);
-    return {
-      absoluteChapterPath(
-        snapshot,
-        chapter,
-      ): '第1章\n正文段落',
-    };
+    final chapter = snapshot.contentTree.nodes.singleWhere(
+      (n) => n.type == ContentNodeType.chapter,
+    );
+    return {absoluteChapterPath(snapshot, chapter): '第1章\n正文段落'};
   }
 
   testWidgets('export returns silently when save dialog is cancelled', (
@@ -41,6 +37,7 @@ void main() {
             controller: harness.controller,
             snapshot: snapshot,
             restrictVolumeId: null,
+            revealInFinder: (_) async {},
           ),
         ),
       ),
@@ -81,6 +78,7 @@ void main() {
             controller: harness.controller,
             snapshot: snapshot,
             restrictVolumeId: null,
+            revealInFinder: (_) async {},
           ),
         ),
       ),
@@ -109,8 +107,9 @@ void main() {
       final snapshot = buildSnapshot();
       // 正文为空 + 关闭「包含章节标题」：composer 既无标题也无正文 → 返回空串，
       // 面板提示 unsupportedFormat 且不调 saveFile。
-      final chapter = snapshot.contentTree.nodes
-          .singleWhere((n) => n.type == ContentNodeType.chapter);
+      final chapter = snapshot.contentTree.nodes.singleWhere(
+        (n) => n.type == ContentNodeType.chapter,
+      );
       final harness = await ImportExportTestHarness.withNovel(
         snapshot,
         chapterTexts: {absoluteChapterPath(snapshot, chapter): '第1章\n'},
@@ -144,6 +143,45 @@ void main() {
       // 空正文：组出来的文本为空 → saveFile 不应被调用。
       expect(fake.saveFileCalls, 0);
       expect(find.textContaining('所选章节均为空'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'export reports 无打开保存对话框 failure when saveFile throws PlatformException',
+    (tester) async {
+      final snapshot = buildSnapshot();
+      final texts = await chapterTexts(snapshot);
+      final harness = await ImportExportTestHarness.withNovel(
+        snapshot,
+        chapterTexts: texts,
+      );
+      addTearDown(harness.dispose);
+      final fake = FakeFilePickerPlatform()..shouldThrowOnSaveFile = true;
+      installFakeFilePicker(fake);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ExportPanel(
+              controller: harness.controller,
+              snapshot: snapshot,
+              restrictVolumeId: null,
+              revealInFinder: (_) async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('导出'));
+      // PlatformException 在内层 try 被专门捕获，弹失败提示后 return；与其它
+      // 导出用例一致，用固定 pump 推进，避免长 SnackBar 定时器卡 pumpAndSettle。
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(fake.saveFileCalls, 1);
+      expect(find.textContaining('无法打开保存对话框'), findsOneWidget);
+      expect(find.textContaining('已导出'), findsNothing);
     },
   );
 }
