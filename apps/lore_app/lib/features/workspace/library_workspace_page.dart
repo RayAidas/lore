@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,14 +13,14 @@ import '../preferences/preferences_providers.dart';
 import '../preferences/settings_page.dart';
 import 'document_pane.dart';
 import 'document_tabs.dart';
-import 'empty_workspace.dart';
 import 'library_failure_snackbar.dart';
 import 'library_sidebar.dart';
-import 'novel_structure_pane.dart';
 import 'trash_pane.dart';
 import 'workspace_controller.dart';
+import 'workspace_editor_group.dart';
 import 'workspace_entry_actions.dart';
 import 'workspace_inspector.dart';
+import 'workspace_platform.dart';
 
 /// 写作工作区主页：侧栏 + 内容区 + 工具栏三栏布局，按宽度自适应。
 final class LibraryWorkspacePage extends ConsumerStatefulWidget {
@@ -57,16 +56,34 @@ final class _LibraryWorkspacePageState
   bool _findReplaceMode = false;
   WorkspaceTabDragData? _draggingTab;
 
+  /// [WorkspaceEditorGroup] 的稳定回调集。方法闭包绑定 this，引用的 controller
+  /// 用 [_controller]（与 build 中 ref.watch 的实例一致）。
+  late final WorkspaceEditorGroupCallbacks _editorGroupCallbacks =
+      WorkspaceEditorGroupCallbacks(
+        onFocusGroup: (groupId) => _focusGroup(_controller, groupId),
+        onExpandSidebar: () => setState(() => _showSidebar = true),
+        onActivateTab: (tab) => _activateTab(_controller, tab),
+        onDiscardFindReplace: _discardFindReplace,
+        onDragStarted: _startTabDrag,
+        onDragEnded: _finishTabDrag,
+        onCloseTab: (tab) => _closeDocument(_controller, tab),
+        onContextMenu: (tab, offset) => showWorkspaceTabContextMenu(
+          context: context,
+          controller: _controller,
+          tab: tab,
+          position: offset,
+          onClose: (t) => _closeDocument(_controller, t),
+          onSplitChanged: _discardFindReplace,
+        ),
+        onStructureFailure: _showFailure,
+        onReloadConflict: (doc) => _reloadConflict(_controller, doc),
+        onToggleFullscreen: _toggleFullscreen,
+        onCloseFindReplace: _closeFindReplace,
+      );
+
   WorkspaceController get _controller {
     return ref.read(workspaceControllerProvider(widget.session));
   }
-
-  bool get _supportsSplit => switch (defaultTargetPlatform) {
-    TargetPlatform.macOS ||
-    TargetPlatform.windows ||
-    TargetPlatform.linux => true,
-    _ => false,
-  };
 
   @override
   void initState() {
@@ -87,7 +104,7 @@ final class _LibraryWorkspacePageState
 
   Future<void> _initializeController() async {
     await _controller.initialize();
-    if (!_supportsSplit && _controller.isSplit) {
+    if (!supportsDesktopSplit && _controller.isSplit) {
       _controller.closeSplit();
     }
   }
@@ -128,7 +145,7 @@ final class _LibraryWorkspacePageState
             // 全屏下侧栏折叠为零宽度占位而非移除，使 chrome 显隐不动内容子树位置。
             final showSidebar =
                 permanentSidebar && _showSidebar && !_isFullscreen;
-            final desktop = _supportsSplit;
+            final desktop = supportsDesktopSplit;
             return CallbackShortcuts(
               bindings: {
                 const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () {
@@ -412,7 +429,7 @@ final class _LibraryWorkspacePageState
       return const Center(child: CircularProgressIndicator());
     }
     if (!desktop) {
-      return _buildEditorGroup(
+      return _editorGroup(
         controller,
         WorkspaceEditorGroupId.primary,
         showSidebarExpander: showSidebarExpander,
@@ -420,7 +437,7 @@ final class _LibraryWorkspacePageState
       );
     }
     if (!controller.isSplit) {
-      final editorGroup = _buildEditorGroup(
+      final editorGroup = _editorGroup(
         controller,
         WorkspaceEditorGroupId.primary,
         showSidebarExpander: showSidebarExpander,
@@ -482,7 +499,7 @@ final class _LibraryWorkspacePageState
         const minimumPaneWidth = 280.0;
         const dividerWidth = 9.0;
         if (constraints.maxWidth < minimumPaneWidth * 2 + dividerWidth) {
-          return _buildEditorGroup(
+          return _editorGroup(
             controller,
             controller.focusedGroupId,
             showSidebarExpander: showSidebarExpander,
@@ -498,7 +515,7 @@ final class _LibraryWorkspacePageState
           children: [
             SizedBox(
               width: primaryWidth,
-              child: _buildEditorGroup(
+              child: _editorGroup(
                 controller,
                 WorkspaceEditorGroupId.primary,
                 showSidebarExpander: showSidebarExpander,
@@ -526,7 +543,7 @@ final class _LibraryWorkspacePageState
               ),
             ),
             Expanded(
-              child: _buildEditorGroup(
+              child: _editorGroup(
                 controller,
                 WorkspaceEditorGroupId.secondary,
                 hideTabs: _isFullscreen,
@@ -538,145 +555,24 @@ final class _LibraryWorkspacePageState
     );
   }
 
-  Widget _buildEditorGroup(
+  /// 构造单个编辑分组组件，填入页面级稳定参数（session/findController/callbacks），
+  /// 调用点只需给 controller/groupId/showSidebarExpander/hideTabs。分组的具体呈现
+  /// （标签行 + DocumentPane + 查找替换 + 分屏 DragTarget）见 [WorkspaceEditorGroup]。
+  Widget _editorGroup(
     WorkspaceController controller,
     WorkspaceEditorGroupId groupId, {
     bool showSidebarExpander = false,
     bool hideTabs = false,
   }) {
-    final selectedEntry = controller.selectedEntry;
-    final selectedNovel = controller.selectedNovel;
-    final showStructure =
-        !hideTabs &&
-        groupId == controller.focusedGroupId &&
-        selectedNovel != null &&
-        switch (selectedEntry?.semanticKind) {
-          LibraryEntrySemanticKind.novel ||
-          LibraryEntrySemanticKind.body ||
-          LibraryEntrySemanticKind.volume => true,
-          _ => false,
-        };
-    final activeDocument = controller.activeDocumentForGroup(groupId);
-    final focused = controller.focusedGroupId == groupId;
-    final editorGroup = Listener(
-      behavior: HitTestBehavior.opaque,
-      onPointerDown: (_) => _focusGroup(controller, groupId),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: focused && controller.isSplit
-              ? Border.all(
-                  color: Theme.of(context).colorScheme.primary.withAlpha(80),
-                )
-              : null,
-        ),
-        child: Column(
-          children: [
-            // 折叠标签行（非移除）保 DocumentPane 下标不变，避免重挂载。
-            if (hideTabs)
-              const SizedBox.shrink()
-            else
-              Row(
-                children: [
-                  if (showSidebarExpander)
-                    ColoredBox(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerLowest,
-                      child: SizedBox(
-                        width: 44,
-                        height: DocumentTabs.barHeight,
-                        child: IconButton(
-                          key: const ValueKey('library-sidebar-expand'),
-                          tooltip: '展开侧栏',
-                          onPressed: () => setState(() => _showSidebar = true),
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.chevron_right_rounded),
-                        ),
-                      ),
-                    ),
-                  Expanded(
-                    child: DocumentTabs(
-                      controller: controller,
-                      groupId: groupId,
-                      onActivate: (tab) => _activateTab(controller, tab),
-                      onMove: _discardFindReplace,
-                      onDragStarted: _startTabDrag,
-                      onDragEnded: _finishTabDrag,
-                      onClose: (document) =>
-                          _closeDocument(controller, document),
-                      onContextMenu: (tab, offset) =>
-                          _showTabContextMenu(controller, tab, offset),
-                    ),
-                  ),
-                ],
-              ),
-            if (hideTabs) const SizedBox.shrink() else const Divider(height: 1),
-            Expanded(
-              child: showStructure
-                  ? NovelStructurePane(
-                      controller: controller,
-                      snapshot: selectedNovel,
-                      selectedEntry: selectedEntry!,
-                      onFailure: _showFailure,
-                    )
-                  : activeDocument != null
-                  ? DocumentPane(
-                      controller: controller,
-                      document: activeDocument,
-                      session: widget.session,
-                      onReloadConflict: () =>
-                          _reloadConflict(controller, activeDocument),
-                      // hideTabs 仅在全屏为真：文档工具条显示「退出全屏」入口。
-                      onToggleFullscreen: hideTabs ? _toggleFullscreen : null,
-                    )
-                  : ColoredBox(
-                      color: Theme.of(context).colorScheme.surface,
-                      child: Center(
-                        child: EmptyWorkspace(
-                          hasSelection: controller.selectedPath != null,
-                          selectedPath: controller.selectedPath,
-                        ),
-                      ),
-                    ),
-            ),
-            if (_findController != null &&
-                activeDocument != null &&
-                groupId == controller.focusedGroupId)
-              FindReplaceOverlay(
-                findController: _findController!,
-                editorController: activeDocument.editorController,
-                initialShowReplace: _findReplaceMode,
-                onClose: _closeFindReplace,
-              ),
-          ],
-        ),
-      ),
-    );
-    if (!_supportsSplit || !controller.isSplit) {
-      return editorGroup;
-    }
-    return DragTarget<WorkspaceTabDragData>(
-      onWillAcceptWithDetails: (details) =>
-          details.data.sourceGroupId != groupId,
-      onAcceptWithDetails: (details) {
-        _discardFindReplace();
-        controller.moveTab(details.data.tab, groupId);
-        _finishTabDrag();
-      },
-      builder: (context, candidates, _) => DecoratedBox(
-        decoration: BoxDecoration(
-          color: candidates.isNotEmpty
-              ? Theme.of(context).colorScheme.primaryContainer.withAlpha(55)
-              : null,
-          border: candidates.isNotEmpty
-              ? Border.all(
-                  color: Theme.of(context).colorScheme.primary,
-                  width: 2,
-                )
-              : null,
-        ),
-        child: editorGroup,
-      ),
+    return WorkspaceEditorGroup(
+      controller: controller,
+      groupId: groupId,
+      session: widget.session,
+      showSidebarExpander: showSidebarExpander,
+      hideTabs: hideTabs,
+      findController: _findController,
+      findReplaceMode: _findReplaceMode,
+      callbacks: _editorGroupCallbacks,
     );
   }
 
@@ -781,138 +677,6 @@ final class _LibraryWorkspacePageState
         sc.jumpTo(offset);
       });
     });
-  }
-
-  /// 右键/长按标签时弹出上下文菜单：标签管理（关闭类）+ 文件操作（重命名/
-  /// 复制路径/Finder/移到回收站）。右键不激活标签——动作直接作用于被右键的 tab。
-  void _showTabContextMenu(
-    WorkspaceController controller,
-    WorkspaceTab tab,
-    Offset position,
-  ) {
-    showLoreContextMenu(
-      context: context,
-      position: position,
-      items: _buildTabContextMenuItems(controller, tab),
-    );
-  }
-
-  List<LoreContextMenuItem> _buildTabContextMenuItems(
-    WorkspaceController controller,
-    WorkspaceTab tab,
-  ) {
-    final desktop = switch (defaultTargetPlatform) {
-      TargetPlatform.macOS ||
-      TargetPlatform.windows ||
-      TargetPlatform.linux => true,
-      _ => false,
-    };
-    final groupId = controller.groupForTab(tab);
-    return <LoreContextMenuItem>[
-      LoreContextMenuItem(
-        label: '关闭',
-        onTap: () => unawaited(_closeDocument(controller, tab)),
-      ),
-      LoreContextMenuItem(
-        label: '关闭其他',
-        onTap: () => unawaited(_closeBatch(() => controller.closeOthers(tab))),
-      ),
-      LoreContextMenuItem(
-        label: '关闭右侧',
-        onTap: () =>
-            unawaited(_closeBatch(() => controller.closeTabsToRight(tab))),
-      ),
-      LoreContextMenuItem(
-        label: '关闭全部',
-        onTap: () =>
-            unawaited(_closeBatch(() => controller.closeAllTabsInGroup(tab))),
-      ),
-      if (desktop && !controller.isSplit)
-        LoreContextMenuItem(
-          label: '在右侧打开',
-          onTap: () {
-            _discardFindReplace();
-            controller.splitRight(tab);
-          },
-        ),
-      if (desktop &&
-          controller.isSplit &&
-          groupId == WorkspaceEditorGroupId.primary)
-        LoreContextMenuItem(
-          label: '移到右侧',
-          onTap: () {
-            _discardFindReplace();
-            controller.moveTab(tab, WorkspaceEditorGroupId.secondary);
-          },
-        ),
-      if (desktop &&
-          controller.isSplit &&
-          groupId == WorkspaceEditorGroupId.secondary)
-        LoreContextMenuItem(
-          label: '移到左侧',
-          onTap: () {
-            _discardFindReplace();
-            controller.moveTab(tab, WorkspaceEditorGroupId.primary);
-          },
-        ),
-      if (desktop && controller.isSplit)
-        LoreContextMenuItem(
-          label: '关闭分屏',
-          onTap: () {
-            _discardFindReplace();
-            controller.closeSplit();
-          },
-        ),
-      LoreContextMenuItem(
-        label: '重命名',
-        onTap: () => unawaited(
-          renameDocumentFlow(
-            context: context,
-            controller: controller,
-            relativePath: tab.relativePath,
-            displayName: tab.name,
-          ),
-        ),
-      ),
-      LoreContextMenuItem(
-        label: '复制路径',
-        onTap: () => unawaited(_copyTabPath(tab)),
-      ),
-      if (controller.revealGateway != null)
-        LoreContextMenuItem(
-          label: '在 Finder 中显示',
-          onTap: () => unawaited(controller.revealEntry(tab.relativePath)),
-        ),
-      LoreContextMenuItem(
-        label: '移到回收站',
-        destructive: true,
-        onTap: () => unawaited(
-          deleteDocumentFlow(
-            context: context,
-            controller: controller,
-            relativePath: tab.relativePath,
-            displayName: tab.name,
-          ),
-        ),
-      ),
-    ];
-  }
-
-  Future<void> _copyTabPath(WorkspaceTab tab) async {
-    await Clipboard.setData(ClipboardData(text: tab.relativePath));
-    if (!mounted) {
-      return;
-    }
-    LoreToast.success(context, '已复制路径');
-  }
-
-  /// 执行批量关闭；若存在因冲突无法关闭的标签，提示用户先处理。
-  Future<void> _closeBatch(Future<List<WorkspaceTab>> Function() action) async {
-    final stuck = await action();
-    if (!mounted || stuck.isEmpty) {
-      return;
-    }
-    LoreToast.warning(context, '${stuck.length} 个标签因冲突未关闭，请先处理');
   }
 
   Future<void> _reloadConflict(
