@@ -22,6 +22,7 @@ final class DocumentPane extends ConsumerStatefulWidget {
     required this.document,
     required this.session,
     required this.onReloadConflict,
+    this.onToggleFullscreen,
     super.key,
   });
 
@@ -29,6 +30,10 @@ final class DocumentPane extends ConsumerStatefulWidget {
   final OpenDocument document;
   final LibrarySession session;
   final VoidCallback onReloadConflict;
+
+  /// 非空时在工具条末尾渲染「退出全屏」按钮。仅在页面级全屏模式下传入；
+  /// 普通模式为 null（不显示），保证全屏退出有可见入口。
+  final VoidCallback? onToggleFullscreen;
 
   @override
   ConsumerState<DocumentPane> createState() => _DocumentPaneState();
@@ -164,6 +169,12 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                 onPressed: () => unawaited(controller.saveDocument(document)),
                 icon: const Icon(Icons.save_outlined, size: 18),
               ),
+              if (widget.onToggleFullscreen != null)
+                IconButton(
+                  tooltip: '退出全屏 (Esc)',
+                  onPressed: widget.onToggleFullscreen,
+                  icon: const Icon(Icons.fullscreen_exit, size: 18),
+                ),
               const SizedBox(width: 10),
             ],
           ),
