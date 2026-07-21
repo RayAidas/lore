@@ -52,6 +52,7 @@ class LoreApp extends ConsumerWidget {
       theme: theme,
       darkTheme: LoreTheme.dark(),
       themeMode: themeMode,
+      scrollBehavior: const LoreScrollBehavior(),
       home: home,
     );
   }
@@ -82,5 +83,22 @@ class _PreferencesError extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 桌面平台（macOS/Windows/Linux）禁用过度滚动的弹簧回弹：到边即停（ClampingScrollPhysics），
+/// 消除标签栏、正文编辑器、Markdown 预览、目录树等到顶/到底后的「超出再弹回」效果。
+/// 移动端沿用平台原生手感（iOS 弹簧、Android 光晕）。
+final class LoreScrollBehavior extends MaterialScrollBehavior {
+  const LoreScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return switch (Theme.of(context).platform) {
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux => const ClampingScrollPhysics(),
+      _ => super.getScrollPhysics(context),
+    };
   }
 }
