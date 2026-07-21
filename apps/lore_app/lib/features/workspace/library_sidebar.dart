@@ -430,11 +430,7 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
       case _ContextMenuAction.copyPath:
         await Clipboard.setData(ClipboardData(text: entry.relativePath));
         if (mounted) {
-          LoreToast.show(
-            context,
-            message: '已复制路径',
-            type: LoreToastType.success,
-          );
+          LoreToast.success(context, '已复制路径');
         }
     }
   }

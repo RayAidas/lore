@@ -7,10 +7,5 @@ import 'package:lore_ui/lore_ui.dart';
 ///
 /// 调用方需先确认 `mounted` / `context.mounted`，再调用本函数。
 void showLibraryFailure(BuildContext context, LibraryFailure failure) {
-  LoreToast.show(
-    context,
-    message: failure.message,
-    type: LoreToastType.error,
-    duration: const Duration(seconds: 3),
-  );
+  LoreToast.error(context, failure.message);
 }

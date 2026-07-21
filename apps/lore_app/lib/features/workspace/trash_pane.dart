@@ -129,11 +129,7 @@ final class _TrashPageState extends State<TrashPage> {
     try {
       await widget.controller.restoreTrashItem(item.token);
       if (mounted) {
-        LoreToast.show(
-          context,
-          message: '已恢复：${item.originalRelativePath}',
-          type: LoreToastType.success,
-        );
+        LoreToast.success(context, '已恢复：${item.originalRelativePath}');
       }
       await _refresh();
     } on LibraryOperationException catch (error) {

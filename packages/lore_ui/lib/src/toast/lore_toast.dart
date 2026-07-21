@@ -66,35 +66,86 @@ abstract final class LoreToast {
     _currentOverlay = overlay;
     overlay.insert(entry);
   }
+
+  /// 成功提示，默认停留 2 秒。
+  static void success(
+    BuildContext context,
+    String message, {
+    Duration duration = const Duration(seconds: 2),
+    IconData? icon,
+  }) => show(
+    context,
+    message: message,
+    type: LoreToastType.success,
+    duration: duration,
+    icon: icon,
+  );
+
+  /// 信息提示，默认停留 2 秒。
+  static void info(
+    BuildContext context,
+    String message, {
+    Duration duration = const Duration(seconds: 2),
+    IconData? icon,
+  }) => show(
+    context,
+    message: message,
+    type: LoreToastType.info,
+    duration: duration,
+    icon: icon,
+  );
+
+  /// 警告提示，默认停留 3 秒。
+  static void warning(
+    BuildContext context,
+    String message, {
+    Duration duration = const Duration(seconds: 3),
+    IconData? icon,
+  }) => show(
+    context,
+    message: message,
+    type: LoreToastType.warning,
+    duration: duration,
+    icon: icon,
+  );
+
+  /// 错误提示，默认停留 4 秒。
+  static void error(
+    BuildContext context,
+    String message, {
+    Duration duration = const Duration(seconds: 4),
+    IconData? icon,
+  }) => show(
+    context,
+    message: message,
+    type: LoreToastType.error,
+    duration: duration,
+    icon: icon,
+  );
 }
 
 /// 视觉规格：默认图标 + 图标前景色。
-class _ToastSpec {
-  const _ToastSpec({required this.defaultIcon, required this.foregroundColor});
-
-  final IconData defaultIcon;
-  final Color foregroundColor;
-}
+typedef _ToastSpec = ({IconData defaultIcon, Color foregroundColor});
 
 _ToastSpec _specFor(LoreToastType type, ColorScheme colorScheme) {
   switch (type) {
     case LoreToastType.success:
-      return _ToastSpec(
+      return (
         defaultIcon: Icons.check_circle_rounded,
         foregroundColor: colorScheme.successForeground,
       );
     case LoreToastType.warning:
-      return _ToastSpec(
+      return (
         defaultIcon: Icons.warning_amber_rounded,
         foregroundColor: colorScheme.warningForeground,
       );
     case LoreToastType.error:
-      return _ToastSpec(
+      return (
         defaultIcon: Icons.error_outline_rounded,
         foregroundColor: colorScheme.error,
       );
     case LoreToastType.info:
-      return _ToastSpec(
+      return (
         defaultIcon: Icons.info_outline_rounded,
         foregroundColor: colorScheme.primary,
       );

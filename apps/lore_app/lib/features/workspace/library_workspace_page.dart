@@ -790,7 +790,7 @@ final class _LibraryWorkspacePageState
     if (!mounted) {
       return;
     }
-    LoreToast.show(context, message: '已复制路径', type: LoreToastType.success);
+    LoreToast.success(context, '已复制路径');
   }
 
   /// 执行批量关闭；若存在因冲突无法关闭的标签，提示用户先处理。
@@ -799,12 +799,7 @@ final class _LibraryWorkspacePageState
     if (!mounted || stuck.isEmpty) {
       return;
     }
-    LoreToast.show(
-      context,
-      message: '${stuck.length} 个标签因冲突未关闭，请先处理',
-      type: LoreToastType.warning,
-      duration: const Duration(seconds: 3),
-    );
+    LoreToast.warning(context, '${stuck.length} 个标签因冲突未关闭，请先处理');
   }
 
   Future<void> _reloadConflict(

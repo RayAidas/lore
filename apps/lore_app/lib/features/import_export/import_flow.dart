@@ -134,12 +134,7 @@ Future<void> importTxtNovelFlow(
   if (!context.mounted) {
     return;
   }
-  LoreToast.show(
-    context,
-    message: '已导入「$title」，共 $count 章。',
-    type: LoreToastType.success,
-    duration: const Duration(seconds: 3),
-  );
+  LoreToast.success(context, '已导入「$title」，共 $count 章。');
 }
 
 int _totalChapters(ParsedTxtNovel parsed) {

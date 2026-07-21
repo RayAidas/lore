@@ -31,11 +31,10 @@ void main() {
         home: Scaffold(
           body: Center(
             child: Builder(
-              builder:
-                  (context) => ElevatedButton(
-                    onPressed: () => onTrigger(context),
-                    child: const Text('trigger'),
-                  ),
+              builder: (context) => ElevatedButton(
+                onPressed: () => onTrigger(context),
+                child: const Text('trigger'),
+              ),
             ),
           ),
         ),
@@ -47,13 +46,12 @@ void main() {
   testWidgets('show displays the message', (tester) async {
     await pumpApp(
       tester,
-      onTrigger:
-          (context) => LoreToast.show(
-            context,
-            message: '已复制路径',
-            type: LoreToastType.success,
-            duration: kDuration,
-          ),
+      onTrigger: (context) => LoreToast.show(
+        context,
+        message: '已复制路径',
+        type: LoreToastType.success,
+        duration: kDuration,
+      ),
     );
 
     await tester.tap(find.text('trigger'));
@@ -67,13 +65,12 @@ void main() {
   testWidgets('toast auto-dismisses after its duration', (tester) async {
     await pumpApp(
       tester,
-      onTrigger:
-          (context) => LoreToast.show(
-            context,
-            message: '稍纵即逝',
-            type: LoreToastType.info,
-            duration: kDuration,
-          ),
+      onTrigger: (context) => LoreToast.show(
+        context,
+        message: '稍纵即逝',
+        type: LoreToastType.info,
+        duration: kDuration,
+      ),
     );
 
     await tester.tap(find.text('trigger'));
@@ -88,16 +85,15 @@ void main() {
     var taps = 0;
     await pumpApp(
       tester,
-      onTrigger:
-          (context) {
-            taps += 1;
-            LoreToast.show(
-              context,
-              message: 'toast $taps',
-              type: LoreToastType.success,
-              duration: kDuration,
-            );
-          },
+      onTrigger: (context) {
+        taps += 1;
+        LoreToast.show(
+          context,
+          message: 'toast $taps',
+          type: LoreToastType.success,
+          duration: kDuration,
+        );
+      },
     );
 
     await tester.tap(find.text('trigger'));
@@ -115,13 +111,12 @@ void main() {
   testWidgets('tap dismisses the toast early', (tester) async {
     await pumpApp(
       tester,
-      onTrigger:
-          (context) => LoreToast.show(
-            context,
-            message: '点我关闭',
-            type: LoreToastType.warning,
-            duration: const Duration(seconds: 30),
-          ),
+      onTrigger: (context) => LoreToast.show(
+        context,
+        message: '点我关闭',
+        type: LoreToastType.warning,
+        duration: const Duration(seconds: 30),
+      ),
     );
 
     await tester.tap(find.text('trigger'));
@@ -147,13 +142,12 @@ void main() {
     for (final (type, icon) in cases) {
       await pumpApp(
         tester,
-        onTrigger:
-            (context) => LoreToast.show(
-              context,
-              message: 'msg-$type',
-              type: type,
-              duration: kDuration,
-            ),
+        onTrigger: (context) => LoreToast.show(
+          context,
+          message: 'msg-$type',
+          type: type,
+          duration: kDuration,
+        ),
       );
 
       await tester.tap(find.text('trigger'));
@@ -162,5 +156,18 @@ void main() {
 
       await drainAndSettle(tester);
     }
+  });
+
+  testWidgets('show throws when no Overlay ancestor exists', (tester) async {
+    // 无 MaterialApp → 无 Overlay。锁定 show 的失败契约：调用方必须在
+    // MaterialApp 之下调用，否则显式失败而非静默。
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(
+      () => LoreToast.show(
+        tester.element(find.byType(SizedBox)),
+        message: 'no overlay',
+      ),
+      throwsA(isA<Error>()),
+    );
   });
 }

@@ -301,10 +301,9 @@ class _ExportPanelState extends State<ExportPanel> {
       }
       // 先弹 toast 再 pop：toast 走根 Overlay，pop 后仍留存；而 context 在
       // pop 后失效，故必须在 pop 之前 show。
-      LoreToast.show(
+      LoreToast.success(
         context,
-        message: '已导出 ${composed.chapterCount} 章到「$path」。',
-        type: LoreToastType.success,
+        '已导出 ${composed.chapterCount} 章到「$path」。',
         duration: const Duration(seconds: 4),
       );
       Navigator.of(context).maybePop();
