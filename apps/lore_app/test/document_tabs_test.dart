@@ -291,6 +291,82 @@ void main() {
     await gesture.cancel();
     debugDefaultTargetPlatformOverride = null;
   });
+
+  testWidgets('reveals the active tab into view when activated off-screen', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final controller = buildController(_FakeRepository());
+    addTearDown(controller.dispose);
+    final names = [for (var i = 0; i < 5; i++) '这是一个非常非常非常非常非常长的小说章节文件名$i.md'];
+    for (final name in names) {
+      await controller.openPath(name);
+    }
+    // 先激活首个并挂载：监听器以首个为基准，初始不 reveal，滚动停在最左，
+    // 末尾标签被裁切在视口右侧之外。
+    await controller.activateTab(controller.tabs.first);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 200,
+            child: DocumentTabs(controller: controller, onClose: (_) async {}),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final lastName = names.last;
+    final tabsRect = tester.getRect(find.byType(DocumentTabs));
+    // 末尾标签初始在视口右侧之外。
+    expect(
+      tester.getRect(find.byTooltip(lastName)).right,
+      greaterThan(tabsRect.right),
+    );
+
+    // 激活末尾标签 → reveal 平滑滚入。
+    await controller.activateTab(controller.tabs.last);
+    await tester.pumpAndSettle();
+
+    // 末尾标签现在完全进入视口（右沿不超出标签条）。
+    expect(
+      tester.getRect(find.byTooltip(lastName)).right,
+      lessThanOrEqualTo(tabsRect.right + 0.5),
+    );
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('does not scroll when the active tab is already visible', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final controller = buildController(_FakeRepository());
+    addTearDown(controller.dispose);
+    await controller.openPath('短1.md');
+    await controller.openPath('短2.md');
+    await controller.activateTab(controller.tabs.first);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 600,
+            child: DocumentTabs(controller: controller, onClose: (_) async {}),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final before = tester.getRect(find.byTooltip('短2.md'));
+    // 切到另一个已可见的标签 → 最小 reveal 早返回，位置不动。
+    await controller.activateTab(controller.tabs.last);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byTooltip('短2.md')), before);
+    debugDefaultTargetPlatformOverride = null;
+  });
 }
 
 final class _FakeRepository extends _BaseRepository {

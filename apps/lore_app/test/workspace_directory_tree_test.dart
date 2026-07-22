@@ -632,6 +632,229 @@ void main() {
     secondRepository.completeActiveRequests();
     await tester.pump();
   });
+
+  testWidgets('reveals a selected off-screen row into view', (tester) async {
+    tester.view.physicalSize = const Size(400, 400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final entries = List.generate(
+      40,
+      (i) => LibraryEntry(
+        name: '文件$i.md',
+        relativePath: '文件$i.md',
+        type: LibraryEntryType.markdownFile,
+      ),
+    );
+    final repository = _PathWorkspaceRepository({'': entries});
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    // 先挂载（selectedPath=null），再切换到末尾条目触发 didUpdateWidget → reveal。
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pumpAndSettle();
+    expect(find.text('文件0.md'), findsOneWidget);
+    expect(find.text('文件39.md'), findsNothing); // 视口外未构建
+
+    await tester.pumpWidget(
+      _tree(controller, reloadToken: 0, selectedPath: '文件39.md'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('文件39.md'), findsOneWidget);
+    final rect = tester.getRect(find.text('文件39.md'));
+    // 行矩形落在视口竖向范围内（已被滚入）。
+    expect(rect.top, greaterThanOrEqualTo(-1));
+    expect(rect.bottom, lessThanOrEqualTo(401));
+  });
+
+  testWidgets('does not scroll when the selected row is already visible', (
+    tester,
+  ) async {
+    final repository = _PathWorkspaceRepository({
+      '': [
+        LibraryEntry(
+          name: 'a.md',
+          relativePath: 'a.md',
+          type: LibraryEntryType.markdownFile,
+        ),
+        LibraryEntry(
+          name: 'b.md',
+          relativePath: 'b.md',
+          type: LibraryEntryType.markdownFile,
+        ),
+        LibraryEntry(
+          name: 'c.md',
+          relativePath: 'c.md',
+          type: LibraryEntryType.markdownFile,
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_tree(controller, reloadToken: 0));
+    await tester.pumpAndSettle();
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+
+    // 选中已可见的首条 → 最小 reveal 不滚动。
+    await tester.pumpWidget(
+      _tree(controller, reloadToken: 0, selectedPath: 'a.md'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(position.pixels, 0);
+  });
+
+  testWidgets(
+    'expands collapsed ancestors before revealing a nested selection',
+    (tester) async {
+      final repository = _PathWorkspaceRepository({
+        '': [
+          LibraryEntry(
+            name: '卷一',
+            relativePath: '卷一',
+            type: LibraryEntryType.directory,
+          ),
+        ],
+        '卷一': [
+          LibraryEntry(
+            name: '第一章.md',
+            relativePath: '卷一/第一章.md',
+            type: LibraryEntryType.markdownFile,
+          ),
+        ],
+      });
+      final controller = _controller(session, repository);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_tree(controller, reloadToken: 0));
+      await tester.pumpAndSettle();
+      expect(controller.isDirectoryExpanded('卷一'), isFalse);
+      expect(find.text('第一章.md'), findsNothing); // 父目录折叠 → 不可见
+
+      // 切换到嵌套条目 → 祖先自动展开并滚入视口。
+      await tester.pumpWidget(
+        _tree(controller, reloadToken: 0, selectedPath: '卷一/第一章.md'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(controller.isDirectoryExpanded('卷一'), isTrue);
+      expect(find.text('第一章.md'), findsOneWidget);
+      final rect = tester.getRect(find.text('第一章.md'));
+      expect(rect.top, greaterThanOrEqualTo(-1));
+      expect(rect.bottom, lessThanOrEqualTo(601));
+    },
+  );
+
+  testWidgets(
+    'expands a deep ancestor chain before revealing a nested selection',
+    (tester) async {
+      // 三层折叠：reveal 必须逐级展开并经多次异步加载收敛（_pendingRevealPath 重试路径）。
+      final repository = _PathWorkspaceRepository({
+        '': [
+          LibraryEntry(
+            name: '卷一',
+            relativePath: '卷一',
+            type: LibraryEntryType.directory,
+          ),
+        ],
+        '卷一': [
+          LibraryEntry(
+            name: '卷二',
+            relativePath: '卷一/卷二',
+            type: LibraryEntryType.directory,
+          ),
+        ],
+        '卷一/卷二': [
+          LibraryEntry(
+            name: '章.md',
+            relativePath: '卷一/卷二/章.md',
+            type: LibraryEntryType.markdownFile,
+          ),
+        ],
+      });
+      final controller = _controller(session, repository);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_tree(controller, reloadToken: 0));
+      await tester.pumpAndSettle();
+      expect(controller.isDirectoryExpanded('卷一'), isFalse);
+      expect(controller.isDirectoryExpanded('卷一/卷二'), isFalse);
+      expect(find.text('章.md'), findsNothing);
+
+      await tester.pumpWidget(
+        _tree(controller, reloadToken: 0, selectedPath: '卷一/卷二/章.md'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(controller.isDirectoryExpanded('卷一'), isTrue);
+      expect(controller.isDirectoryExpanded('卷一/卷二'), isTrue);
+      expect(find.text('章.md'), findsOneWidget);
+      final rect = tester.getRect(find.text('章.md'));
+      expect(rect.top, greaterThanOrEqualTo(-1));
+      expect(rect.bottom, lessThanOrEqualTo(601));
+    },
+  );
+
+  testWidgets(
+    'clears a pending reveal across a controller switch (no stale scroll)',
+    (tester) async {
+      tester.view.physicalSize = const Size(400, 400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      // repo1：不含 'gone.md'。选中它 → _pendingRevealPath 被置但永远找不到，
+      // 故悬挂不被消费（这才是会泄漏到新树的形态）。
+      final repo1 = _PathWorkspaceRepository({
+        '': [
+          for (var i = 0; i < 40; i++)
+            LibraryEntry(
+              name: '文件$i.md',
+              relativePath: '文件$i.md',
+              type: LibraryEntryType.markdownFile,
+            ),
+        ],
+      });
+      final controller1 = _controller(session, repo1);
+      addTearDown(controller1.dispose);
+      await tester.pumpWidget(_tree(controller1, reloadToken: 0));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _tree(controller1, reloadToken: 0, selectedPath: 'gone.md'),
+      );
+      await tester.pumpAndSettle();
+
+      // 切换 controller（didUpdateWidget 全量重载分支）：repo2 把 'gone.md' 放在
+      // 长列表底部（视口外）。若旧 _pendingRevealPath 未清，新树首帧加载后会
+      // 错误滚到它；清掉后则停在最顶。
+      final repo2 = _PathWorkspaceRepository({
+        '': [
+          for (var i = 0; i < 39; i++)
+            LibraryEntry(
+              name: '其他$i.md',
+              relativePath: '其他$i.md',
+              type: LibraryEntryType.markdownFile,
+            ),
+          LibraryEntry(
+            name: 'gone.md',
+            relativePath: 'gone.md',
+            type: LibraryEntryType.markdownFile,
+          ),
+        ],
+      });
+      final controller2 = _controller(session, repo2);
+      addTearDown(controller2.dispose);
+      await tester.pumpWidget(_tree(controller2, reloadToken: 0));
+      await tester.pumpAndSettle();
+      expect(
+        tester.state<ScrollableState>(find.byType(Scrollable)).position.pixels,
+        0,
+      );
+    },
+  );
 }
 
 WorkspaceController _controller(
@@ -651,6 +874,7 @@ WorkspaceController _controller(
 Widget _tree(
   WorkspaceController controller, {
   required int reloadToken,
+  String? selectedPath,
   ValueChanged<LibraryEntry>? onSelected,
 }) {
   return MaterialApp(
@@ -658,7 +882,7 @@ Widget _tree(
       body: WorkspaceDirectory(
         controller: controller,
         relativePath: '',
-        selectedPath: null,
+        selectedPath: selectedPath,
         reloadToken: reloadToken,
         onSelected: onSelected ?? (_) {},
       ),

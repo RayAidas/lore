@@ -49,6 +49,13 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
   int _runningLoadCount = 0;
   bool _visibleRebuildScheduled = false;
 
+  /// 目录树竖向滚动控制器，用于把选中条目滚入视口（reveal）。
+  final ScrollController _scrollController = ScrollController();
+
+  /// 异步祖先加载期间暂存的待揭示路径；可见列表每次重建都尝试消费它（见
+  /// [_consumePendingReveal]），保证祖先加载完成后仍能滚入视口。
+  String? _pendingRevealPath;
+
   @override
   void initState() {
     super.initState();
@@ -67,11 +74,19 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
       _loadsByPath.clear();
       _loadQueue.clear();
       _visibleItems.clear();
+      // 控制器/书库切换：旧 pending 揭示路径对新树无意义，必须清掉，否则新树
+      // 首帧加载后会把同名残留路径误滚入视口。
+      _pendingRevealPath = null;
       _loadInitialTree();
       return;
     }
     if (oldWidget.reloadToken != widget.reloadToken) {
       _refreshLoadedTree();
+    }
+    if (oldWidget.selectedPath != widget.selectedPath) {
+      // 选中变化（点 Tab / 点目录树文件 / 新建等）→ 下一帧把选中条目滚入视口。
+      // reveal 只滚动、不写选中态，无回环。
+      WidgetsBinding.instance.addPostFrameCallback((_) => _revealSelected());
     }
   }
 
@@ -227,6 +242,99 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
   void _rebuildVisibleItems() {
     _visibleItems.clear();
     _appendVisibleChildren(widget.relativePath, widget.depth);
+    _consumePendingReveal();
+  }
+
+  /// 选中条目变化时（[didUpdateWidget] 触发）：把它滚入视口；若被折叠的祖先
+  /// 遮挡，先逐级展开祖先再滚（VSCode 风格）。
+  void _revealSelected() {
+    if (!mounted) {
+      return;
+    }
+    final path = widget.selectedPath;
+    if (path == null || path.isEmpty) {
+      _pendingRevealPath = null;
+      return;
+    }
+    _pendingRevealPath = path;
+    setState(() {
+      _expandAncestors(path);
+      _rebuildVisibleItems();
+    });
+  }
+
+  /// 展开选中路径的所有真祖先目录（不含自身）并触发其懒加载；已缓存者即时
+  /// 可见，未缓存者由 [_loadPath] 完成后的 [_scheduleVisibleRebuild] 经
+  /// [_consumePendingReveal] 补滚。
+  ///
+  /// 注意：[WorkspaceController.setDirectoryExpanded] 会经 session 持久化展开态，
+  /// 故 reveal 触发的自动展开会被「记住」——与 VSCode `explorer.autoReveal` 一致
+  /// （自动展开的目录下次打开仍是展开的）。这是有意为之。
+  void _expandAncestors(String path) {
+    final segments = path.split('/');
+    if (segments.length <= 1) {
+      return; // 根级条目，无真祖先。
+    }
+    var ancestor = '';
+    for (var i = 0; i < segments.length - 1; i++) {
+      ancestor = ancestor.isEmpty ? segments[i] : '$ancestor/${segments[i]}';
+      if (widget.controller.isDirectoryExpanded(ancestor)) {
+        continue;
+      }
+      widget.controller.setDirectoryExpanded(ancestor, true);
+      _loadPath(ancestor, prioritize: true);
+    }
+  }
+
+  /// reveal 异步收敛的单一收口：每次可见列表重建后，若待揭示路径已可见则安排
+  /// 滚动；仍在加载则留待下一次重建重试。路径不存在时永不满，悬挂至下次选中
+  /// 变化（或控制器/书库切换的全量重载）时被重置——无害。
+  ///
+  /// 注意：本方法在 [_rebuildVisibleItems] 末尾被调用，而后者多处处于 setState
+  /// 构建期；因此本方法只可调度 post-frame 回调 / 改字段，**绝不可 setState**
+  /// （否则触发「build 期 setState」断言）。
+  void _consumePendingReveal() {
+    final path = _pendingRevealPath;
+    if (path == null) {
+      return;
+    }
+    final index = _visibleItems.indexWhere(
+      (item) => item.entry?.relativePath == path,
+    );
+    if (index < 0) {
+      return;
+    }
+    _pendingRevealPath = null;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _scrollToVisibleIndex(index),
+    );
+  }
+
+  /// 把第 [index] 行用最小滚动量移入视口：上方则滚到顶部并留 [_revealContext]
+  /// 上下文，下方则滚到底部留上下文，已可见则不滚。固定行高使索引→偏移精确。
+  void _scrollToVisibleIndex(int index) {
+    if (!mounted || !_scrollController.hasClients) {
+      return;
+    }
+    final position = _scrollController.position;
+    final rowTop = _treeListTopPadding + index * _treeRowExtent;
+    final rowBottom = rowTop + _treeRowExtent;
+    final viewport = position.viewportDimension;
+    final current = position.pixels;
+    double? target;
+    if (rowTop < current) {
+      target = rowTop - _revealContext;
+    } else if (rowBottom > current + viewport) {
+      target = rowBottom - viewport + _revealContext;
+    }
+    if (target == null) {
+      return; // 已可见。
+    }
+    _scrollController.animateTo(
+      target.clamp(0.0, position.maxScrollExtent),
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+    );
   }
 
   void _appendVisibleChildren(String path, int depth) {
@@ -268,6 +376,7 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
   void dispose() {
     _loadQueue.clear();
     _loadsByPath.clear();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -307,7 +416,8 @@ final class _WorkspaceDirectoryState extends State<WorkspaceDirectory> {
       );
     }
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(8, _treeListTopPadding, 8, 6),
       physics: const ClampingScrollPhysics(),
       itemExtent: _treeRowExtent,
       itemCount: _visibleItems.length,
@@ -555,6 +665,12 @@ const double _treeIndent = 17;
 const double _treeDisclosureWidth = 18;
 const double _treeRowHeight = 30;
 const double _treeRowExtent = _treeRowHeight + 2;
+
+/// 目录树 ListView 顶部内边距；reveal 偏移计算需计入它（见 [_scrollToVisibleIndex]）。
+const double _treeListTopPadding = 2;
+
+/// reveal 时露出的上下文像素：被揭示项不贴边，留一点呼吸空间（VSCode 体感）。
+const double _revealContext = 8;
 const int _maximumConcurrentDirectoryLoads = 6;
 
 const _txtExtension = '.txt';

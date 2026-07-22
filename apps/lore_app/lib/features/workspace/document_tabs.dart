@@ -25,7 +25,12 @@ final class WorkspaceTabDragData {
 /// [_TabChip.maxWidth]），激活态以中性背景填充，不再使用顶部指示条，靠背景
 /// 与文字/图标颜色区分当前页。字重在激活态保持恒定，避免点击时因加粗导致
 /// 宽度跳动。文件名超长时省略号截断，hover 整个标签显示完整名。
-final class DocumentTabs extends StatelessWidget {
+///
+/// 活动标签切换时自动滚入视口（VSCode 风格的最小滚动 reveal）：仅当活动标签
+/// 被裁切才滚动，平滑动画，绝不回写选中态。桌面标签行不去虚拟化（标签上限
+/// 20、行高 38px，与 VSCode 一致），使任意活动标签的 render object 都已挂载，
+/// [Scrollable.ensureVisible] 能精确定位。
+final class DocumentTabs extends StatefulWidget {
   const DocumentTabs({
     required this.controller,
     required this.onClose,
@@ -50,15 +55,119 @@ final class DocumentTabs extends StatelessWidget {
   static const double barHeight = 38;
 
   @override
+  State<DocumentTabs> createState() => _DocumentTabsState();
+}
+
+final class _DocumentTabsState extends State<DocumentTabs> {
+  /// 桌面标签行的水平滚动控制器（reveal 用 [Scrollable.ensureVisible] 即可，
+  /// 此控制器提供稳定句柄，便于测试读取 offset）。
+  final ScrollController _scrollController = ScrollController();
+
+  /// 仅挂在当前活动标签所在 cell 上：[Scrollable.ensureVisible] 据此定位。
+  final GlobalKey _activeTabKey = GlobalKey();
+
+  /// 上一次感知到的活动路径；与当前值比较决定是否触发 reveal。初始化为挂载时的
+  /// 活动路径，避免首帧误触发（VSCode 不在恢复时强制 reveal 活动标签）。
+  late String? _lastActivePath;
+
+  WorkspaceController get _controller => widget.controller;
+
+  WorkspaceEditorGroupId get _groupId => widget.groupId;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastActivePath = _controller.activePathForGroup(_groupId);
+    _controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant DocumentTabs oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      _controller.addListener(_onControllerChanged);
+      _lastActivePath = _controller.activePathForGroup(_groupId);
+    } else if (oldWidget.groupId != widget.groupId) {
+      // 分组切换：活动路径语义变化，重置基准，不立即 reveal。
+      _lastActivePath = _controller.activePathForGroup(_groupId);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onControllerChanged);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// controller 通知时（激活/打开/关闭标签都会改 activePath）：活动路径变化即
+  /// 在下一帧把活动标签滚入视口。其余通知（输入、自动保存）做廉价字符串比较
+  /// 后立即返回。
+  void _onControllerChanged() {
+    final active = _controller.activePathForGroup(_groupId);
+    if (active == _lastActivePath) {
+      return;
+    }
+    _lastActivePath = active;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _revealActiveTab());
+  }
+
+  void _revealActiveTab() {
+    if (!mounted) {
+      return;
+    }
+    final context = _activeTabKey.currentContext;
+    if (context == null) {
+      return;
+    }
+    final tabBox = context.findRenderObject() as RenderBox?;
+    if (tabBox == null || !tabBox.attached) {
+      return;
+    }
+    // 标签行 SingleChildScrollView 刚挂载（如空→非空过渡的那一帧）时 position
+    // 可能尚未 attach；与目录树一致用 hasClients 守卫，避免取 position 抛 StateError。
+    if (!_scrollController.hasClients) {
+      return;
+    }
+    final scrollable = Scrollable.of(context);
+    final viewportBox = scrollable.context.findRenderObject() as RenderBox?;
+    final position = scrollable.position;
+    if (viewportBox == null) {
+      return;
+    }
+    // 最小滚动 reveal：仅在标签被裁切时才滚。比较标签与视口的全局左右边，
+    // 算出「刚好把裁切量补齐」的目标偏移。
+    final tabLeft = tabBox.localToGlobal(Offset.zero).dx;
+    final tabRight = tabLeft + tabBox.size.width;
+    final viewportLeft = viewportBox.localToGlobal(Offset.zero).dx;
+    final viewportRight = viewportLeft + viewportBox.size.width;
+    final current = position.pixels;
+    double target;
+    if (tabLeft < viewportLeft) {
+      target = current - (viewportLeft - tabLeft);
+    } else if (tabRight > viewportRight) {
+      target = current + (tabRight - viewportRight);
+    } else {
+      return; // 已完全可见。
+    }
+    position.animateTo(
+      target.clamp(position.minScrollExtent, position.maxScrollExtent),
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     // 监听 controller：tabs 增删与 activePath 切换时整体重建，使本组件可脱离
     // 外层 controller 监听独立使用。单 tab 的细粒度刷新仍由下方
     // ListenableBuilder(tab) 负责。
     return ListenableBuilder(
-      listenable: controller,
+      listenable: _controller,
       builder: (context, _) {
         final colorScheme = Theme.of(context).colorScheme;
-        final tabs = controller.tabsForGroup(groupId);
+        final tabs = _controller.tabsForGroup(_groupId);
         final desktop = switch (Theme.of(context).platform) {
           TargetPlatform.macOS ||
           TargetPlatform.windows ||
@@ -73,14 +182,14 @@ final class DocumentTabs extends StatelessWidget {
               color: candidates.isNotEmpty
                   ? colorScheme.primaryContainer.withAlpha(80)
                   : colorScheme.surfaceContainerLowest,
-              child: const SizedBox(height: barHeight),
+              child: const SizedBox(height: DocumentTabs.barHeight),
             ),
           );
         }
         return ColoredBox(
           color: colorScheme.surfaceContainerLowest,
           child: SizedBox(
-            height: barHeight,
+            height: DocumentTabs.barHeight,
             child: desktop
                 ? _buildDesktopTabs(context, tabs)
                 : _buildMobileTabs(tabs),
@@ -91,61 +200,86 @@ final class DocumentTabs extends StatelessWidget {
   }
 
   Widget _buildDesktopTabs(BuildContext context, List<WorkspaceTab> tabs) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+    final activePath = _controller.activePathForGroup(_groupId);
+    // 去虚拟化：全部标签一次性布局（≤20），保证任意活动标签的 render object
+    // 已挂载，[Scrollable.ensureVisible] 可精确定位；与 VSCode 一致。
+    return SingleChildScrollView(
+      controller: _scrollController,
       scrollDirection: Axis.horizontal,
-      itemCount: tabs.length + 1,
-      itemBuilder: (context, index) {
-        if (index == tabs.length) {
-          return DragTarget<WorkspaceTabDragData>(
-            onWillAcceptWithDetails: (_) => true,
-            onAcceptWithDetails: (details) =>
-                _moveTab(details.data.tab, index: tabs.length),
-            builder: (context, candidates, _) => SizedBox(
-              width: candidates.isNotEmpty ? 28 : 12,
-              child: candidates.isNotEmpty
-                  ? Center(
-                      child: Container(
-                        width: 2,
-                        height: 24,
-                        color: colorScheme.primary,
-                      ),
-                    )
-                  : null,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var index = 0; index < tabs.length; index++)
+            _buildDesktopCell(context, tabs[index], index, activePath),
+          _buildTrailingDropZone(tabs.length),
+        ],
+      ),
+    );
+  }
+
+  /// 桌面单个标签 cell：保留原 `DragTarget` + `Draggable` 落点/拖拽语义。
+  /// 活动标签额外挂 [_activeTabKey] 供 reveal 定位。
+  Widget _buildDesktopCell(
+    BuildContext context,
+    WorkspaceTab tab,
+    int index,
+    String? activePath,
+  ) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final tabChild = _buildTab(tab);
+    final cell = DragTarget<WorkspaceTabDragData>(
+      key: ObjectKey(tab),
+      onWillAcceptWithDetails: (_) => true,
+      onAcceptWithDetails: (details) =>
+          _moveTab(details.data.tab, index: index),
+      builder: (context, candidates, _) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (candidates.isNotEmpty)
+            Container(width: 2, height: 24, color: colorScheme.primary),
+          Draggable<WorkspaceTabDragData>(
+            data: WorkspaceTabDragData(tab: tab, sourceGroupId: _groupId),
+            dragAnchorStrategy: pointerDragAnchorStrategy,
+            onDragStarted: () => widget.onDragStarted?.call(
+              WorkspaceTabDragData(tab: tab, sourceGroupId: _groupId),
             ),
-          );
-        }
-        final tab = tabs[index];
-        final tabChild = _buildTab(tab);
-        return DragTarget<WorkspaceTabDragData>(
-          key: ObjectKey(tab),
-          onWillAcceptWithDetails: (_) => true,
-          onAcceptWithDetails: (details) =>
-              _moveTab(details.data.tab, index: index),
-          builder: (context, candidates, _) => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (candidates.isNotEmpty)
-                Container(width: 2, height: 24, color: colorScheme.primary),
-              Draggable<WorkspaceTabDragData>(
-                data: WorkspaceTabDragData(tab: tab, sourceGroupId: groupId),
-                dragAnchorStrategy: pointerDragAnchorStrategy,
-                onDragStarted: () => onDragStarted?.call(
-                  WorkspaceTabDragData(tab: tab, sourceGroupId: groupId),
-                ),
-                onDragEnd: (_) => onDragEnded?.call(),
-                feedback: Material(
-                  color: Colors.transparent,
-                  child: Opacity(opacity: 0.9, child: _buildTab(tab)),
-                ),
-                childWhenDragging: Opacity(opacity: 0.35, child: tabChild),
-                child: tabChild,
-              ),
-            ],
+            onDragEnd: (_) => widget.onDragEnded?.call(),
+            feedback: Material(
+              color: Colors.transparent,
+              child: Opacity(opacity: 0.9, child: _buildTab(tab)),
+            ),
+            childWhenDragging: Opacity(opacity: 0.35, child: tabChild),
+            child: tabChild,
           ),
-        );
-      },
+        ],
+      ),
+    );
+    if (tab.relativePath == activePath) {
+      return KeyedSubtree(key: _activeTabKey, child: cell);
+    }
+    return cell;
+  }
+
+  /// 标签行末尾落点：把被拖标签插到最右。
+  Widget _buildTrailingDropZone(int trailingIndex) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return DragTarget<WorkspaceTabDragData>(
+      onWillAcceptWithDetails: (_) => true,
+      onAcceptWithDetails: (details) =>
+          _moveTab(details.data.tab, index: trailingIndex),
+      builder: (context, candidates, _) => SizedBox(
+        width: candidates.isNotEmpty ? 28 : 12,
+        child: candidates.isNotEmpty
+            ? Center(
+                child: Container(
+                  width: 2,
+                  height: 24,
+                  color: colorScheme.primary,
+                ),
+              )
+            : null,
+      ),
     );
   }
 
@@ -154,8 +288,8 @@ final class DocumentTabs extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       scrollDirection: Axis.horizontal,
       buildDefaultDragHandles: false,
-      onReorderItem: (oldIndex, newIndex) => controller.reorderTab(
-        groupId,
+      onReorderItem: (oldIndex, newIndex) => _controller.reorderTab(
+        _groupId,
         oldIndex,
         newIndex >= oldIndex ? newIndex + 1 : newIndex,
       ),
@@ -190,11 +324,12 @@ final class DocumentTabs extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
         child: _TabChip(
           tab: tab,
-          active: controller.activePathForGroup(groupId) == tab.relativePath,
-          onTap: () =>
-              unawaited(onActivate?.call(tab) ?? controller.activateTab(tab)),
-          onClose: () => unawaited(onClose(tab)),
-          onContextMenu: onContextMenu,
+          active: _controller.activePathForGroup(_groupId) == tab.relativePath,
+          onTap: () => unawaited(
+            widget.onActivate?.call(tab) ?? _controller.activateTab(tab),
+          ),
+          onClose: () => unawaited(widget.onClose(tab)),
+          onContextMenu: widget.onContextMenu,
           dragHandle: dragHandle,
         ),
       ),
@@ -202,8 +337,8 @@ final class DocumentTabs extends StatelessWidget {
   }
 
   void _moveTab(WorkspaceTab tab, {int? index}) {
-    onMove?.call();
-    controller.moveTab(tab, groupId, index: index);
+    widget.onMove?.call();
+    _controller.moveTab(tab, _groupId, index: index);
   }
 }
 
