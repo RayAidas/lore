@@ -34,4 +34,16 @@ void main() {
     expect(controller.hasUnsavedChanges, isFalse);
     expect(notifications, 1);
   });
+
+  test('characterCount excludes whitespace and updates on text change', () {
+    final controller = LoreTextController(text: 'hello world');
+    addTearDown(controller.dispose);
+    expect(controller.characterCount, 10); // 'helloworld'
+
+    controller.text = 'a b\tc\n';
+    expect(controller.characterCount, 3); // 'abc'（覆盖 set value 路径）
+
+    controller.replaceFromDisk('磁盘 版本');
+    expect(controller.characterCount, 4); // '磁盘版本'（覆盖 replaceFromDisk 路径）
+  });
 }

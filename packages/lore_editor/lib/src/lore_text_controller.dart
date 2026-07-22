@@ -4,10 +4,15 @@ import 'document_controller.dart';
 
 final class LoreTextController extends TextEditingController
     implements LoreDocumentController {
-  LoreTextController({required String text}) : super(text: text);
+  LoreTextController({required String text}) : super(text: text) {
+    _recomputeCharacterCount(text);
+  }
 
   var _editVersion = 0;
   var _savedVersion = 0;
+  int _characterCount = 0;
+
+  static final RegExp _whitespace = RegExp(r'\s+');
 
   @override
   int get editVersion => _editVersion;
@@ -19,7 +24,11 @@ final class LoreTextController extends TextEditingController
   bool get hasUnsavedChanges => _editVersion != _savedVersion;
 
   @override
-  int get characterCount => text.replaceAll(RegExp(r'\s+'), '').runes.length;
+  int get characterCount => _characterCount;
+
+  void _recomputeCharacterCount(String text) {
+    _characterCount = text.replaceAll(_whitespace, '').runes.length;
+  }
 
   @override
   int get length => text.length;
@@ -57,6 +66,7 @@ final class LoreTextController extends TextEditingController
     if (markSaved) {
       _savedVersion = _editVersion;
     }
+    _recomputeCharacterCount(text);
     super.value = TextEditingValue(
       text: text,
       selection: _clampSelection(nextSelection, text.length),
@@ -85,6 +95,7 @@ final class LoreTextController extends TextEditingController
     final textChanged = newValue.text != value.text;
     if (textChanged) {
       _editVersion += 1;
+      _recomputeCharacterCount(newValue.text);
     }
     super.value = newValue;
   }
