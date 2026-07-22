@@ -9,10 +9,9 @@ int historyChangeMagnitude(String a, String b) {
     prefix += 1;
   }
   var suffix = 0;
-  while (
-    suffix < minLen - prefix &&
-    a.codeUnitAt(a.length - 1 - suffix) == b.codeUnitAt(b.length - 1 - suffix)
-  ) {
+  while (suffix < minLen - prefix &&
+      a.codeUnitAt(a.length - 1 - suffix) ==
+          b.codeUnitAt(b.length - 1 - suffix)) {
     suffix += 1;
   }
   return (a.length - prefix - suffix) + (b.length - prefix - suffix);

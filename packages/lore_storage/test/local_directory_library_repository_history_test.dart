@@ -276,11 +276,7 @@ void main() {
       file.deleteSync();
     }
     expect(
-      () => repository.readSnapshotText(
-        access,
-        doc: doc,
-        snapshotId: snap.id,
-      ),
+      () => repository.readSnapshotText(access, doc: doc, snapshotId: snap.id),
       throwsA(isA<LibraryOperationException>()),
     );
     // list 仍返回该条（manifest 是权威，文件丢失不影响元信息列举）。

@@ -131,6 +131,7 @@ class _LoreContextMenuCard extends StatelessWidget {
   // 内容宽度余量：覆盖卡片描边、子像素舍入以及条目过多时出现的滚动条，
   // 避免最宽标签（如"在 Finder 中显示"）刚好顶到可用宽度而被折成两行。
   static const double _extraWidth = 18;
+
   /// custom 项(label='')预留的内容宽,容纳色块行等独立交互内容。
   /// 菜单宽度 = max(最宽 label, custom 预留) + padding + 余量。
   /// 134 → menuWidth 180,刚好容纳"不高亮 + 6 色"7 个色块(150)+ padding。

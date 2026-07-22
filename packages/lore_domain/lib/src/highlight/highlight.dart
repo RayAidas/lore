@@ -122,10 +122,10 @@ final class HighlightCollection {
 
   @override
   int get hashCode => Object.hash(
-        documentRevision,
-        Object.hashAll(paragraphDigests),
-        Object.hashAll(highlights),
-      );
+    documentRevision,
+    Object.hashAll(paragraphDigests),
+    Object.hashAll(highlights),
+  );
 }
 
 /// 高亮调色板默认色。

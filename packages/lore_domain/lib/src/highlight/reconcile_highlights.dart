@@ -187,13 +187,15 @@ ReconcileResult reconcileHighlights({
       continue;
     }
 
-    located.add(Highlight(
-      id: h.id,
-      start: newParaStart + newLocalStart,
-      end: newParaStart + newLocalEnd,
-      colorArgb: h.colorArgb,
-      anchorText: newParaText.substring(newLocalStart, newLocalEnd),
-    ));
+    located.add(
+      Highlight(
+        id: h.id,
+        start: newParaStart + newLocalStart,
+        end: newParaStart + newLocalEnd,
+        colorArgb: h.colorArgb,
+        anchorText: newParaText.substring(newLocalStart, newLocalEnd),
+      ),
+    );
   }
 
   return ReconcileResult(located: located, lost: lost);

@@ -41,36 +41,66 @@ void main() {
     });
 
     test('编辑完全在右侧(不相切)→ 不动', () {
-      final result = shiftHighlights([hl(10, 20)], at: 25, delLen: 2, addLen: 3);
+      final result = shiftHighlights(
+        [hl(10, 20)],
+        at: 25,
+        delLen: 2,
+        addLen: 3,
+      );
       expectSingle(result, 10, 20);
     });
 
     test('编辑左相切(at==end, del>0)→ 不动', () {
       // 删除 [20,22) 恰在高亮末尾之后,不影响高亮。
-      final result = shiftHighlights([hl(10, 20)], at: 20, delLen: 2, addLen: 3);
+      final result = shiftHighlights(
+        [hl(10, 20)],
+        at: 20,
+        delLen: 2,
+        addLen: 3,
+      );
       expectSingle(result, 10, 20);
     });
 
     test('编辑右相切(at+del==start, del>0)→ 高亮左移填补', () {
       // 删除 [10,20),高亮 start=20 恰为删除区右边界,高亮整体左移。
-      final result = shiftHighlights([hl(20, 30)], at: 10, delLen: 10, addLen: 3);
+      final result = shiftHighlights(
+        [hl(20, 30)],
+        at: 10,
+        delLen: 10,
+        addLen: 3,
+      );
       expectSingle(result, 13, 23);
     });
   });
 
   group('shiftHighlights - 纯插入(delLen==0)', () {
     test('落在 start 边界 → 右端扩展', () {
-      final result = shiftHighlights([hl(20, 30)], at: 20, delLen: 0, addLen: 5);
+      final result = shiftHighlights(
+        [hl(20, 30)],
+        at: 20,
+        delLen: 0,
+        addLen: 5,
+      );
       expectSingle(result, 20, 35);
     });
 
     test('落在 end 边界 → 不动', () {
-      final result = shiftHighlights([hl(20, 30)], at: 30, delLen: 0, addLen: 5);
+      final result = shiftHighlights(
+        [hl(20, 30)],
+        at: 30,
+        delLen: 0,
+        addLen: 5,
+      );
       expectSingle(result, 20, 30);
     });
 
     test('落在严格内部 → 右端扩展', () {
-      final result = shiftHighlights([hl(20, 30)], at: 25, delLen: 0, addLen: 5);
+      final result = shiftHighlights(
+        [hl(20, 30)],
+        at: 25,
+        delLen: 0,
+        addLen: 5,
+      );
       expectSingle(result, 20, 35);
     });
   });
@@ -78,31 +108,56 @@ void main() {
   group('shiftHighlights - 删除与替换', () {
     test('删除左半 → 右端收缩', () {
       // 删除 [22,26),高亮 [20,30) 末尾左移。
-      final result = shiftHighlights([hl(20, 30)], at: 22, delLen: 4, addLen: 0);
+      final result = shiftHighlights(
+        [hl(20, 30)],
+        at: 22,
+        delLen: 4,
+        addLen: 0,
+      );
       expectSingle(result, 20, 26);
     });
 
     test('删除右半 → 右端收缩到删除点', () {
       // 删除 [26,30),end=30 落在删除区右边界,收缩到 at=26。
-      final result = shiftHighlights([hl(20, 30)], at: 26, delLen: 4, addLen: 0);
+      final result = shiftHighlights(
+        [hl(20, 30)],
+        at: 26,
+        delLen: 4,
+        addLen: 0,
+      );
       expectSingle(result, 20, 26);
     });
 
     test('删除吞噬整个高亮 → 丢弃', () {
-      final result = shiftHighlights([hl(20, 30)], at: 18, delLen: 16, addLen: 0);
+      final result = shiftHighlights(
+        [hl(20, 30)],
+        at: 18,
+        delLen: 16,
+        addLen: 0,
+      );
       expect(result, isEmpty);
     });
 
     test('替换且 end 落在删除区内 → 收缩到删除点前(不含插入文本)', () {
       // 删除 [15,25) 插入 3 字;高亮 [10,20) 的 end=20 落在删除区内,
       // 应收缩到 at=15(残存原字符),而非延伸到 at+add=18(会包含插入文本)。
-      final result = shiftHighlights([hl(10, 20)], at: 15, delLen: 10, addLen: 3);
+      final result = shiftHighlights(
+        [hl(10, 20)],
+        at: 15,
+        delLen: 10,
+        addLen: 3,
+      );
       expectSingle(result, 10, 15);
     });
 
     test('替换高亮内部 → 右端按净变化调整', () {
       // 删除 [25,30) 插入 3 字,净 -2,end 从 40 → 38。
-      final result = shiftHighlights([hl(20, 40)], at: 25, delLen: 5, addLen: 3);
+      final result = shiftHighlights(
+        [hl(20, 40)],
+        at: 25,
+        delLen: 5,
+        addLen: 3,
+      );
       expectSingle(result, 20, 38);
     });
   });

@@ -319,7 +319,9 @@ final class WorkspaceController extends ChangeNotifier {
     if (history == null) return;
     final text = document.snapshot.text;
     final last = document.lastHistorySnapshotText;
-    final magnitude = last == null ? text.length : historyChangeMagnitude(last, text);
+    final magnitude = last == null
+        ? text.length
+        : historyChangeMagnitude(last, text);
     if (last == null || magnitude >= _historyChangeThreshold) {
       unawaited(_recordHistory(document, text, HistoryTrigger.autoThreshold));
     }

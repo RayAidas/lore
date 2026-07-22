@@ -146,7 +146,8 @@ mixin _StorageBackedHighlightRepository on _StorageBackedLibrarySupport
         return;
       } on LibraryOperationException catch (error) {
         final code = error.failure.code;
-        final retriable = code == LibraryFailureCode.externalModification ||
+        final retriable =
+            code == LibraryFailureCode.externalModification ||
             code == LibraryFailureCode.alreadyExists;
         if (!retriable || attempt >= _highlightWriteAttempts) rethrow;
       }
@@ -175,7 +176,10 @@ HighlightCollection? _highlightCollectionFromJson(Map<String, Object?> json) {
   if (revision is! String) return null;
   final digestRaw = json['paragraphDigests'];
   final digests = digestRaw is List
-      ? [for (final d in digestRaw) if (d is String) d]
+      ? [
+          for (final d in digestRaw)
+            if (d is String) d,
+        ]
       : <String>[];
   final highlightsRaw = json['highlights'];
   final highlights = <Highlight>[];

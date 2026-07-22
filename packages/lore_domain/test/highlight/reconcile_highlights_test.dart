@@ -190,10 +190,7 @@ void main() {
     test('整篇重写 → 全 lost', () {
       const old = ['原文一', '原文二'];
       const next = ['完全不同的内容', '毫不相干'];
-      final highlights = [
-        highlightIn(old, 0, 0, 2),
-        highlightIn(old, 1, 0, 2),
-      ];
+      final highlights = [highlightIn(old, 0, 0, 2), highlightIn(old, 1, 0, 2)];
       final result = reconcile(old, next, highlights);
       expect(result.located, isEmpty);
       expect(result.lost, hasLength(2));
