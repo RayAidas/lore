@@ -79,6 +79,17 @@ final class LoreLargeTextController extends ChangeNotifier
   int get characterCount => _buffer.characterCount;
 
   @override
+  int characterCountInRange(int start, int end) {
+    if (end <= start) {
+      return 0;
+    }
+    RangeError.checkValidRange(start, end, length);
+    // 走 buffer 的区间 substring（O(log n + k)，仅遍历相交 chunk），避免在
+    // 选区拖动等高频回调里物化整串 text。
+    return countNonWhitespaceRunes(_buffer.substring(start, end));
+  }
+
+  @override
   int get length => _buffer.length;
 
   int get lineCount => _buffer.lineBreakCount + 1;

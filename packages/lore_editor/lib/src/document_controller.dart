@@ -27,6 +27,14 @@ abstract interface class LoreDocumentController implements Listenable {
 
   int get characterCount;
 
+  /// `[start, end)` 区间内的非空白 rune 数，与 [characterCount] 同口径
+  /// （非空白 rune，含标题行）。用于状态栏「选中字数」，保证全选时与
+  /// [characterCount] 相等。
+  ///
+  /// `end <= start`（折叠或反向选区）时直接返回 0，**不**校验越界；其余情况下
+  /// `start`/`end` 须落在 `[0, length]`，否则抛 [RangeError]。
+  int characterCountInRange(int start, int end);
+
   bool get hasUnsavedChanges;
 
   bool get canUndo;

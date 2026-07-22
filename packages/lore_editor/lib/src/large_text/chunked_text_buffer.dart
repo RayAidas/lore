@@ -220,36 +220,40 @@ final class _TextNode {
         (right?.lineBreakCount ?? 0);
     characterCount =
         (left?.characterCount ?? 0) +
-        _countCharacters(chunk) +
+        countNonWhitespaceRunes(chunk) +
         (right?.characterCount ?? 0);
   }
+}
 
-  static int _countCharacters(String text) {
-    var count = 0;
-    for (final rune in text.runes) {
-      if (!_isWhitespace(rune)) {
-        count += 1;
-      }
+/// `rune` 是否为空白（与编辑器字数口径一致，含全角空格、NBSP 等各类空白）。
+bool isWhitespaceRune(int rune) {
+  return rune == 0x09 ||
+      rune == 0x0A ||
+      rune == 0x0B ||
+      rune == 0x0C ||
+      rune == 0x0D ||
+      rune == 0x20 ||
+      rune == 0x85 ||
+      rune == 0xA0 ||
+      rune == 0x1680 ||
+      (rune >= 0x2000 && rune <= 0x200A) ||
+      rune == 0x2028 ||
+      rune == 0x2029 ||
+      rune == 0x202F ||
+      rune == 0x205F ||
+      rune == 0x3000 ||
+      rune == 0xFEFF;
+}
+
+/// 非空白 rune 计数：[ChunkedTextBuffer.characterCount] 的同口径底层实现，
+/// 供控制器按选区子串统计「选中字数」，保证「选中/总字数」用同一度量
+/// （全选时二者相等）。
+int countNonWhitespaceRunes(String text) {
+  var count = 0;
+  for (final rune in text.runes) {
+    if (!isWhitespaceRune(rune)) {
+      count += 1;
     }
-    return count;
   }
-
-  static bool _isWhitespace(int rune) {
-    return rune == 0x09 ||
-        rune == 0x0A ||
-        rune == 0x0B ||
-        rune == 0x0C ||
-        rune == 0x0D ||
-        rune == 0x20 ||
-        rune == 0x85 ||
-        rune == 0xA0 ||
-        rune == 0x1680 ||
-        (rune >= 0x2000 && rune <= 0x200A) ||
-        rune == 0x2028 ||
-        rune == 0x2029 ||
-        rune == 0x202F ||
-        rune == 0x205F ||
-        rune == 0x3000 ||
-        rune == 0xFEFF;
-  }
+  return count;
 }

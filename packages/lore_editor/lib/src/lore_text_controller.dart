@@ -31,6 +31,16 @@ final class LoreTextController extends TextEditingController
   }
 
   @override
+  int characterCountInRange(int start, int end) {
+    if (end <= start) {
+      return 0;
+    }
+    RangeError.checkValidRange(start, end, text.length);
+    // 与 [characterCount] 同口径（去 \s 后按 rune 计），保证全选时二者相等。
+    return text.substring(start, end).replaceAll(_whitespace, '').runes.length;
+  }
+
+  @override
   int get length => text.length;
 
   @override

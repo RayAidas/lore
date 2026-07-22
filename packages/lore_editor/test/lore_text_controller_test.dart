@@ -58,4 +58,21 @@ void main() {
     expect(controller.characterCount, 6);
     expect(controller.editVersion, versionBefore);
   });
+
+  test('characterCountInRange counts non-whitespace runes in a range', () {
+    final controller = LoreTextController(text: '第1章 标题\n正文 内容');
+    addTearDown(controller.dispose);
+
+    // 全选：与 characterCount 同口径（非空白 rune，含标题行）。
+    expect(
+      controller.characterCountInRange(0, controller.text.length),
+      controller.characterCount,
+    );
+    // 选中正文区间（含空格/换行）：去空白后 4 字（正 文 内 容）。
+    final start = controller.text.indexOf('正');
+    expect(controller.characterCountInRange(start, controller.text.length), 4);
+    // 反向/折叠区间返回 0。
+    expect(controller.characterCountInRange(3, 3), 0);
+    expect(controller.characterCountInRange(9, 2), 0);
+  });
 }

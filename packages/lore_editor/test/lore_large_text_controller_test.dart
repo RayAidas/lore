@@ -28,6 +28,23 @@ void main() {
     expect(controller.text, '第一段\n新的第二段');
   });
 
+  test('characterCountInRange counts non-whitespace runes in a range', () {
+    final controller = LoreLargeTextController(text: '第1章 标题\n正文 内容');
+    addTearDown(controller.dispose);
+
+    // 全选：与 characterCount 同口径（非空白 rune，含标题行）。
+    expect(
+      controller.characterCountInRange(0, controller.length),
+      controller.characterCount,
+    );
+    // 选中正文区间（含空格/换行）：去空白后 4 字（正 文 内 容）。
+    final start = controller.text.indexOf('正');
+    expect(controller.characterCountInRange(start, controller.length), 4);
+    // 反向/折叠区间返回 0。
+    expect(controller.characterCountInRange(3, 3), 0);
+    expect(controller.characterCountInRange(9, 2), 0);
+  });
+
   test('locates blocks in a million-character document', () {
     final text = List.generate(10000, (index) => '第$index段内容').join('\n');
     final controller = LoreLargeTextController(text: text);
