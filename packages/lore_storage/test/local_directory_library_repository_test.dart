@@ -768,6 +768,23 @@ void main() {
     );
   });
 
+  test('scan tolerates oversized chapter-number filenames', () async {
+    await repository.initialize(access);
+    final novel = await repository.createNovel(access, title: '新书');
+    final novelId = novel.snapshot.metadata.id;
+    final bodyDir = p.join(root.path, '新书', '正文');
+    // 外部放入超大章号文件名（损坏/恶意）：scan 解析号时不应抛 FormatException。
+    await File(
+      p.join(bodyDir, '第99999999999999999999999999章.md'),
+    ).writeAsString('正文');
+
+    final result = await repository.reconcile(access, novelId: novelId);
+    final oversized = result.snapshot.contentTree.nodes.firstWhere(
+      (node) => node.relativePath == '正文/第99999999999999999999999999章.md',
+    );
+    expect(oversized.number, isNull); // int.tryParse 失败 → 视为无号
+  });
+
   test('rejects direct access to internal metadata', () async {
     await repository.initialize(access);
 

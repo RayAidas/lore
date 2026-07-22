@@ -881,14 +881,14 @@ mixin _StorageBackedLibrarySupport {
     final name = LogicalPath.parse(relativePath).name;
     final stem = name.substring(0, name.length - _extension(name).length);
     final match = RegExp(r'^第(\d+)章').firstMatch(stem);
-    return match == null ? null : int.parse(match.group(1)!);
+    return match == null ? null : int.tryParse(match.group(1)!);
   }
 
   int? _volumeNumber(String relativePath) {
     final name = LogicalPath.parse(relativePath).name;
     final stem = name.substring(0, name.length - _extension(name).length);
     final match = RegExp(r'^第(\d+)卷').firstMatch(stem);
-    return match == null ? null : int.parse(match.group(1)!);
+    return match == null ? null : int.tryParse(match.group(1)!);
   }
 
   ContentRole _chapterRole(String relativePath) {
