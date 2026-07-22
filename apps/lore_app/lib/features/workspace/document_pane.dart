@@ -202,6 +202,45 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final target = controller.diffTarget!;
+    // diff 跟随编辑器偏好（字体 / 字号 / 行高 / 宽度 / 缩进 / 段距）。_buildDiff 在
+    // diff 模式下早返回，不经过 _buildContent 内的 watch，须在此显式订阅，设置变更
+    // 才能实时重排对比视图。
+    final prefs =
+        ref.watch(appPreferencesProvider).value ?? AppPreferences.defaults();
+    final editorStyle = _resolveEditorStyle(prefs);
+    // 章节文档：把标题首行（`第N章 …` / `# 第N章 …`）与正文拆开——正文单独 diff
+    // （apples-to-apples），标题作为独立首块渲染（套标题排版），标题变更（编号 /
+    // 副标题 / 重命名）在 unified 下字符级 diff、在 split 下左右各显一侧。章节历史
+    // 以稳定 nodeId 落盘，文件重命名不丢历史，故此处按当前路径解析标题即可。
+    final isChapter = document.chapterNumber != null;
+    final String oldBody;
+    final String newBody;
+    final String? oldTitle;
+    final String? newTitle;
+    if (isChapter) {
+      final markdown = document.isMarkdown;
+      final oldParsed = ChapterTitleText.tryParse(
+        target.snapshotText,
+        markdown: markdown,
+      );
+      final newParsed = ChapterTitleText.tryParse(
+        document.snapshot.text,
+        markdown: markdown,
+      );
+      oldTitle = oldParsed == null
+          ? null
+          : ChapterTitleText.titleLine(oldParsed.number, oldParsed.subtitle);
+      newTitle = newParsed == null
+          ? null
+          : ChapterTitleText.titleLine(newParsed.number, newParsed.subtitle);
+      oldBody = ChapterTitleText.bodyOf(target.snapshotText);
+      newBody = ChapterTitleText.bodyOf(document.snapshot.text);
+    } else {
+      oldTitle = null;
+      newTitle = null;
+      oldBody = target.snapshotText;
+      newBody = document.snapshot.text;
+    }
     return Column(
       children: [
         Container(
@@ -252,24 +291,24 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
         const Divider(height: 1),
         Expanded(
           child: HistoryDiffView(
-            oldText: target.snapshotText,
-            newText: document.snapshot.text,
+            oldText: oldBody,
+            newText: newBody,
+            oldTitle: oldTitle,
+            newTitle: newTitle,
             mode: controller.diffMode,
+            style: editorStyle,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildContent(BuildContext context) {
-    if (controller.isDiffing(document)) {
-      return _buildDiff(context);
-    }
-    final colorScheme = Theme.of(context).colorScheme;
-    final prefs =
-        ref.watch(appPreferencesProvider).value ?? AppPreferences.defaults();
+  /// 从应用偏好派生编辑器排版（字体 / 字号 / 行高 / 宽度 / 缩进 / 段距 等）。
+  /// 编辑/预览（_buildContent）与历史对比（_buildDiff）共用，保证 diff 与编辑器
+  /// 视觉同口径——同一份偏好改一处、两处同变。
+  EditorStyle _resolveEditorStyle(AppPreferences prefs) {
     final fontOption = AppFontOptions.resolve(prefs.editorFontFamily);
-    final editorStyle = const EditorStyle.defaults().copyWith(
+    return const EditorStyle.defaults().copyWith(
       lineHeight: prefs.editorLineHeight,
       fontSize: prefs.editorFontSize,
       contentWidth: prefs.editorContentWidth,
@@ -281,6 +320,17 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
       paragraphSpacing: prefs.paragraphSpacing,
       gridLineMode: prefs.gridLineMode,
     );
+  }
+
+  Widget _buildContent(BuildContext context) {
+    if (controller.isDiffing(document)) {
+      return _buildDiff(context);
+    }
+    final colorScheme = Theme.of(context).colorScheme;
+    final prefs =
+        ref.watch(appPreferencesProvider).value ?? AppPreferences.defaults();
+    final fontOption = AppFontOptions.resolve(prefs.editorFontFamily);
+    final editorStyle = _resolveEditorStyle(prefs);
     final hasTitle = document.chapterNumber != null;
     // .txt 章节走 LoreLargeTextEditor：标题作为编辑器滚动视口的 header 随正文滚动。
     // 其余路径（.md 编辑/预览）的渲染器持有自己的内部滚动控制器，无法注入 header，
