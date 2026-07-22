@@ -496,11 +496,31 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
           ),
           child: Row(
             children: [
-              Text(
-                '${document.characterCount} 字',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+              // 仅监听编辑器控制器：选区变化只重建这个标签，不波及编辑器本体。
+              ListenableBuilder(
+                listenable: document.editorController,
+                builder: (context, _) {
+                  // 预览模式下不可见选区，编辑态遗留的 selection 不应显示选中数。
+                  if (document.showPreview) {
+                    return _DocumentCharCount(
+                      total: document.characterCount,
+                      selected: 0,
+                    );
+                  }
+                  final selection = document.editorController.selection;
+                  final hasSelection =
+                      selection.isValid && !selection.isCollapsed;
+                  final selected = hasSelection
+                      ? document.editorController.characterCountInRange(
+                          selection.start,
+                          selection.end,
+                        )
+                      : 0;
+                  return _DocumentCharCount(
+                    total: document.characterCount,
+                    selected: selected,
+                  );
+                },
               ),
               const Spacer(),
               Icon(
@@ -519,6 +539,41 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 状态栏字数标签：无选区显示「{total} 字」；有选区显示「{selected}/{total} 字」，
+/// 选中字数用主题色 + 半粗体与总数区分，与编辑器字数同口径（全选时 selected == total）。
+final class _DocumentCharCount extends StatelessWidget {
+  const _DocumentCharCount({required this.total, required this.selected});
+
+  final int total;
+  final int selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final base = theme.textTheme.bodySmall ?? const TextStyle();
+    final muted = base.copyWith(color: colorScheme.onSurfaceVariant);
+    if (selected <= 0) {
+      return Text('$total 字', style: muted);
+    }
+    return Text.rich(
+      TextSpan(
+        style: muted,
+        children: [
+          TextSpan(
+            text: '$selected',
+            style: base.copyWith(
+              color: colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          TextSpan(text: '/$total 字'),
+        ],
+      ),
     );
   }
 }

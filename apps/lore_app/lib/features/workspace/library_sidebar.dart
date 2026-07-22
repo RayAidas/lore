@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_ui/lore_ui.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 
 import '../preferences/preferences_providers.dart';
@@ -57,6 +58,32 @@ final class LibrarySidebar extends ConsumerStatefulWidget {
 }
 
 final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
+  PackageInfo? _packageInfo;
+
+  @override
+  void initState() {
+    super.initState();
+    // 底栏展示应用版本：异步读取一次，到货后刷新底栏即可（低频 widget）。
+    unawaited(_loadPackageInfo());
+  }
+
+  /// 读取应用版本。失败（如测试环境无平台 channel）静默忽略：版本为可选展示，
+  /// 底栏在到货前渲染空串、右侧按钮仍可用。
+  Future<void> _loadPackageInfo() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() => _packageInfo = info);
+      }
+    } on MissingPluginException {
+      // 取不到版本（测试环境无平台 channel）时保持空串，不阻塞侧栏渲染。
+    }
+  }
+
+  /// 底栏版本文案，如「v0.1.0」；读取完成前为空串（底栏右侧按钮仍可用）。
+  String get _versionLabel =>
+      _packageInfo == null ? '' : 'v${_packageInfo!.version}';
+
   Future<void> _createNovel() async {
     final title = await _promptName(title: '新建小说', label: '书名');
     if (title == null) {
@@ -461,11 +488,16 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      '书库',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.2,
+                    child: Tooltip(
+                      message: widget.displayPath,
+                      waitDuration: const Duration(milliseconds: 300),
+                      child: Text(
+                        '书库',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.2,
+                            ),
                       ),
                     ),
                   ),
@@ -544,22 +576,13 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
               ),
               child: Row(
                 children: [
-                  Icon(
-                    Icons.folder_open_outlined,
-                    size: 16,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 8),
                   Expanded(
-                    child: Tooltip(
-                      message: widget.displayPath,
-                      child: Text(
-                        widget.displayPath,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
+                    child: Text(
+                      _versionLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ),

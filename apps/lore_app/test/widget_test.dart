@@ -651,7 +651,8 @@ void main() {
     expect(tester.getSize(sidebar).width, closeTo(356, 1));
     expect(expandButton, findsNothing);
 
-    expect(find.text('/tmp/library'), findsOneWidget);
+    // 书库路径已从底栏移到「书库」标题的 tooltip（底栏改为显示应用版本）。
+    expect(find.byTooltip('/tmp/library'), findsOneWidget);
     expect(find.text('第一章.md'), findsOneWidget);
     expect(find.text('选择或新建文件开始写作'), findsOneWidget);
     expect(find.text('助手'), findsOneWidget);
