@@ -39,6 +39,27 @@ void main() {
       expect(AppPreferences.defaults().gridLineMode, GridLineMode.none);
     });
 
+    test('background defaults are safe and copyWith can clear the image', () {
+      final defaults = AppPreferences.defaults();
+      expect(defaults.backgroundMode, AppBackgroundMode.theme);
+      expect(defaults.backgroundImagePath, isNull);
+      expect(defaults.backgroundImagePaths, isEmpty);
+
+      final image = defaults.copyWith(
+        backgroundMode: AppBackgroundMode.image,
+        backgroundImagePaths: const [
+          '/managed/background-1.png',
+          '/managed/background-2.png',
+        ],
+        backgroundImagePath: '/managed/background-2.png',
+      );
+      final cleared = image.copyWith(clearBackgroundImagePath: true);
+
+      expect(image.backgroundImagePath, '/managed/background-2.png');
+      expect(image.backgroundImagePaths, hasLength(2));
+      expect(cleared.backgroundImagePath, isNull);
+    });
+
     test('copyWith updates gridLineMode without touching other fields', () {
       final base = AppPreferences.defaults();
       final updated = base.copyWith(gridLineMode: GridLineMode.dashed);

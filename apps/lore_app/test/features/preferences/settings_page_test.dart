@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:ui' show Tristate;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,6 +39,10 @@ void main() {
     expect(find.byKey(const ValueKey('settings-nav-layout')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-nav-writing')), findsOneWidget);
     expect(find.text('主题'), findsOneWidget);
+    expect(find.text('背景'), findsOneWidget);
+    expect(find.text('背景图库'), findsOneWidget);
+    expect(find.byKey(const ValueKey('add-background-images')), findsOneWidget);
+    expect(find.text('透明窗口'), findsNothing);
     // 默认章节格式已取消（固定 TXT），设置面板不再出现该行。
     expect(find.text('默认章节格式'), findsNothing);
     // 编辑器显示已并入排版；三大类之间各一条分隔线（3 段 → 2 条）。
@@ -135,6 +142,69 @@ void main() {
     expect(panelSize.width, closeTo(760, 1));
     expect(panelSize.height, lessThanOrEqualTo(648));
     expect(find.text('外观、编辑器与写作偏好'), findsNothing);
+  });
+
+  testWidgets('background gallery shows saved images and changes selection', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 7,
+        'themeMode': 'light',
+        'defaultChapterFormat': 'text',
+        'editorLineHeight': 1.45,
+        'editorFontSize': 18,
+        'editorContentWidth': 900,
+        'dailyWordGoal': 2000,
+        'findMatchCase': false,
+        'findUseRegex': false,
+        'backgroundMode': 'image',
+        'backgroundImagePaths': [
+          '/managed/background-1.jpg',
+          '/managed/background-2.jpg',
+        ],
+        'backgroundImagePath': '/managed/background-1.jpg',
+        'backgroundOpacity': 0.84,
+        'backgroundImageDimness': 0.2,
+      }),
+    });
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: LoreTheme.light(),
+          home: const Scaffold(body: SettingsContent()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('删除背景图片'), findsNWidgets(2));
+    final first = find.byKey(
+      const ValueKey('background-thumbnail-/managed/background-1.jpg'),
+    );
+    final second = find.byKey(
+      const ValueKey('background-thumbnail-/managed/background-2.jpg'),
+    );
+    expect(
+      tester.getSemantics(first).flagsCollection.isSelected,
+      Tristate.isTrue,
+    );
+    expect(
+      tester.getSemantics(second).flagsCollection.isSelected,
+      isNot(Tristate.isTrue),
+    );
+
+    await tester.tap(second);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSemantics(first).flagsCollection.isSelected,
+      isNot(Tristate.isTrue),
+    );
+    expect(
+      tester.getSemantics(second).flagsCollection.isSelected,
+      Tristate.isTrue,
+    );
   });
 
   testWidgets('scrolling to bottom selects the last section', (tester) async {

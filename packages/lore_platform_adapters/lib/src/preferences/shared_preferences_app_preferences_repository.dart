@@ -15,14 +15,15 @@ final class SharedPreferencesAppPreferencesRepository
   SharedPreferencesAppPreferencesRepository();
 
   static const _key = 'lore.app.preferences';
-  static const _schemaVersion = 5;
+  static const _schemaVersion = 7;
 
-  /// load 时接受的历史 schema 版本：v1–v4 均就地迁移到当前 v5。
+  /// load 时接受的历史 schema 版本：v1–v6 均就地迁移到当前 v7。
   ///
   /// v1→v2 收紧行高默认（按值匹配替换，保留用户自定义）；v2→v3 仅新增网格线
   /// 字段；v3→v4 仅新增高亮调色板字段（缺失取默认）；v4→v5 段间距由绝对像素
   /// 改为字号倍数（÷字号，保留用户实际看到的比例）。
-  static const _legacySchemaVersions = {1, 2, 3, 4};
+  static const _legacySchemaVersions = {1, 2, 3, 4, 5, 6};
+  static const _pixelParagraphSpacingSchemaVersions = {1, 2, 3, 4};
 
   /// v1 行高默认值：迁移时识别「仍停留在旧默认」的行高，替换为当前默认。
   static const _v1EditorLineHeight = 1.5;
@@ -49,6 +50,9 @@ final class SharedPreferencesAppPreferencesRepository
       final migratingFromV1 = storedVersion == 1;
       final migratingFromLegacy =
           storedVersion is int && _legacySchemaVersions.contains(storedVersion);
+      final migratingPixelParagraphSpacing =
+          storedVersion is int &&
+          _pixelParagraphSpacingSchemaVersions.contains(storedVersion);
       if (storedVersion is! int ||
           (!migratingFromLegacy && storedVersion != _schemaVersion)) {
         return null;
@@ -107,6 +111,42 @@ final class SharedPreferencesAppPreferencesRepository
           rawPalette is List && rawPalette.every((e) => e is int)
           ? List<int>.from(rawPalette)
           : AppPreferences.defaults().highlightPalette;
+      // v7 把单图升级为图库。v6 单图自动进入列表；旧透明窗口设置已撤回，
+      // 迁移时回到主题色。
+      final backgroundMode = value['backgroundMode'] == 'transparent'
+          ? AppBackgroundMode.theme
+          : _backgroundModeFromString(value['backgroundMode']) ??
+                AppPreferences.defaults().backgroundMode;
+      final backgroundImagePath = value['backgroundImagePath'] is String
+          ? value['backgroundImagePath']! as String
+          : null;
+      final rawBackgroundImagePaths = value['backgroundImagePaths'];
+      final backgroundImagePaths =
+          rawBackgroundImagePaths is List &&
+              rawBackgroundImagePaths.every((item) => item is String)
+          ? List<String>.from(rawBackgroundImagePaths)
+          : backgroundImagePath == null
+          ? <String>[]
+          : <String>[backgroundImagePath];
+      final selectedBackgroundImagePath =
+          backgroundImagePath != null &&
+              backgroundImagePaths.contains(backgroundImagePath)
+          ? backgroundImagePath
+          : backgroundImagePaths.isEmpty
+          ? null
+          : backgroundImagePaths.first;
+      final backgroundOpacity = value['backgroundOpacity'] is num
+          ? (value['backgroundOpacity']! as num)
+                .toDouble()
+                .clamp(0.15, 1.0)
+                .toDouble()
+          : AppPreferences.defaults().backgroundOpacity;
+      final backgroundImageDimness = value['backgroundImageDimness'] is num
+          ? (value['backgroundImageDimness']! as num)
+                .toDouble()
+                .clamp(0.0, 0.8)
+                .toDouble()
+          : AppPreferences.defaults().backgroundImageDimness;
       // v1 → v2 迁移（行高）：仅当行高仍停留在 v1 默认 1.5 时替换为当前默认
       // （视觉瘦身）；用户自定义原样保留。按值匹配使迁移对同一输入幂等，不会
       // 每次冷启动把自定义抹回默认。
@@ -118,7 +158,7 @@ final class SharedPreferencesAppPreferencesRepository
       // 已校验的字号保留用户实际看到的段距比例，夹到滑块范围 [0, 3]。缺键的
       // 老 blob（rawParagraphSpacing 非 num）已回落新默认倍数，不再参与换算。
       final resolvedParagraphSpacing =
-          migratingFromLegacy && rawParagraphSpacing is num
+          migratingPixelParagraphSpacing && rawParagraphSpacing is num
           ? (paragraphSpacing / fontSize).clamp(0.0, 3.0).toDouble()
           : paragraphSpacing;
       return AppPreferences(
@@ -138,6 +178,11 @@ final class SharedPreferencesAppPreferencesRepository
         editorFontFamily: editorFontFamily,
         gridLineMode: gridLineMode,
         highlightPalette: highlightPalette,
+        backgroundMode: backgroundMode,
+        backgroundImagePaths: backgroundImagePaths,
+        backgroundImagePath: selectedBackgroundImagePath,
+        backgroundOpacity: backgroundOpacity,
+        backgroundImageDimness: backgroundImageDimness,
       );
     } on FormatException {
       return null;
@@ -172,6 +217,11 @@ final class SharedPreferencesAppPreferencesRepository
       'editorFontFamily': preferences.editorFontFamily.name,
       'gridLineMode': preferences.gridLineMode.name,
       'highlightPalette': preferences.highlightPalette,
+      'backgroundMode': preferences.backgroundMode.name,
+      'backgroundImagePaths': preferences.backgroundImagePaths,
+      'backgroundImagePath': preferences.backgroundImagePath,
+      'backgroundOpacity': preferences.backgroundOpacity,
+      'backgroundImageDimness': preferences.backgroundImageDimness,
     };
   }
 
@@ -184,6 +234,17 @@ final class SharedPreferencesAppPreferencesRepository
       'light' => AppThemeMode.light,
       'sepia' => AppThemeMode.sepia,
       'dark' => AppThemeMode.dark,
+      _ => null,
+    };
+  }
+
+  AppBackgroundMode? _backgroundModeFromString(Object? value) {
+    if (value is! String) {
+      return null;
+    }
+    return switch (value) {
+      'theme' => AppBackgroundMode.theme,
+      'image' => AppBackgroundMode.image,
       _ => null,
     };
   }

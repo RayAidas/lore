@@ -45,6 +45,196 @@ final class _SettingsGroup extends StatelessWidget {
   }
 }
 
+/// 应用背景图库。缩略图保持固定比例，选中态与删除动作直接叠加在图片上，避免
+/// 为每张图片增加额外文字行而挤压设置面板。
+final class _BackgroundGallery extends StatelessWidget {
+  const _BackgroundGallery({
+    required this.paths,
+    required this.selectedPath,
+    required this.onAdd,
+    required this.onSelect,
+    required this.onDelete,
+  });
+
+  final List<String> paths;
+  final String? selectedPath;
+  final VoidCallback onAdd;
+  final ValueChanged<String> onSelect;
+  final ValueChanged<String> onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text('背景图库', style: theme.textTheme.bodyMedium),
+              const Spacer(),
+              Text(
+                '${paths.length} 张',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final path in paths)
+                _BackgroundThumbnail(
+                  path: path,
+                  selected: path == selectedPath,
+                  onSelect: () => onSelect(path),
+                  onDelete: () => onDelete(path),
+                ),
+              SizedBox(
+                width: 116,
+                height: 74,
+                child: OutlinedButton(
+                  key: const ValueKey('add-background-images'),
+                  onPressed: onAdd,
+                  style: OutlinedButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    side: BorderSide(color: theme.colorScheme.outlineVariant),
+                  ),
+                  child: const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.add_photo_alternate_outlined, size: 20),
+                      SizedBox(height: 4),
+                      Text('添加图片'),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+final class _BackgroundThumbnail extends StatelessWidget {
+  const _BackgroundThumbnail({
+    required this.path,
+    required this.selected,
+    required this.onSelect,
+    required this.onDelete,
+  });
+
+  final String path;
+  final bool selected;
+  final VoidCallback onSelect;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Semantics(
+      key: ValueKey('background-thumbnail-$path'),
+      selected: selected,
+      button: true,
+      label: selected ? '当前背景图片' : '设为背景图片',
+      child: SizedBox(
+        width: 116,
+        height: 74,
+        child: Material(
+          color: colorScheme.surfaceContainerLow,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(7),
+            side: BorderSide(
+              color: selected
+                  ? colorScheme.primary
+                  : colorScheme.outlineVariant,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: InkWell(
+            onTap: onSelect,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.file(
+                  File(path),
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Center(
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                if (selected)
+                  Align(
+                    alignment: Alignment.bottomLeft,
+                    child: Container(
+                      width: 25,
+                      height: 25,
+                      margin: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: colorScheme.shadow.withValues(alpha: 0.2),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.check_rounded,
+                        size: 16,
+                        color: colorScheme.onPrimary,
+                      ),
+                    ),
+                  ),
+                Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.all(5),
+                    child: Tooltip(
+                      message: '删除背景图片',
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.58),
+                        shape: const CircleBorder(),
+                        child: InkWell(
+                          onTap: onDelete,
+                          customBorder: const CircleBorder(),
+                          child: const SizedBox(
+                            width: 25,
+                            height: 25,
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 15,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 标签 + 控件行：左侧标签（可带副标题），右侧任意控件（开关 / 下拉 / 按钮）。
 final class _SettingRow extends StatelessWidget {
   const _SettingRow({

@@ -58,6 +58,53 @@ final class PreferencesController extends AsyncNotifier<AppPreferences> {
       _update((current) => current.copyWith(gridLineMode: value));
   Future<void> setHighlightPalette(List<int> value) =>
       _update((current) => current.copyWith(highlightPalette: value));
+  Future<void> setBackgroundMode(AppBackgroundMode value) => _update((current) {
+    if (value == AppBackgroundMode.image &&
+        current.backgroundImagePaths.isEmpty) {
+      return current;
+    }
+    return current.copyWith(backgroundMode: value);
+  });
+  Future<void> addBackgroundImages(List<String> values) => _update((current) {
+    if (values.isEmpty) {
+      return current;
+    }
+    return current.copyWith(
+      backgroundMode: AppBackgroundMode.image,
+      backgroundImagePaths: [...current.backgroundImagePaths, ...values],
+      backgroundImagePath: values.last,
+    );
+  });
+  Future<void> selectBackgroundImage(String value) => _update((current) {
+    if (!current.backgroundImagePaths.contains(value)) {
+      return current;
+    }
+    return current.copyWith(
+      backgroundMode: AppBackgroundMode.image,
+      backgroundImagePath: value,
+    );
+  });
+  Future<void> removeBackgroundImage(String value) => _update((current) {
+    final remaining = current.backgroundImagePaths
+        .where((path) => path != value)
+        .toList();
+    final deletingSelected = current.backgroundImagePath == value;
+    final nextSelection = deletingSelected
+        ? (remaining.isEmpty ? null : remaining.first)
+        : current.backgroundImagePath;
+    return current.copyWith(
+      backgroundMode: remaining.isEmpty
+          ? AppBackgroundMode.theme
+          : current.backgroundMode,
+      backgroundImagePaths: remaining,
+      backgroundImagePath: nextSelection,
+      clearBackgroundImagePath: nextSelection == null,
+    );
+  });
+  Future<void> setBackgroundOpacity(double value) =>
+      _update((current) => current.copyWith(backgroundOpacity: value));
+  Future<void> setBackgroundImageDimness(double value) =>
+      _update((current) => current.copyWith(backgroundImageDimness: value));
 
   Future<void> _update(AppPreferences Function(AppPreferences) apply) async {
     final service = ref.read(appPreferencesServiceProvider);

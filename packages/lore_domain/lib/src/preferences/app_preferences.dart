@@ -7,6 +7,9 @@ import '../highlight/highlight.dart';
 /// 仍由 [NovelMetadata] 等小说级元数据承载。
 enum AppThemeMode { system, light, sepia, dark }
 
+/// 应用背景的来源。图片背景在 macOS 与 Android 可用。
+enum AppBackgroundMode { theme, image }
+
 /// 编辑器正文字体偏好。
 ///
 /// `system` 走平台默认；其余按字体 family 名解析，宿主缺该字体时自动走
@@ -38,9 +41,14 @@ final class AppPreferences {
     required this.editorFontFamily,
     required this.gridLineMode,
     required this.highlightPalette,
+    this.backgroundMode = AppBackgroundMode.theme,
+    this.backgroundImagePaths = const [],
+    this.backgroundImagePath,
+    this.backgroundOpacity = 0.84,
+    this.backgroundImageDimness = 0.2,
   });
 
-  static const schemaVersionCurrent = 5;
+  static const schemaVersionCurrent = 7;
 
   /// 开箱默认：字号 18、行高 1.45、段间距 1.2（字号倍数）；标题→首段留白由
   /// EditorStyle 派生（(段间距 + 1.0) × 字号）保证始终宽于段间距。
@@ -61,6 +69,10 @@ final class AppPreferences {
     editorFontFamily: AppFontFamily.wenkai,
     gridLineMode: GridLineMode.none,
     highlightPalette: HighlightPalette.defaults,
+    backgroundMode: AppBackgroundMode.theme,
+    backgroundImagePaths: [],
+    backgroundOpacity: 0.84,
+    backgroundImageDimness: 0.2,
   );
 
   final int schemaVersion;
@@ -83,6 +95,21 @@ final class AppPreferences {
   /// 文字高亮调色板:6 个 ARGB 槽位,用户可替换。高亮本身存定格颜色
   /// ([Highlight.colorArgb]),改调色板只影响新建高亮的快捷选色。
   final List<int> highlightPalette;
+
+  /// 背景来源；图片路径由应用复制并管理，不依赖用户原始文件仍然存在。
+  final AppBackgroundMode backgroundMode;
+
+  /// 已复制到应用数据目录、可供切换的背景图片。
+  final List<String> backgroundImagePaths;
+
+  /// 当前选中的背景图片；应为 [backgroundImagePaths] 中的一项。
+  final String? backgroundImagePath;
+
+  /// 背景模式下主要界面表面的不透明度，值域 [0, 1]。
+  final double backgroundOpacity;
+
+  /// 图片背景上覆盖的黑色遮罩强度，值域 [0, 1]。
+  final double backgroundImageDimness;
 
   /// 每日写作字数目标，0 表示禁用。
   final int dailyWordGoal;
@@ -121,6 +148,12 @@ final class AppPreferences {
     AppFontFamily? editorFontFamily,
     GridLineMode? gridLineMode,
     List<int>? highlightPalette,
+    AppBackgroundMode? backgroundMode,
+    List<String>? backgroundImagePaths,
+    String? backgroundImagePath,
+    bool clearBackgroundImagePath = false,
+    double? backgroundOpacity,
+    double? backgroundImageDimness,
   }) {
     return AppPreferences(
       schemaVersion: schemaVersion,
@@ -139,6 +172,14 @@ final class AppPreferences {
       editorFontFamily: editorFontFamily ?? this.editorFontFamily,
       gridLineMode: gridLineMode ?? this.gridLineMode,
       highlightPalette: highlightPalette ?? this.highlightPalette,
+      backgroundMode: backgroundMode ?? this.backgroundMode,
+      backgroundImagePaths: backgroundImagePaths ?? this.backgroundImagePaths,
+      backgroundImagePath: clearBackgroundImagePath
+          ? null
+          : backgroundImagePath ?? this.backgroundImagePath,
+      backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
+      backgroundImageDimness:
+          backgroundImageDimness ?? this.backgroundImageDimness,
     );
   }
 }

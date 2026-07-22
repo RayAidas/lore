@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_ui/lore_ui.dart';
 
 import 'font_options.dart';
+import 'background_image_storage.dart';
 import 'preferences_providers.dart';
 
 part 'settings_controls.dart';
@@ -118,6 +121,78 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
 
   AppPreferences get prefs => widget.prefs;
 
+  Future<void> _chooseBackgroundImages() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+    );
+    final sourcePaths = result?.files
+        .map((file) => file.path)
+        .whereType<String>()
+        .toList();
+    if (sourcePaths == null || sourcePaths.isEmpty || !mounted) {
+      return;
+    }
+    final copiedPaths = <String>[];
+    try {
+      for (final sourcePath in sourcePaths) {
+        copiedPaths.add(
+          await BackgroundImageStorage.shared.importImage(sourcePath),
+        );
+      }
+      if (!mounted) {
+        await _deleteBackgroundImagesBestEffort(
+          copiedPaths,
+          operation: 'abandoned background images cleanup',
+        );
+        return;
+      }
+      await ref
+          .read(appPreferencesProvider.notifier)
+          .addBackgroundImages(copiedPaths);
+    } catch (error, stackTrace) {
+      await _deleteBackgroundImagesBestEffort(
+        copiedPaths,
+        operation: 'failed background images cleanup',
+      );
+      debugPrint('background image import failed: $error\n$stackTrace');
+      if (mounted) {
+        LoreToast.error(context, '无法导入背景图片，请重试');
+      }
+    }
+  }
+
+  Future<void> _removeBackgroundImage(String path) async {
+    try {
+      await ref
+          .read(appPreferencesProvider.notifier)
+          .removeBackgroundImage(path);
+    } catch (error, stackTrace) {
+      debugPrint('background image removal failed: $error\n$stackTrace');
+      if (mounted) {
+        LoreToast.error(context, '无法移除背景图片，请重试');
+      }
+      return;
+    }
+    await _deleteBackgroundImagesBestEffort([
+      path,
+    ], operation: 'removed background image cleanup');
+  }
+
+  Future<void> _deleteBackgroundImagesBestEffort(
+    Iterable<String> paths, {
+    required String operation,
+  }) async {
+    for (final path in paths) {
+      try {
+        await BackgroundImageStorage.shared.deleteManagedImage(path);
+      } catch (error, stackTrace) {
+        // 偏好提交成功后，副本清理失败不应把成功操作报告成失败。
+        debugPrint('$operation failed: $error\n$stackTrace');
+      }
+    }
+  }
+
   @override
   void dispose() {
     _desktopScrollController.dispose();
@@ -156,6 +231,54 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
                 ],
               ),
             ),
+            _SettingRow(
+              label: '背景',
+              trailing: SegmentedButton<AppBackgroundMode>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(
+                    value: AppBackgroundMode.theme,
+                    icon: Icon(Icons.format_color_fill_outlined, size: 16),
+                    label: Text('主题色'),
+                  ),
+                  ButtonSegment(
+                    value: AppBackgroundMode.image,
+                    icon: Icon(Icons.image_outlined, size: 16),
+                    label: Text('图片'),
+                  ),
+                ],
+                selected: {prefs.backgroundMode},
+                onSelectionChanged: (selection) =>
+                    guard(controller.setBackgroundMode)(selection.first),
+              ),
+            ),
+            _BackgroundGallery(
+              paths: prefs.backgroundImagePaths,
+              selectedPath: prefs.backgroundImagePath,
+              onAdd: _chooseBackgroundImages,
+              onSelect: guard(controller.selectBackgroundImage),
+              onDelete: _removeBackgroundImage,
+            ),
+            if (prefs.backgroundMode == AppBackgroundMode.image) ...[
+              _SettingSlider(
+                label: '界面不透明度',
+                value: prefs.backgroundOpacity,
+                min: 0.15,
+                max: 1,
+                divisions: 17,
+                format: (value) => '${(value * 100).round()}%',
+                onChanged: guard(controller.setBackgroundOpacity),
+              ),
+              _SettingSlider(
+                label: '图片遮罩',
+                value: prefs.backgroundImageDimness,
+                min: 0,
+                max: 0.8,
+                divisions: 16,
+                format: (value) => '${(value * 100).round()}%',
+                onChanged: guard(controller.setBackgroundImageDimness),
+              ),
+            ],
           ],
         ),
       ],

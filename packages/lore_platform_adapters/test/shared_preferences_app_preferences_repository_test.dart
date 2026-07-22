@@ -34,6 +34,14 @@ void main() {
       firstLineIndent: false,
       paragraphSpacing: 1.5,
       editorFontFamily: AppFontFamily.serif,
+      backgroundMode: AppBackgroundMode.image,
+      backgroundImagePaths: const [
+        '/managed/background-1.jpg',
+        '/managed/background-2.jpg',
+      ],
+      backgroundImagePath: '/managed/background-2.jpg',
+      backgroundOpacity: 0.72,
+      backgroundImageDimness: 0.35,
     );
 
     await repository.save(original);
@@ -53,6 +61,14 @@ void main() {
     expect(loaded.firstLineIndent, isFalse);
     expect(loaded.paragraphSpacing, 1.5);
     expect(loaded.editorFontFamily, AppFontFamily.serif);
+    expect(loaded.backgroundMode, AppBackgroundMode.image);
+    expect(loaded.backgroundImagePaths, [
+      '/managed/background-1.jpg',
+      '/managed/background-2.jpg',
+    ]);
+    expect(loaded.backgroundImagePath, '/managed/background-2.jpg');
+    expect(loaded.backgroundOpacity, 0.72);
+    expect(loaded.backgroundImageDimness, 0.35);
   });
 
   test(
@@ -313,7 +329,7 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 5);
+      expect(loaded!.schemaVersion, 7);
       expect(loaded.gridLineMode, GridLineMode.none);
       expect(loaded.editorLineHeight, 1.8);
       expect(loaded.paragraphSpacing, 1.25);
@@ -347,7 +363,7 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 5);
+      expect(loaded!.schemaVersion, 7);
       expect(loaded.highlightPalette, HighlightPalette.defaults);
       expect(loaded.gridLineMode, GridLineMode.dashed);
     },
@@ -356,7 +372,7 @@ void main() {
   test(
     'paragraph spacing migration is idempotent across save and reload',
     () async {
-      // 迁移只在 legacy blob 上发生一次：load v4(px)→迁移为倍数→save(v5)→再 load
+      // 迁移只在 legacy blob 上发生一次：load v4(px)→迁移为倍数→save(v7)→再 load
       // 时 migratingFromLegacy=false，倍数不再被除以字号。若有人误把守卫改宽，
       // 第二次 load 会把 0.8 再除成 ~0.053，此测试立即变红。
       SharedPreferences.setMockInitialValues({
@@ -385,11 +401,85 @@ void main() {
       await repository.save(first);
       final reloaded = await repository.load();
       expect(reloaded, isNotNull);
-      expect(reloaded!.schemaVersion, 5);
+      expect(reloaded!.schemaVersion, 7);
       // 仍是 0.8，没有被二次除以字号。
       expect(reloaded.paragraphSpacing, 0.8);
     },
   );
+
+  test('v5 multiplier and missing background fields migrate to v7', () async {
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 5,
+        'themeMode': 'dark',
+        'defaultChapterFormat': 'text',
+        'editorLineHeight': 1.45,
+        'editorFontSize': 18,
+        'editorContentWidth': 900,
+        'dailyWordGoal': 2000,
+        'findMatchCase': false,
+        'findUseRegex': false,
+        'paragraphSpacing': 1.2,
+      }),
+    });
+
+    final loaded = await repository.load();
+
+    expect(loaded, isNotNull);
+    expect(loaded!.schemaVersion, 7);
+    expect(loaded.paragraphSpacing, 1.2);
+    expect(loaded.backgroundMode, AppBackgroundMode.theme);
+    expect(loaded.backgroundImagePath, isNull);
+    expect(loaded.backgroundImagePaths, isEmpty);
+  });
+
+  test('v6 single image migrates into the background gallery', () async {
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 6,
+        'themeMode': 'light',
+        'defaultChapterFormat': 'text',
+        'editorLineHeight': 1.45,
+        'editorFontSize': 18,
+        'editorContentWidth': 900,
+        'dailyWordGoal': 2000,
+        'findMatchCase': false,
+        'findUseRegex': false,
+        'backgroundMode': 'image',
+        'backgroundImagePath': '/managed/legacy.jpg',
+      }),
+    });
+
+    final loaded = await repository.load();
+
+    expect(loaded, isNotNull);
+    expect(loaded!.schemaVersion, 7);
+    expect(loaded.backgroundMode, AppBackgroundMode.image);
+    expect(loaded.backgroundImagePaths, ['/managed/legacy.jpg']);
+    expect(loaded.backgroundImagePath, '/managed/legacy.jpg');
+  });
+
+  test('v6 transparent mode is retired to the theme background', () async {
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 6,
+        'themeMode': 'light',
+        'defaultChapterFormat': 'text',
+        'editorLineHeight': 1.45,
+        'editorFontSize': 18,
+        'editorContentWidth': 900,
+        'dailyWordGoal': 2000,
+        'findMatchCase': false,
+        'findUseRegex': false,
+        'backgroundMode': 'transparent',
+      }),
+    });
+
+    final loaded = await repository.load();
+
+    expect(loaded, isNotNull);
+    expect(loaded!.backgroundMode, AppBackgroundMode.theme);
+  });
 
   test(
     'legacy paragraph spacing exceeding the slider max is clamped on migration',

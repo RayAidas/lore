@@ -4,6 +4,90 @@ import 'package:flutter/material.dart';
 import '../menu/lore_menu_metrics.dart';
 
 abstract final class LoreTheme {
+  /// 让承载应用界面的中性表面半透明，同时保留前景文字和强调色的不透明度。
+  /// 图片背景模式由 app 层启用此变体。
+  static ThemeData withSurfaceOpacity(ThemeData theme, double opacity) {
+    final resolvedOpacity = opacity.clamp(0.15, 1.0).toDouble();
+    if (resolvedOpacity == 1) {
+      return theme;
+    }
+    Color translucent(Color color) => color.withValues(alpha: resolvedOpacity);
+    OutlineInputBorder outlineBorder(
+      InputBorder? border,
+      BorderSide borderSide,
+    ) {
+      if (border is OutlineInputBorder) {
+        return border.copyWith(borderSide: borderSide);
+      }
+      return OutlineInputBorder(borderSide: borderSide);
+    }
+
+    final colorScheme = theme.colorScheme.copyWith(
+      surface: translucent(theme.colorScheme.surface),
+      surfaceContainerLowest: translucent(
+        theme.colorScheme.surfaceContainerLowest,
+      ),
+      surfaceContainerLow: translucent(theme.colorScheme.surfaceContainerLow),
+      surfaceContainer: translucent(theme.colorScheme.surfaceContainer),
+      surfaceContainerHigh: translucent(theme.colorScheme.surfaceContainerHigh),
+      surfaceContainerHighest: translucent(
+        theme.colorScheme.surfaceContainerHighest,
+      ),
+      outline: translucent(theme.colorScheme.outline),
+      outlineVariant: translucent(theme.colorScheme.outlineVariant),
+    );
+    final outlineSide = BorderSide(color: colorScheme.outlineVariant);
+    return theme.copyWith(
+      colorScheme: colorScheme,
+      scaffoldBackgroundColor: colorScheme.surface,
+      canvasColor: colorScheme.surface,
+      dividerColor: colorScheme.outlineVariant,
+      appBarTheme: theme.appBarTheme.copyWith(
+        backgroundColor: colorScheme.surfaceContainerLowest,
+        shape: Border(bottom: outlineSide),
+      ),
+      dividerTheme: theme.dividerTheme.copyWith(
+        color: colorScheme.outlineVariant,
+      ),
+      dialogTheme: theme.dialogTheme.copyWith(
+        backgroundColor: colorScheme.surfaceContainerLowest,
+      ),
+      popupMenuTheme: theme.popupMenuTheme.copyWith(
+        color: colorScheme.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: outlineSide,
+        ),
+      ),
+      menuTheme: MenuThemeData(
+        style: theme.menuTheme.style?.copyWith(
+          backgroundColor: WidgetStatePropertyAll(
+            colorScheme.surfaceContainerLowest,
+          ),
+          side: WidgetStatePropertyAll(outlineSide),
+        ),
+      ),
+      drawerTheme: theme.drawerTheme.copyWith(
+        backgroundColor: colorScheme.surface,
+      ),
+      inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+        fillColor: colorScheme.surfaceContainerLow,
+        border: outlineBorder(theme.inputDecorationTheme.border, outlineSide),
+        enabledBorder: outlineBorder(
+          theme.inputDecorationTheme.enabledBorder,
+          outlineSide,
+        ),
+        focusedBorder: outlineBorder(
+          theme.inputDecorationTheme.focusedBorder,
+          BorderSide(color: colorScheme.primary, width: 1.5),
+        ),
+      ),
+      tabBarTheme: theme.tabBarTheme.copyWith(
+        dividerColor: colorScheme.outlineVariant,
+      ),
+    );
+  }
+
   static ThemeData light() {
     final colorScheme =
         ColorScheme.fromSeed(

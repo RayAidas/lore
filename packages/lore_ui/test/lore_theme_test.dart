@@ -103,4 +103,24 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     }
   });
+
+  test('surface opacity keeps foreground colors opaque', () {
+    final base = LoreTheme.light();
+    final translucent = LoreTheme.withSurfaceOpacity(base, 0.65);
+
+    expect(translucent.colorScheme.surface.a, closeTo(0.65, 0.001));
+    expect(
+      translucent.colorScheme.surfaceContainerLowest.a,
+      closeTo(0.65, 0.001),
+    );
+    expect(translucent.scaffoldBackgroundColor.a, closeTo(0.65, 0.001));
+    expect(translucent.dividerColor.a, closeTo(0.65, 0.001));
+    expect(translucent.colorScheme.outlineVariant.a, closeTo(0.65, 0.001));
+    expect(
+      (translucent.appBarTheme.shape! as Border).bottom.color.a,
+      closeTo(0.65, 0.001),
+    );
+    expect(translucent.colorScheme.onSurface.a, 1);
+    expect(translucent.colorScheme.primary.a, 1);
+  });
 }
