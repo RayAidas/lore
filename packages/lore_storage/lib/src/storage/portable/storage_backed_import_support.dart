@@ -88,9 +88,9 @@ mixin _StorageBackedImportSupport on _StorageBackedLibrarySupport {
       } else if (section is ParsedVolume) {
         volumeSeq += 1;
         final volumeName = ChapterTitleText.sanitizeForFilename(section.name);
-        final volumeDirName = volumeName.isEmpty
-            ? '第$volumeSeq卷'
-            : '第$volumeSeq卷 $volumeName';
+        final volumeDirName = _validName(
+          volumeName.isEmpty ? '第$volumeSeq卷' : '第$volumeSeq卷 $volumeName',
+        );
         final volumePath = bodyPath.child(volumeDirName);
         await storage.createDirectory(volumePath);
         final volumeId = ContentId(idGenerator.generate());
@@ -175,9 +175,10 @@ mixin _StorageBackedImportSupport on _StorageBackedLibrarySupport {
   /// 章节文件名：`第{seq}章 [副标题].txt`（副标题 sanitize 后为空则省略）。
   String _chapterFileName(int seq, String subtitle, String extension) {
     final sanitized = ChapterTitleText.sanitizeForFilename(subtitle);
-    return sanitized.isEmpty
+    final name = sanitized.isEmpty
         ? '第$seq章$extension'
         : '第$seq章 $sanitized$extension';
+    return _validName(name);
   }
 
   /// 章节文件内容：首行标题 + 正文。text 首行为 `第N章 [副标题]`，
