@@ -11,6 +11,7 @@ export 'src/document/document.dart';
 export 'src/highlight/highlight.dart';
 export 'src/highlight/highlight_shift.dart';
 export 'src/highlight/reconcile_highlights.dart';
+export 'src/history/history.dart';
 export 'src/library/library_entry.dart';
 export 'src/library/library_id.dart';
 export 'src/library/library_metadata.dart';

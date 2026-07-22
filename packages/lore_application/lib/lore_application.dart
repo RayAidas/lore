@@ -1,4 +1,5 @@
 export 'src/highlight/paragraph_digest.dart';
+export 'src/history/history_service.dart';
 export 'src/library/library_access.dart';
 export 'src/library/library_asset_service.dart';
 export 'src/library/library_bootstrap.dart';
@@ -16,6 +17,7 @@ export 'src/ports/clock.dart';
 export 'src/ports/content_tree_repository.dart';
 export 'src/ports/document_repository.dart';
 export 'src/ports/highlight_repository.dart';
+export 'src/ports/history_repository.dart';
 export 'src/ports/id_generator.dart';
 export 'src/ports/library_access_gateway.dart';
 export 'src/ports/library_file_operations_gateway.dart';

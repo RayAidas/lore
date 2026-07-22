@@ -1,15 +1,20 @@
 import 'dart:convert';
+import 'dart:io' show gzip;
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 
+import '../history/history_retention.dart';
 import 'storage_schema_migrator.dart';
 
 part 'portable/storage_backed_library_support.dart';
 part 'portable/storage_backed_document_repository.dart';
 part 'portable/storage_backed_highlight_repository.dart';
+part 'portable/storage_backed_history_support.dart';
+part 'portable/storage_backed_history_repository.dart';
 part 'portable/storage_backed_import_support.dart';
 part 'portable/storage_backed_trash_support.dart';
 part 'portable/storage_backed_trash_repository.dart';
@@ -19,6 +24,7 @@ final _recoveryRoot = LogicalPath.parse('.lore/recovery');
 final _libraryManifest = LogicalPath.parse('.lore/library.json');
 final _trashRoot = LogicalPath.parse('.lore/trash');
 final _trashManifest = LogicalPath.parse('.lore/trash/index.json');
+final _historyRoot = LogicalPath.parse('.lore/history');
 final _pendingOperation = LogicalPath.parse(
   '.lore/recovery/pending-operation.json',
 );
@@ -29,6 +35,8 @@ final class StorageBackedLibraryRepository
         _StorageBackedLibrarySupport,
         _StorageBackedDocumentRepository,
         _StorageBackedHighlightRepository,
+        _StorageBackedHistorySupport,
+        _StorageBackedHistoryRepository,
         _StorageBackedImportSupport,
         _StorageBackedTrashSupport,
         _StorageBackedTrashRepository
@@ -38,6 +46,7 @@ final class StorageBackedLibraryRepository
         IndexedLibraryTreeRepository,
         DocumentRepository,
         HighlightRepository,
+        HistoryRepository,
         NovelRepository,
         ContentTreeRepository,
         TrashRepository {
