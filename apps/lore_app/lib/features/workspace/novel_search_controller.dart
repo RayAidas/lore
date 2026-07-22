@@ -20,8 +20,7 @@ final class ChapterMatch {
     required this.snippetMatchEnd,
   });
 
-  /// 匹配在正文（去标题行后）中的起点；换算回全文 offset 需加
-  /// [ChapterSearchResult.titlePrefixLength]。
+  /// 匹配在正文（去标题行后）中的起点；可直接用于打开章节的编辑器文本。
   final int bodyOffset;
   final int length;
 
@@ -39,7 +38,6 @@ final class ChapterSearchResult {
     required this.chapterId,
     required this.title,
     required this.relativePath,
-    required this.titlePrefixLength,
     required this.matches,
   });
 
@@ -48,9 +46,6 @@ final class ChapterSearchResult {
 
   /// 完整文档相对路径（session 根基准），[WorkspaceController.openPath] 跳转用。
   final String relativePath;
-
-  /// 标题行（含换行）长度：正文 offset 换算回全文 offset 用。
-  final int titlePrefixLength;
 
   final List<ChapterMatch> matches;
 }
@@ -61,7 +56,11 @@ final class ChapterSearchResult {
 ///
 /// 跨章节只搜不替——替换仍由单文档查找替换（⌘H）承担。
 final class NovelSearchController extends ChangeNotifier {
-  NovelSearchController({required this.workspace, required this.session});
+  NovelSearchController({required this.workspace, required this.session})
+    : _scopeNovelId = _scopeIdFor(workspace),
+      _scopeTreeRevision = workspace.treeRevision {
+    workspace.addListener(_handleWorkspaceChanged);
+  }
 
   final WorkspaceController workspace;
   final LibrarySession session;
@@ -74,6 +73,8 @@ final class NovelSearchController extends ChangeNotifier {
   int _searchGeneration = 0;
   Timer? _debounce;
   bool _disposed = false;
+  NovelId? _scopeNovelId;
+  int _scopeTreeRevision;
 
   String get pattern => _pattern;
   bool get caseSensitive => _caseSensitive;
@@ -86,6 +87,24 @@ final class NovelSearchController extends ChangeNotifier {
   /// 当前搜索范围：优先跟随当前正在编辑的文档所属小说，次选工作区选中小说。
   NovelSnapshot? get scopeNovel =>
       workspace.activeNovel ?? workspace.selectedNovel;
+
+  static NovelId? _scopeIdFor(WorkspaceController workspace) {
+    final novel = workspace.activeNovel ?? workspace.selectedNovel;
+    return novel?.metadata.id;
+  }
+
+  void _handleWorkspaceChanged() {
+    if (_disposed) return;
+    final scopeId = _scopeIdFor(workspace);
+    final treeRevision = workspace.treeRevision;
+    if (scopeId == _scopeNovelId && treeRevision == _scopeTreeRevision) {
+      return;
+    }
+    _scopeNovelId = scopeId;
+    _scopeTreeRevision = treeRevision;
+    _schedule();
+    notifyListeners();
+  }
 
   void setPattern(String value) {
     if (_disposed) return;
@@ -162,31 +181,35 @@ final class NovelSearchController extends ChangeNotifier {
     final meta = <_ChapterMeta>[];
     for (final node in chapters) {
       final fullPath = '${novel.rootPath}/${node.relativePath}';
-      String fullText;
+      String body;
+      String title;
       final opened = openedByPath[fullPath];
       if (opened != null) {
-        fullText = opened.editorController.text;
+        // OpenDocument 的编辑器只持有正文，不能再次 bodyOf，否则会丢掉正文首行。
+        body = opened.editorController.text;
+        title = ChapterTitleText.titleLine(
+          opened.chapterNumber ?? node.number ?? 0,
+          opened.chapterTitleSubtitle,
+        );
       } else {
         try {
           final doc = await workspace.service.readDocument(
             session,
             DocumentRef(relativePath: fullPath, format: format),
           );
-          fullText = doc.text;
+          final fullText = doc.text;
+          body = ChapterTitleText.bodyOf(fullText);
+          final parts = ChapterTitleText.tryParse(fullText, markdown: markdown);
+          title = parts != null
+              ? ChapterTitleText.titleLine(parts.number, parts.subtitle)
+              : ChapterTitleText.prefix(node.number ?? 0);
         } catch (_) {
           continue; // 读失败的章节跳过，不阻断整本搜索。
         }
       }
       if (generation != _searchGeneration) return; // 已被新搜索取代。
-      final body = ChapterTitleText.bodyOf(fullText);
-      final parts = ChapterTitleText.tryParse(fullText, markdown: markdown);
-      final title = parts != null
-          ? ChapterTitleText.titleLine(parts.number, parts.subtitle)
-          : ChapterTitleText.prefix(node.number ?? 0);
       bodies.add(body);
-      meta.add(
-        _ChapterMeta(node.id, title, fullPath, fullText.length - body.length),
-      );
+      meta.add(_ChapterMeta(node.id, title, fullPath));
     }
 
     // isolate 批量匹配（纯 CPU，避免大章节卡 UI）。
@@ -207,7 +230,6 @@ final class NovelSearchController extends ChangeNotifier {
           chapterId: meta[i].chapterId,
           title: meta[i].title,
           relativePath: meta[i].relativePath,
-          titlePrefixLength: meta[i].titlePrefixLength,
           matches: matches,
         ),
       );
@@ -221,6 +243,7 @@ final class NovelSearchController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _debounce?.cancel();
+    workspace.removeListener(_handleWorkspaceChanged);
     super.dispose();
   }
 }
@@ -249,17 +272,11 @@ List<List<ChapterMatch>> matchChapters(List<String> bodies, SearchQuery query) {
 }
 
 class _ChapterMeta {
-  const _ChapterMeta(
-    this.chapterId,
-    this.title,
-    this.relativePath,
-    this.titlePrefixLength,
-  );
+  const _ChapterMeta(this.chapterId, this.title, this.relativePath);
 
   final ContentId chapterId;
   final String title;
   final String relativePath;
-  final int titlePrefixLength;
 }
 
 /// 跨章节搜索状态（按 session family，随工作区生命周期）。

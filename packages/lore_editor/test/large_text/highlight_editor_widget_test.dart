@@ -57,6 +57,48 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets('查找中文匹配由 EditableText span 精确高亮', (tester) async {
+    const text =
+        '　　“我应该已经死了，那……这里是阴曹地府？”纪宁凭空出现，不由好奇观察着陌生环境，便听到那王爷的叫嚣，这让纪宁更生疑惑。';
+    final controller = LoreLargeTextController(text: text);
+    final scrollController = ScrollController();
+    controller.setFindMatches(
+      SearchQuery(
+        pattern: '纪宁',
+        caseSensitive: false,
+        useRegex: false,
+      ).findAllIn(text),
+      currentIndex: 1,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LoreLargeTextEditor(
+            controller: controller,
+            scrollController: scrollController,
+          ),
+        ),
+      ),
+    );
+
+    final editable = tester.widget<EditableText>(find.byType(EditableText));
+    final span = editable.controller.buildTextSpan(
+      context: tester.element(find.byType(EditableText)),
+      style: editable.style,
+      withComposing: true,
+    );
+    final highlighted = span.children!
+        .whereType<TextSpan>()
+        .where((child) => child.style?.backgroundColor != null)
+        .map((child) => child.text)
+        .toList();
+    expect(highlighted, ['纪宁', '纪宁']);
+
+    scrollController.dispose();
+    controller.dispose();
+  });
+
   testWidgets('onContextMenu 为 null 时右键不抛错', (tester) async {
     final controller = LoreLargeTextController(text: '短文本');
     final scrollController = ScrollController();

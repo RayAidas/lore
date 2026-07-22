@@ -182,6 +182,7 @@ final class _NovelSearchPanelState extends ConsumerState<NovelSearchPanel> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       itemCount: _search.results.length,
       itemBuilder: (context, index) => _ChapterGroup(
+        key: ValueKey(_search.results[index].relativePath),
         result: _search.results[index],
         onSelectMatch: widget.onSelectMatch,
       ),
@@ -189,11 +190,32 @@ final class _NovelSearchPanelState extends ConsumerState<NovelSearchPanel> {
   }
 }
 
-final class _ChapterGroup extends StatelessWidget {
-  const _ChapterGroup({required this.result, required this.onSelectMatch});
+final class _ChapterGroup extends StatefulWidget {
+  const _ChapterGroup({
+    required this.result,
+    required this.onSelectMatch,
+    super.key,
+  });
 
   final ChapterSearchResult result;
   final void Function(ChapterSearchResult, ChapterMatch) onSelectMatch;
+
+  @override
+  State<_ChapterGroup> createState() => _ChapterGroupState();
+}
+
+final class _ChapterGroupState extends State<_ChapterGroup> {
+  static const _initialVisibleMatches = 10;
+  static const _moreMatchesPerStep = 20;
+  late int _visibleMatches = _initialVisibleMatches;
+
+  @override
+  void didUpdateWidget(covariant _ChapterGroup oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.result.matches.length != widget.result.matches.length) {
+      _visibleMatches = _initialVisibleMatches;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -208,7 +230,7 @@ final class _ChapterGroup extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  result.title,
+                  widget.result.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelMedium?.copyWith(
@@ -223,7 +245,7 @@ final class _ChapterGroup extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  '${result.matches.length}',
+                  '${widget.result.matches.length}',
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: cs.onSecondaryContainer,
                   ),
@@ -232,22 +254,25 @@ final class _ChapterGroup extends StatelessWidget {
             ],
           ),
         ),
-        for (final m in result.matches.take(5))
+        for (final m in widget.result.matches.take(_visibleMatches))
           InkWell(
-            onTap: () => onSelectMatch(result, m),
+            onTap: () => widget.onSelectMatch(widget.result, m),
             borderRadius: BorderRadius.circular(6),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 3, 12, 3),
               child: _Snippet(match: m),
             ),
           ),
-        if (result.matches.length > 5)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-            child: Text(
-              '还有 ${result.matches.length - 5} 处…',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: cs.onSurfaceVariant,
+        if (_visibleMatches < widget.result.matches.length)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () => setState(
+                () => _visibleMatches = (_visibleMatches + _moreMatchesPerStep)
+                    .clamp(0, widget.result.matches.length),
+              ),
+              child: Text(
+                '展开更多（剩余 ${widget.result.matches.length - _visibleMatches} 处）',
               ),
             ),
           ),

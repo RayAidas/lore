@@ -817,9 +817,8 @@ final class _LibraryWorkspacePageState
       ..setUseRegex(search.useRegex)
       ..setPattern(search.pattern)
       ..recompute(document.editorController.text);
-    // 正文 offset → 全文 offset（补回标题行长度）。
-    final fullOffset = match.bodyOffset + result.titlePrefixLength;
-    final index = fc.matches.indexWhere((m) => m.start == fullOffset);
+    // OpenDocument 的编辑器文本是正文，因此跨章节匹配的正文 offset 可直接复用。
+    final index = fc.matches.indexWhere((m) => m.start == match.bodyOffset);
     if (index >= 0) {
       fc.setCurrentIndex(index);
     }

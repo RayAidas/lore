@@ -649,7 +649,7 @@ final class _LargeTextBlockField extends StatefulWidget {
 }
 
 final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
-  late final TextEditingController _textController;
+  late final _FindHighlightTextEditingController _textController;
   late final FocusNode _focusNode;
   var _updating = false;
   late String _observedText;
@@ -670,8 +670,9 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
   void initState() {
     super.initState();
     _observedText = widget.block.text;
-    _textController = TextEditingController(text: _observedText)
+    _textController = _FindHighlightTextEditingController(text: _observedText)
       ..addListener(_handleLocalChanged);
+    _syncFindHighlights();
     _focusNode = FocusNode(onKeyEvent: _handleFocusedKey)
       ..addListener(_handleFocusChanged);
     widget.registry.register(widget.blockIndex, this);
@@ -700,6 +701,7 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
     } else {
       applyDocumentSelection();
     }
+    _syncFindHighlights();
   }
 
   @override
@@ -1225,6 +1227,17 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
     return result;
   }
 
+  void _syncFindHighlights() {
+    final blockStart = widget.documentController.blockStart(widget.blockIndex);
+    final annotations = _localFindMatchesForBlock(
+      blockStart,
+      widget.block.text.length,
+    );
+    _updating = true;
+    _textController.setFindHighlights(annotations);
+    _updating = false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final textStyle = EditorTypography.bodyText(
@@ -1284,23 +1297,6 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
                 text: widget.block.text,
                 style: textStyle,
                 highlights: _localHighlightsForBlock(
-                  blockStart,
-                  widget.block.text.length,
-                ),
-                textDirection: textDirection,
-                textScaler: textScaler,
-                layoutFor: layoutFor,
-              ),
-            ),
-          ),
-        ),
-        Positioned.fill(
-          child: IgnorePointer(
-            child: CustomPaint(
-              painter: _BlockHighlightPainter(
-                text: widget.block.text,
-                style: textStyle,
-                highlights: _localFindMatchesForBlock(
                   blockStart,
                   widget.block.text.length,
                 ),
@@ -1432,6 +1428,62 @@ final class _BlockSelectionPainter extends CustomPainter {
         oldDelegate.color != color ||
         oldDelegate.textDirection != textDirection ||
         oldDelegate.textScaler != textScaler;
+  }
+}
+
+/// 用 EditableText 自己的 span 管线渲染查找背景，避免另起 TextPainter 后与实际
+/// 输入控件在中文字体回退、换行等场景出现字形位置漂移。
+final class _FindHighlightTextEditingController extends TextEditingController {
+  _FindHighlightTextEditingController({super.text});
+
+  List<TextAnnotation> _findHighlights = const [];
+
+  void setFindHighlights(List<TextAnnotation> value) {
+    if (listEquals(value, _findHighlights)) return;
+    _findHighlights = List.of(value);
+    notifyListeners();
+  }
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final source = value.text;
+    // 交给基类处理 IME composing 下划线；输入提交后会立即恢复查找高亮。
+    if (_findHighlights.isEmpty ||
+        (withComposing &&
+            value.composing.isValid &&
+            !value.composing.isCollapsed)) {
+      return super.buildTextSpan(
+        context: context,
+        style: style,
+        withComposing: withComposing,
+      );
+    }
+    final children = <InlineSpan>[];
+    var cursor = 0;
+    for (final highlight in _findHighlights) {
+      final start = highlight.start.clamp(cursor, source.length);
+      final end = highlight.end.clamp(start, source.length);
+      if (start > cursor) {
+        children.add(TextSpan(text: source.substring(cursor, start)));
+      }
+      if (end > start) {
+        children.add(
+          TextSpan(
+            text: source.substring(start, end),
+            style: TextStyle(backgroundColor: highlight.background),
+          ),
+        );
+      }
+      cursor = end;
+    }
+    if (cursor < source.length) {
+      children.add(TextSpan(text: source.substring(cursor)));
+    }
+    return TextSpan(style: style, children: children);
   }
 }
 
