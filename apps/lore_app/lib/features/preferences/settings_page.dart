@@ -453,6 +453,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
       keyboardType: TextInputType.number,
       confirmLabel: '保存',
     );
+    if (!mounted) return;
     if (value == null) {
       return;
     }
@@ -504,6 +505,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
         ),
       ),
     );
+    if (!mounted) return;
     if (selected == null) {
       return;
     }
