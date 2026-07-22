@@ -23,6 +23,7 @@ final class WorkspaceController extends ChangeNotifier {
     this.novelStructureService,
     this.novelOverviewService,
     this.writingProgressRepository,
+    this.writingStatisticsService,
     this.trashRepository,
     this.historyService,
     this.revealGateway,
@@ -36,6 +37,7 @@ final class WorkspaceController extends ChangeNotifier {
   final NovelStructureService? novelStructureService;
   final NovelOverviewService? novelOverviewService;
   final WritingProgressRepository? writingProgressRepository;
+  final WritingStatisticsService? writingStatisticsService;
   final TrashRepository? trashRepository;
   final HistoryService? historyService;
   final LibraryRevealGateway? revealGateway;
@@ -239,7 +241,10 @@ final class WorkspaceController extends ChangeNotifier {
     if (progress != null) {
       unawaited(
         progress.pruneBefore(
-          DateTime.now().toUtc().subtract(const Duration(days: 90)),
+          session.metadata.id,
+          WritingDay.fromDateTime(
+            DateTime.now().subtract(const Duration(days: 365)),
+          ),
         ),
       );
     }
@@ -871,6 +876,33 @@ final class WorkspaceController extends ChangeNotifier {
       session,
       novelId: novelId,
       dailyWordGoal: dailyWordGoal,
+    );
+  }
+
+  NovelId? novelIdForPath(String relativePath) =>
+      _novelStore.novelIdForPath(relativePath);
+
+  Future<WritingStatistics>? loadLibraryWritingStatistics({WritingDay? month}) {
+    final service = writingStatisticsService;
+    if (service == null) return null;
+    return service.computeLibrary(
+      session.metadata.id,
+      today: WritingDay.fromDateTime(DateTime.now()),
+      month: month,
+    );
+  }
+
+  Future<WritingStatistics>? loadNovelWritingStatistics(
+    NovelId novelId, {
+    WritingDay? month,
+  }) {
+    final service = writingStatisticsService;
+    if (service == null) return null;
+    return service.computeNovel(
+      session.metadata.id,
+      novelId,
+      today: WritingDay.fromDateTime(DateTime.now()),
+      month: month,
     );
   }
 

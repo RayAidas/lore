@@ -5,117 +5,186 @@ import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 基于 [SharedPreferences] 的设备本地写作进度持久化。
+/// SharedPreferences-backed, device-local writing statistics.
 ///
-/// 每部小说一个 key（`lore.writing.progress.<novelId>`），值为 JSON：
-/// `{"schemaVersion":1,"counts":{"<yyyy-MM-dd>":<int>}}`。日期键统一 UTC，
-/// 与 [SharedPreferencesWorkspaceSessionRepository] 的容错约定一致。
-///
-/// [addDelta] 通过 per-key Future 链串行化，避免并发 read-modify-write
-/// 后写覆盖先写、丢失字数增量（连续击键/多 tab 同时写作场景）。
+/// Each novel is stored under a library-scoped key so overview totals never
+/// combine unrelated libraries. Values are daily net character deltas.
 final class SharedPreferencesWritingProgressRepository
     implements WritingProgressRepository {
   SharedPreferencesWritingProgressRepository();
 
   static const _keyPrefix = 'lore.writing.progress.';
-  static const _schemaVersion = 1;
+  static const _schemaVersion = 2;
 
   final Map<String, Future<void>> _pending = {};
 
-  String _key(NovelId novelId) => '$_keyPrefix${novelId.value}';
+  String _key(LibraryId libraryId, NovelId novelId) =>
+      '$_keyPrefix${libraryId.value}.${novelId.value}';
 
-  String _dayKey(DateTime utc) {
-    final y = utc.year.toString().padLeft(4, '0');
-    final m = utc.month.toString().padLeft(2, '0');
-    final d = utc.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
+  String _legacyKey(NovelId novelId) => '$_keyPrefix${novelId.value}';
+
+  String _libraryPrefix(LibraryId libraryId) =>
+      '$_keyPrefix${libraryId.value}.';
+
+  @override
+  Future<Map<WritingDay, int>> loadDailyDeltas(
+    LibraryId libraryId,
+    NovelId novelId, {
+    required WritingDay fromInclusive,
+    required WritingDay toInclusive,
+  }) async {
+    if (fromInclusive.compareTo(toInclusive) > 0) return const {};
+    final counts = await _readOrMigrateCounts(libraryId, novelId);
+    return _withinRange(counts, fromInclusive, toInclusive);
   }
 
   @override
-  Future<int> loadToday(NovelId novelId, DateTime todayUtc) async {
-    final counts = await _readCounts(_key(novelId));
-    return counts[_dayKey(todayUtc)] ?? 0;
-  }
-
-  @override
-  Future<void> addDelta(NovelId novelId, DateTime todayUtc, int delta) async {
-    if (delta == 0) {
-      return;
+  Future<Map<WritingDay, int>> loadLibraryDailyDeltas(
+    LibraryId libraryId, {
+    required WritingDay fromInclusive,
+    required WritingDay toInclusive,
+  }) async {
+    if (fromInclusive.compareTo(toInclusive) > 0) return const {};
+    final preferences = await SharedPreferences.getInstance();
+    final total = <WritingDay, int>{};
+    for (final key in preferences.getKeys()) {
+      Map<WritingDay, int>? counts;
+      if (key.startsWith(_libraryPrefix(libraryId))) {
+        counts = await _readCounts(key);
+      }
+      if (counts == null) continue;
+      for (final entry in _withinRange(
+        counts,
+        fromInclusive,
+        toInclusive,
+      ).entries) {
+        total.update(
+          entry.key,
+          (value) => value + entry.value,
+          ifAbsent: () => entry.value,
+        );
+      }
     }
-    final key = _key(novelId);
-    final day = _dayKey(todayUtc);
-    // 串行化同一 key 的写入：排队等待前一次完成后再读-改-写，
-    // 避免并发请求读到同一旧值、互相覆盖。
+    return total;
+  }
+
+  @override
+  Future<void> addDelta(
+    LibraryId libraryId,
+    NovelId novelId,
+    WritingDay day,
+    int delta,
+  ) async {
+    if (delta == 0) return;
+    final key = _key(libraryId, novelId);
     final previous = _pending[key] ?? Future<void>.value();
-    final current = _enqueueWrite(previous, key, day, delta);
+    final current = _enqueueWrite(previous, libraryId, novelId, day, delta);
     _pending[key] = current;
     try {
       await current;
     } finally {
-      if (identical(_pending[key], current)) {
-        _pending.remove(key);
-      }
+      if (identical(_pending[key], current)) _pending.remove(key);
     }
   }
 
   Future<void> _enqueueWrite(
     Future<void> previous,
-    String key,
-    String day,
+    LibraryId libraryId,
+    NovelId novelId,
+    WritingDay day,
     int delta,
   ) async {
-    // 吞掉前一次的失败，避免失败的 Future 永久阻塞队列。
     await previous.catchError((Object _) {});
-    final counts = await _readCounts(key);
-    counts[day] = (counts[day] ?? 0) + delta;
+    final key = _key(libraryId, novelId);
+    final counts = await _readOrMigrateCounts(libraryId, novelId);
+    counts.update(day, (value) => value + delta, ifAbsent: () => delta);
     await _writeCounts(key, counts);
   }
 
   @override
-  Future<void> pruneBefore(DateTime cutoffUtc) async {
-    final cutoff = _dayKey(cutoffUtc);
+  Future<void> pruneBefore(
+    LibraryId libraryId,
+    WritingDay cutoffExclusive,
+  ) async {
     final preferences = await SharedPreferences.getInstance();
-    final keys = preferences.getKeys().where((k) => k.startsWith(_keyPrefix));
-    for (final key in keys) {
+    for (final key in preferences.getKeys()) {
+      if (!key.startsWith(_libraryPrefix(libraryId))) continue;
       final counts = await _readCounts(key);
-      counts.removeWhere((day, _) => day.compareTo(cutoff) < 0);
+      counts.removeWhere((day, _) => day.compareTo(cutoffExclusive) < 0);
       await _writeCounts(key, counts);
     }
   }
 
-  Future<Map<String, int>> _readCounts(String key) async {
+  Map<WritingDay, int> _withinRange(
+    Map<WritingDay, int> counts,
+    WritingDay fromInclusive,
+    WritingDay toInclusive,
+  ) => Map.unmodifiable({
+    for (final entry in counts.entries)
+      if (entry.key.compareTo(fromInclusive) >= 0 &&
+          entry.key.compareTo(toInclusive) <= 0)
+        entry.key: entry.value,
+  });
+
+  Future<Map<WritingDay, int>> _readCounts(String key) async {
     final preferences = await SharedPreferences.getInstance();
-    final encoded = preferences.getString(key);
-    if (encoded == null) {
-      return <String, int>{};
+    return _decode(preferences.getString(key), 'dailyDeltas', _schemaVersion);
+  }
+
+  Future<Map<WritingDay, int>> _readOrMigrateCounts(
+    LibraryId libraryId,
+    NovelId novelId,
+  ) async {
+    final key = _key(libraryId, novelId);
+    final preferences = await SharedPreferences.getInstance();
+    if (preferences.containsKey(key)) {
+      return _decode(preferences.getString(key), 'dailyDeltas', _schemaVersion);
     }
+    final legacy = await _readLegacyCounts(_legacyKey(novelId));
+    if (legacy.isNotEmpty) {
+      await _writeCounts(key, legacy);
+    }
+    return legacy;
+  }
+
+  Future<Map<WritingDay, int>> _readLegacyCounts(String key) async {
+    final preferences = await SharedPreferences.getInstance();
+    return _decode(preferences.getString(key), 'counts', 1);
+  }
+
+  Map<WritingDay, int> _decode(String? encoded, String field, int version) {
+    if (encoded == null) return <WritingDay, int>{};
     try {
       final value = jsonDecode(encoded);
-      if (value is! Map<String, Object?> ||
-          value['schemaVersion'] != _schemaVersion) {
-        return <String, int>{};
+      if (value is! Map<String, Object?> || value['schemaVersion'] != version) {
+        return <WritingDay, int>{};
       }
-      final rawCounts = value['counts'];
-      if (rawCounts is! Map<String, Object?>) {
-        return <String, int>{};
-      }
-      final counts = <String, int>{};
-      rawCounts.forEach((day, raw) {
-        if (raw is int) {
-          counts[day] = raw;
+      final raw = value[field];
+      if (raw is! Map<String, Object?>) return <WritingDay, int>{};
+      final result = <WritingDay, int>{};
+      raw.forEach((day, count) {
+        if (count is! int) return;
+        try {
+          result[WritingDay.parse(day)] = count;
+        } on FormatException {
+          // Ignore malformed individual keys while retaining valid entries.
         }
       });
-      return counts;
+      return result;
     } on FormatException {
-      return <String, int>{};
+      return <WritingDay, int>{};
     }
   }
 
-  Future<void> _writeCounts(String key, Map<String, int> counts) async {
+  Future<void> _writeCounts(String key, Map<WritingDay, int> counts) async {
     final preferences = await SharedPreferences.getInstance();
+    final encoded = <String, int>{
+      for (final entry in counts.entries)
+        entry.key.toIso8601String(): entry.value,
+    };
     await preferences.setString(
       key,
-      jsonEncode({'schemaVersion': _schemaVersion, 'counts': counts}),
+      jsonEncode({'schemaVersion': _schemaVersion, 'dailyDeltas': encoded}),
     );
   }
 }

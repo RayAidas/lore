@@ -85,8 +85,9 @@ void main() {
 
   test('counts characters across chapters and aggregates per volume', () async {
     final now = DateTime.utc(2026, 7, 17);
+    final day = WritingDay.fromDateTime(now.toLocal());
     final progress = _FakeWritingProgressRepository();
-    await progress.addDelta(novelId, now, 250);
+    await progress.addDelta(session.metadata.id, novelId, day, 250);
 
     final service = NovelOverviewService(
       novelRepository: _FakeNovelRepository(snapshot()),
@@ -96,7 +97,7 @@ void main() {
         'novel/正文/第一卷/第2章.md': 'foo', // 3
       }),
       clock: _FixedClock(now),
-      writingProgressRepository: progress,
+      writingStatisticsService: WritingStatisticsService(progress),
     );
 
     final overview = await service.computeOverview(
@@ -192,23 +193,71 @@ final class _FakeWritingProgressRepository
     implements WritingProgressRepository {
   final Map<String, int> _counts = {};
 
-  String _dayKey(DateTime utc) =>
-      '${utc.year.toString().padLeft(4, '0')}-'
-      '${utc.month.toString().padLeft(2, '0')}-'
-      '${utc.day.toString().padLeft(2, '0')}';
+  String _key(LibraryId libraryId, NovelId novelId, WritingDay day) =>
+      '${libraryId.value}/${novelId.value}/${day.toIso8601String()}';
 
   @override
-  Future<int> loadToday(NovelId novelId, DateTime todayUtc) async =>
-      _counts[_dayKey(todayUtc)] ?? 0;
+  Future<Map<WritingDay, int>> loadDailyDeltas(
+    LibraryId libraryId,
+    NovelId novelId, {
+    required WritingDay fromInclusive,
+    required WritingDay toInclusive,
+  }) async {
+    final result = <WritingDay, int>{};
+    for (
+      var day = fromInclusive;
+      day.compareTo(toInclusive) <= 0;
+      day = day.addDays(1)
+    ) {
+      final count = _counts[_key(libraryId, novelId, day)];
+      if (count != null) result[day] = count;
+    }
+    return result;
+  }
 
   @override
-  Future<void> addDelta(NovelId novelId, DateTime todayUtc, int delta) async {
-    final key = _dayKey(todayUtc);
+  Future<Map<WritingDay, int>> loadLibraryDailyDeltas(
+    LibraryId libraryId, {
+    required WritingDay fromInclusive,
+    required WritingDay toInclusive,
+  }) async {
+    final result = <WritingDay, int>{};
+    for (
+      var day = fromInclusive;
+      day.compareTo(toInclusive) <= 0;
+      day = day.addDays(1)
+    ) {
+      final suffix = '/${day.toIso8601String()}';
+      for (final entry in _counts.entries) {
+        if (entry.key.startsWith('${libraryId.value}/') &&
+            entry.key.endsWith(suffix)) {
+          result.update(
+            day,
+            (value) => value + entry.value,
+            ifAbsent: () => entry.value,
+          );
+        }
+      }
+    }
+    return result;
+  }
+
+  @override
+  Future<void> addDelta(
+    LibraryId libraryId,
+    NovelId novelId,
+    WritingDay day,
+    int delta,
+  ) async {
+    final key = _key(libraryId, novelId, day);
     _counts[key] = (_counts[key] ?? 0) + delta;
   }
 
   @override
-  Future<void> pruneBefore(DateTime cutoffUtc) async {}
+  Future<void> pruneBefore(
+    LibraryId libraryId,
+    WritingDay cutoffExclusive,
+  ) async {}
 }
 
 final class _FixedClock implements Clock {

@@ -6,6 +6,7 @@ import 'novel_search_controller.dart';
 import 'novel_search_panel.dart';
 import 'open_document_extensions.dart';
 import 'version_pane.dart';
+import 'writing_statistics_pane.dart';
 import 'workspace_controller.dart';
 
 /// 竖向工具轨道的固定宽度（轨道 SizedBox 与每个标签单元共用）。公开供布局
@@ -19,6 +20,11 @@ enum WorkspaceInspectorTab {
     keyName: 'assistant',
   ),
   outline(label: '大纲', icon: Icons.format_list_bulleted, keyName: 'outline'),
+  statistics(
+    label: '统计',
+    icon: Icons.bar_chart_outlined,
+    keyName: 'statistics',
+  ),
   version(label: '版本', icon: Icons.history_rounded, keyName: 'version'),
   info(label: '信息', icon: Icons.info_outline, keyName: 'info'),
   search(label: '搜索', icon: Icons.search_outlined, keyName: 'search');
@@ -59,6 +65,9 @@ final class WorkspaceInspector extends StatelessWidget {
         WorkspaceInspectorTab.assistant => const _AssistantPanel(),
         WorkspaceInspectorTab.outline => _OutlinePanel(
           document: controller.activeDocument,
+        ),
+        WorkspaceInspectorTab.statistics => WritingStatisticsPane(
+          controller: controller,
         ),
         WorkspaceInspectorTab.version => VersionPane(controller: controller),
         WorkspaceInspectorTab.info => _DocumentInfoPanel(

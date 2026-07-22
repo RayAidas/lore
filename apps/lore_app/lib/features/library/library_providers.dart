@@ -92,12 +92,18 @@ final writingProgressRepositoryProvider = Provider<WritingProgressRepository>((
   return SharedPreferencesWritingProgressRepository();
 });
 
+final writingStatisticsServiceProvider = Provider<WritingStatisticsService>((
+  ref,
+) {
+  return WritingStatisticsService(ref.watch(writingProgressRepositoryProvider));
+});
+
 final novelOverviewServiceProvider = Provider<NovelOverviewService>((ref) {
   return NovelOverviewService(
     novelRepository: ref.watch(novelRepositoryProvider),
     documentRepository: ref.watch(documentRepositoryProvider),
     clock: ref.watch(clockProvider),
-    writingProgressRepository: ref.watch(writingProgressRepositoryProvider),
+    writingStatisticsService: ref.watch(writingStatisticsServiceProvider),
   );
 });
 
@@ -143,6 +149,7 @@ final workspaceControllerProvider = Provider.autoDispose
         novelStructureService: ref.watch(novelStructureServiceProvider),
         novelOverviewService: ref.watch(novelOverviewServiceProvider),
         writingProgressRepository: ref.watch(writingProgressRepositoryProvider),
+        writingStatisticsService: ref.watch(writingStatisticsServiceProvider),
         trashRepository: ref.watch(trashRepositoryProvider),
         historyService: ref.watch(historyServiceProvider),
         revealGateway: ref.watch(libraryRevealGatewayProvider),

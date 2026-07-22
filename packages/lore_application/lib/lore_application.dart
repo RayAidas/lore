@@ -29,4 +29,5 @@ export 'src/ports/novel_repository.dart';
 export 'src/ports/trash_repository.dart';
 export 'src/ports/workspace_session_repository.dart';
 export 'src/ports/writing_progress_repository.dart';
+export 'src/writing/writing_statistics_service.dart';
 export 'src/preferences/app_preferences_service.dart';

@@ -278,7 +278,7 @@ final class _StatGrid extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(child: tile('总字数', '${overview.totalCharacterCount}')),
+            Expanded(child: tile('书稿字数', '${overview.totalCharacterCount}')),
             const SizedBox(width: 12),
             Expanded(child: tile('章节数', '${overview.chapterCount}')),
             const SizedBox(width: 12),
@@ -288,7 +288,7 @@ final class _StatGrid extends StatelessWidget {
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: tile('今日字数', '${overview.todayCharacterCount}')),
+            Expanded(child: tile('今日净增', '${overview.todayCharacterCount}')),
             const SizedBox(width: 12),
             Expanded(
               flex: 2,

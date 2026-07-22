@@ -953,7 +953,14 @@ final class WorkspaceTabsStore {
       if (progress != null) {
         final novelId = _novelIdForPath(document.relativePath);
         if (novelId != null) {
-          unawaited(progress.addDelta(novelId, DateTime.now().toUtc(), delta));
+          unawaited(
+            progress.addDelta(
+              session.metadata.id,
+              novelId,
+              WritingDay.fromDateTime(DateTime.now()),
+              delta,
+            ),
+          );
         }
       }
     });

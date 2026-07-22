@@ -3,7 +3,7 @@ import 'package:lore_domain/lore_domain.dart';
 import '../ports/clock.dart';
 import '../ports/document_repository.dart';
 import '../ports/novel_repository.dart';
-import '../ports/writing_progress_repository.dart';
+import '../writing/writing_statistics_service.dart';
 import 'library_bootstrap.dart';
 import 'library_failure.dart';
 
@@ -31,6 +31,7 @@ final class NovelOverview {
     required this.chapterCount,
     required this.todayCharacterCount,
     required this.dailyWordGoal,
+    required this.writingStatistics,
     required this.volumeSummaries,
   });
 
@@ -44,23 +45,24 @@ final class NovelOverview {
   final int chapterCount;
   final int todayCharacterCount;
   final int dailyWordGoal;
+  final WritingStatistics writingStatistics;
   final List<NovelVolumeSummary> volumeSummaries;
 }
 
 /// 计算小说概览。读取章节正文统计字数（仅长度，不解析），聚合卷摘要，
-/// 并从 [WritingProgressRepository] 取今日字数。封面解析交给 UI 层。
+/// 并从写作统计投影取今日字数。封面解析交给 UI 层。
 final class NovelOverviewService {
   const NovelOverviewService({
     required this.novelRepository,
     required this.documentRepository,
     required this.clock,
-    this.writingProgressRepository,
+    this.writingStatisticsService,
   });
 
   final NovelRepository novelRepository;
   final DocumentRepository documentRepository;
   final Clock clock;
-  final WritingProgressRepository? writingProgressRepository;
+  final WritingStatisticsService? writingStatisticsService;
 
   Future<NovelOverview> computeOverview(
     LibrarySession session, {
@@ -112,9 +114,16 @@ final class NovelOverviewService {
       );
     }
 
-    final todayUtc = today ?? clock.nowUtc();
-    final todayCount =
-        await writingProgressRepository?.loadToday(novelId, todayUtc) ?? 0;
+    final writingDay = WritingDay.fromDateTime(
+      (today ?? clock.nowUtc()).toLocal(),
+    );
+    final statistics = writingStatisticsService == null
+        ? _emptyStatistics(writingDay)
+        : await writingStatisticsService!.computeNovel(
+            session.metadata.id,
+            novelId,
+            today: writingDay,
+          );
 
     return NovelOverview(
       metadata: snapshot.metadata,
@@ -122,8 +131,9 @@ final class NovelOverviewService {
       totalCharacterCount: total,
       volumeCount: volumeNodes.length,
       chapterCount: chapterNodes.length,
-      todayCharacterCount: todayCount,
+      todayCharacterCount: statistics.todayNetDelta,
       dailyWordGoal: dailyWordGoal,
+      writingStatistics: statistics,
       volumeSummaries: volumeSummaries,
     );
   }
@@ -192,4 +202,12 @@ final class NovelOverviewService {
   }
 
   int _characterCount(String text) => characterCountOf(text);
+
+  WritingStatistics _emptyStatistics(WritingDay today) => WritingStatistics(
+    todayNetDelta: 0,
+    weekNetDelta: 0,
+    activeDaysThisWeek: 0,
+    currentStreakDays: 0,
+    monthDays: const [],
+  );
 }

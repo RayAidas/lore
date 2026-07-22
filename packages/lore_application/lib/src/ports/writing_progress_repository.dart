@@ -1,14 +1,30 @@
 import 'package:lore_domain/lore_domain.dart';
 
-/// 写作进度（今日字数等）的持久化端口。
+/// 写作进度的设备本地持久化端口。
 ///
-/// 日期键统一使用 UTC，避免跨时区导致"今日"边界漂移。数据为可重建的派生
-/// 统计，不属于权威内容，不应随书库迁移。
+/// 数据按书库与小说隔离，日期键使用用户本地自然日。它是可重建的派生统计，
+/// 不属于权威内容，不应随书库迁移。
 abstract interface class WritingProgressRepository {
-  Future<int> loadToday(NovelId novelId, DateTime todayUtc);
+  Future<Map<WritingDay, int>> loadDailyDeltas(
+    LibraryId libraryId,
+    NovelId novelId, {
+    required WritingDay fromInclusive,
+    required WritingDay toInclusive,
+  });
 
-  Future<void> addDelta(NovelId novelId, DateTime todayUtc, int delta);
+  Future<Map<WritingDay, int>> loadLibraryDailyDeltas(
+    LibraryId libraryId, {
+    required WritingDay fromInclusive,
+    required WritingDay toInclusive,
+  });
 
-  /// 清理所有小说在 [cutoffUtc] 之前的记录。
-  Future<void> pruneBefore(DateTime cutoffUtc);
+  Future<void> addDelta(
+    LibraryId libraryId,
+    NovelId novelId,
+    WritingDay day,
+    int delta,
+  );
+
+  /// 清理当前书库在 [cutoffExclusive] 之前的记录。
+  Future<void> pruneBefore(LibraryId libraryId, WritingDay cutoffExclusive);
 }

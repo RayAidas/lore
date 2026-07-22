@@ -18,3 +18,4 @@ export 'src/library/library_metadata.dart';
 export 'src/library/novel.dart';
 export 'src/preferences/app_preferences.dart';
 export 'src/storage/logical_path.dart';
+export 'src/writing/writing_day.dart';

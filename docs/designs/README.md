@@ -13,6 +13,7 @@
 | [Monorepo 架构](monorepo-architecture.md) | Flutter workspace、未来 Axum 服务、契约和依赖边界 |
 | [界面与交互](interface-design.md) | macOS、Android、文件树、标签页和概览页面 |
 | [编辑与阅读](editor-and-reader.md) | TXT、Markdown、沉浸写作、阅读和审稿体验 |
+| [写作数据统计](writing-statistics.md) | 小说级日净增、目标、趋势、连续写作和本地持久化设计 |
 | [模板与数据管理](templates-and-data-management.md) | 模板、搜索、保存、历史、导入导出和同步预留 |
 | [AI Agent](ai-agent.md) | 后续 AI 的启用方式、上下文、能力和安全边界 |
 | [质量与路线图](quality-and-roadmap.md) | 非功能需求、MVP、开发顺序和待细化事项 |
