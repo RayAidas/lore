@@ -776,12 +776,30 @@ final class _LibraryWorkspacePageState
     }
     final prefs =
         ref.read(appPreferencesProvider).value ?? AppPreferences.defaults();
+    final selection = document.editorController.selection;
+    final selectedText = selection.isValid && !selection.isCollapsed
+        ? document.editorController.text.substring(
+            selection.start,
+            selection.end,
+          )
+        : '';
+    final findController = FindReplaceController()
+      ..setCaseSensitive(prefs.findMatchCase)
+      ..setUseRegex(prefs.findUseRegex)
+      ..setPattern(selectedText)
+      ..recompute(document.editorController.text);
+    if (selectedText.isNotEmpty) {
+      final selectedMatchIndex = findController.matches.indexWhere(
+        (match) => match.start == selection.start && match.end == selection.end,
+      );
+      if (selectedMatchIndex >= 0) {
+        findController.setCurrentIndex(selectedMatchIndex);
+      }
+    }
     setState(() {
       _findReplaceMode = replace;
-      _findController = FindReplaceController()
-        ..setCaseSensitive(prefs.findMatchCase)
-        ..setUseRegex(prefs.findUseRegex)
-        ..recompute(document.editorController.text);
+      _findController?.dispose();
+      _findController = findController;
     });
   }
 

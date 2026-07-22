@@ -26,6 +26,9 @@ final class NovelSearchPanel extends ConsumerStatefulWidget {
 }
 
 final class _NovelSearchPanelState extends ConsumerState<NovelSearchPanel> {
+  static const _fieldHeight = 34.0;
+  static const _toggleSize = 26.0;
+
   late final TextEditingController _field;
   late NovelSearchController _search;
 
@@ -82,39 +85,72 @@ final class _NovelSearchPanelState extends ConsumerState<NovelSearchPanel> {
   }
 
   Widget _buildField(ColorScheme cs) {
-    return TextField(
-      controller: _field,
-      autofocus: true,
-      textInputAction: TextInputAction.search,
-      onChanged: _search.setPattern,
-      onSubmitted: (_) => _search.runSearch(),
-      decoration: InputDecoration(
-        isDense: true,
-        hintText: '搜索本小说',
-        prefixIcon: const Icon(Icons.search, size: 18),
-        contentPadding: const EdgeInsets.symmetric(
-          vertical: 10,
-          horizontal: 10,
-        ),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        suffixIcon: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _toggle(
-              cs,
-              active: _search.caseSensitive,
-              tooltip: '区分大小写',
-              icon: Icons.text_fields,
-              onTap: () => _search.setCaseSensitive(!_search.caseSensitive),
+    final theme = Theme.of(context);
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(4),
+      borderSide: BorderSide(color: cs.outlineVariant),
+    );
+    return SizedBox(
+      height: _fieldHeight,
+      child: TextField(
+        controller: _field,
+        autofocus: true,
+        expands: true,
+        minLines: null,
+        maxLines: null,
+        textAlignVertical: TextAlignVertical.center,
+        style: theme.textTheme.bodyMedium?.copyWith(height: 1),
+        textInputAction: TextInputAction.search,
+        onChanged: _search.setPattern,
+        onSubmitted: (_) => _search.runSearch(),
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: cs.surfaceContainerLow,
+          hoverColor: cs.onSurface.withValues(alpha: 0.035),
+          hintText: '搜索本小说',
+          hintStyle: theme.textTheme.bodyMedium?.copyWith(
+            color: cs.onSurfaceVariant,
+            height: 1,
+          ),
+          prefixIcon: Icon(Icons.search, size: 16, color: cs.onSurfaceVariant),
+          prefixIconConstraints: const BoxConstraints.tightFor(
+            width: 32,
+            height: _fieldHeight,
+          ),
+          contentPadding: const EdgeInsets.only(right: 8),
+          constraints: const BoxConstraints.tightFor(height: _fieldHeight),
+          border: border,
+          enabledBorder: border,
+          focusedBorder: border.copyWith(
+            borderSide: BorderSide(color: cs.primary, width: 1.2),
+          ),
+          suffixIconConstraints: const BoxConstraints.tightFor(
+            width: _toggleSize * 2 + 4,
+            height: _fieldHeight,
+          ),
+          suffixIcon: Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _toggle(
+                  cs,
+                  active: _search.caseSensitive,
+                  tooltip: '区分大小写',
+                  icon: Icons.text_fields,
+                  onTap: () => _search.setCaseSensitive(!_search.caseSensitive),
+                ),
+                _toggle(
+                  cs,
+                  active: _search.useRegex,
+                  tooltip: '正则表达式',
+                  icon: Icons.code,
+                  onTap: () => _search.setUseRegex(!_search.useRegex),
+                ),
+              ],
             ),
-            _toggle(
-              cs,
-              active: _search.useRegex,
-              tooltip: '正则表达式',
-              icon: Icons.code,
-              onTap: () => _search.setUseRegex(!_search.useRegex),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -127,13 +163,25 @@ final class _NovelSearchPanelState extends ConsumerState<NovelSearchPanel> {
     required IconData icon,
     required VoidCallback onTap,
   }) {
-    return IconButton(
-      tooltip: tooltip,
-      visualDensity: VisualDensity.compact,
-      iconSize: 18,
-      color: active ? cs.primary : null,
-      onPressed: onTap,
-      icon: Icon(icon),
+    return SizedBox.square(
+      dimension: _toggleSize,
+      child: IconButton(
+        tooltip: tooltip,
+        iconSize: 16,
+        color: active ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+        onPressed: onTap,
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(_toggleSize),
+          maximumSize: const Size.square(_toggleSize),
+          fixedSize: const Size.square(_toggleSize),
+          padding: EdgeInsets.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          backgroundColor: active ? cs.primaryContainer : null,
+          hoverColor: cs.onSurface.withValues(alpha: 0.06),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+        ),
+        icon: Icon(icon),
+      ),
     );
   }
 
@@ -179,7 +227,7 @@ final class _NovelSearchPanelState extends ConsumerState<NovelSearchPanel> {
       return const _EmptyHint(icon: Icons.search_off, message: '无匹配结果');
     }
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.only(bottom: 8),
       itemCount: _search.results.length,
       itemBuilder: (context, index) => _ChapterGroup(
         key: ValueKey(_search.results[index].relativePath),
@@ -224,10 +272,18 @@ final class _ChapterGroupState extends State<_ChapterGroup> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
+        Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          color: cs.surfaceContainerLow,
           child: Row(
             children: [
+              Icon(
+                Icons.description_outlined,
+                size: 15,
+                color: cs.onSurfaceVariant,
+              ),
+              const SizedBox(width: 7),
               Expanded(
                 child: Text(
                   widget.result.title,
@@ -238,41 +294,54 @@ final class _ChapterGroupState extends State<_ChapterGroup> {
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(
-                  color: cs.secondaryContainer,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${widget.result.matches.length}',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: cs.onSecondaryContainer,
-                  ),
+              Text(
+                '${widget.result.matches.length} 处',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
         ),
         for (final m in widget.result.matches.take(_visibleMatches))
-          InkWell(
-            onTap: () => widget.onSelectMatch(widget.result, m),
-            borderRadius: BorderRadius.circular(6),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 3, 12, 3),
-              child: _Snippet(match: m),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => widget.onSelectMatch(widget.result, m),
+              hoverColor: cs.onSurface.withValues(alpha: 0.045),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(34, 6, 12, 6),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: cs.outlineVariant.withValues(alpha: 0.48),
+                    ),
+                  ),
+                ),
+                child: _Snippet(match: m),
+              ),
             ),
           ),
         if (_visibleMatches < widget.result.matches.length)
           Align(
             alignment: Alignment.centerLeft,
-            child: TextButton(
-              onPressed: () => setState(
-                () => _visibleMatches = (_visibleMatches + _moreMatchesPerStep)
-                    .clamp(0, widget.result.matches.length),
-              ),
-              child: Text(
-                '展开更多（剩余 ${widget.result.matches.length - _visibleMatches} 处）',
+            child: Padding(
+              padding: const EdgeInsets.only(left: 24, top: 2, bottom: 4),
+              child: TextButton(
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(0, 28),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: () => setState(
+                  () =>
+                      _visibleMatches = (_visibleMatches + _moreMatchesPerStep)
+                          .clamp(0, widget.result.matches.length),
+                ),
+                child: Text(
+                  '展开更多（剩余 ${widget.result.matches.length - _visibleMatches} 处）',
+                ),
               ),
             ),
           ),
@@ -291,7 +360,9 @@ final class _Snippet extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final base = theme.textTheme.bodySmall ?? const TextStyle();
+    final base =
+        theme.textTheme.bodySmall?.copyWith(height: 1.4) ??
+        const TextStyle(height: 1.4);
     final s = match.snippet;
     final start = match.snippetMatchStart.clamp(0, s.length);
     final end = match.snippetMatchEnd.clamp(start, s.length);
@@ -306,7 +377,9 @@ final class _Snippet extends StatelessWidget {
             text: s.substring(start, end),
             style: base.copyWith(
               color: cs.onSurface,
-              backgroundColor: const Color(0xFFF5C518).withValues(alpha: 0.45),
+              backgroundColor: const Color(0xFFF5C518).withValues(
+                alpha: cs.brightness == Brightness.dark ? 0.34 : 0.4,
+              ),
             ),
           ),
           TextSpan(text: s.substring(end)),

@@ -6,7 +6,7 @@ import '../document_controller.dart';
 import '../large_text/lore_large_text_controller.dart';
 import 'find_replace_controller.dart';
 
-/// 底部贴附的查找替换面板。
+/// 悬浮在编辑器右上角的查找替换工具条。
 ///
 /// 高亮当前匹配只设置 [LoreTextController.selection]，不改文本，让
 /// [TextField] 自动滚动到选区。替换时把新文本写回 controller.value，
@@ -60,8 +60,15 @@ final class _FindReplaceOverlayStateful extends StatefulWidget {
 
 final class _FindReplaceOverlayStatefulState
     extends State<_FindReplaceOverlayStateful> {
+  static const _controlHeight = 32.0;
+  static const _iconButtonSize = 28.0;
+  static const _actionButtonHeight = 32.0;
+  static const _controlGap = 3.0;
+  static const _panelRadius = 6.0;
+
   late final TextEditingController _patternField;
   late final TextEditingController _replaceField;
+  late final FocusNode _patternFocusNode;
   late bool _showReplace;
   int? _lastEditVersion;
   Timer? _recomputeTimer;
@@ -77,6 +84,7 @@ final class _FindReplaceOverlayStatefulState
     _replaceField = TextEditingController(
       text: widget.findController.replacement,
     );
+    _patternFocusNode = FocusNode();
     _showReplace = widget.initialShowReplace;
     _lastEditVersion = widget.editorController.editVersion;
     widget.findController.addListener(_handleFindChanged);
@@ -86,6 +94,7 @@ final class _FindReplaceOverlayStatefulState
     // during build"）。延迟到首帧后（框架解锁）再同步初始选区与整文高亮。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _focusPatternField();
       _applyCurrentSelection();
       _pushFindMatches();
     });
@@ -108,6 +117,7 @@ final class _FindReplaceOverlayStatefulState
     _recomputeTimer?.cancel();
     _patternField.dispose();
     _replaceField.dispose();
+    _patternFocusNode.dispose();
     super.dispose();
   }
 
@@ -123,6 +133,15 @@ final class _FindReplaceOverlayStatefulState
     if (findChanged) {
       oldWidget.findController.removeListener(_handleFindChanged);
       widget.findController.addListener(_handleFindChanged);
+      _patternField.value = TextEditingValue(
+        text: widget.findController.pattern,
+        selection: TextSelection(
+          baseOffset: 0,
+          extentOffset: widget.findController.pattern.length,
+        ),
+      );
+      _replaceField.text = widget.findController.replacement;
+      _showReplace = widget.initialShowReplace;
     }
     if (editorChanged) {
       oldWidget.editorController.removeListener(_handleEditorChanged);
@@ -133,12 +152,25 @@ final class _FindReplaceOverlayStatefulState
       // 切换章节或 findController 后重新同步选区与整文高亮：跨章节连续点不同结果时
       // overlay State 保持复用（widget update，非 remount），必须切走旧监听、按新
       // controller 重推，否则第二段起既不定位也不高亮。postFrame 避开 build 阶段。
+      final previousEditor = editorChanged ? oldWidget.editorController : null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        if (previousEditor is LoreLargeTextController) {
+          previousEditor.setFindMatches(const []);
+        }
+        _focusPatternField();
         _applyCurrentSelection();
         _pushFindMatches();
       });
     }
+  }
+
+  void _focusPatternField() {
+    _patternFocusNode.requestFocus();
+    _patternField.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _patternField.text.length,
+    );
   }
 
   /// 匹配/游标变化时，把当前匹配同步为编辑器选区（仅 selection，不改文本），
@@ -209,143 +241,292 @@ final class _FindReplaceOverlayStatefulState
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
+        final colors = theme.colorScheme;
         return Material(
-          color: theme.colorScheme.surfaceContainerLow,
-          elevation: 0,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
+          color: colors.surfaceContainerLowest,
+          surfaceTintColor: Colors.transparent,
+          elevation: 6,
+          shadowColor: colors.shadow.withValues(
+            alpha: colors.brightness == Brightness.dark ? 0.28 : 0.14,
+          ),
+          borderRadius: BorderRadius.circular(_panelRadius),
+          clipBehavior: Clip.antiAlias,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: colors.outlineVariant.withValues(alpha: 0.84),
+              ),
+              borderRadius: BorderRadius.circular(_panelRadius),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(5),
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 140),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(
-                      tooltip: _showReplace ? '隐藏替换' : '显示替换',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () =>
-                          setState(() => _showReplace = !_showReplace),
-                      icon: Icon(
-                        _showReplace ? Icons.expand_more : Icons.chevron_right,
-                        size: 20,
-                      ),
-                    ),
-                    Expanded(
-                      child: TextField(
-                        controller: _patternField,
-                        autofocus: true,
-                        textInputAction: TextInputAction.search,
-                        decoration: InputDecoration(
-                          isDense: true,
-                          hintText: '查找',
-                          suffixText: controller.matchCount == 0
-                              ? '无匹配'
-                              : '${controller.currentIndex + 1}/${controller.matchCount}',
-                          suffixIcon: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: '上一个',
-                                visualDensity: VisualDensity.compact,
-                                onPressed: controller.matchCount == 0
-                                    ? null
-                                    : controller.previous,
-                                icon: const Icon(
-                                  Icons.keyboard_arrow_up,
-                                  size: 20,
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: '下一个',
-                                visualDensity: VisualDensity.compact,
-                                onPressed: controller.matchCount == 0
-                                    ? null
-                                    : controller.next,
-                                icon: const Icon(
-                                  Icons.keyboard_arrow_down,
-                                  size: 20,
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: '区分大小写',
-                                visualDensity: VisualDensity.compact,
-                                color: controller.caseSensitive
-                                    ? theme.colorScheme.primary
-                                    : null,
-                                onPressed: () {
-                                  controller.setCaseSensitive(
-                                    !controller.caseSensitive,
-                                  );
-                                  _scheduleRecompute();
-                                },
-                                icon: const Icon(Icons.text_fields, size: 18),
-                              ),
-                              IconButton(
-                                tooltip: '正则表达式',
-                                visualDensity: VisualDensity.compact,
-                                color: controller.useRegex
-                                    ? theme.colorScheme.primary
-                                    : null,
-                                onPressed: () {
-                                  controller.setUseRegex(!controller.useRegex);
-                                  _scheduleRecompute();
-                                },
-                                icon: const Icon(Icons.code, size: 18),
-                              ),
-                              IconButton(
-                                tooltip: '关闭',
-                                visualDensity: VisualDensity.compact,
-                                onPressed: widget.onClose,
-                                icon: const Icon(Icons.close, size: 18),
-                              ),
-                            ],
-                          ),
-                        ),
-                        onChanged: (value) {
-                          controller.setPattern(value);
-                          controller.setReplacement(_replaceField.text);
-                          _scheduleRecompute();
-                        },
-                        onSubmitted: (_) => controller.next(),
-                      ),
-                    ),
-                  ],
-                ),
-                if (_showReplace)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 48, top: 6),
-                    child: Row(
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
+                        _compactIconButton(
+                          tooltip: _showReplace ? '隐藏替换' : '显示替换',
+                          onPressed: () =>
+                              setState(() => _showReplace = !_showReplace),
+                          icon: _showReplace
+                              ? Icons.keyboard_arrow_down
+                              : Icons.keyboard_arrow_right,
+                        ),
+                        const SizedBox(width: _controlGap),
                         Expanded(
-                          child: TextField(
-                            controller: _replaceField,
-                            decoration: const InputDecoration(
-                              isDense: true,
-                              hintText: '替换为',
-                            ),
-                            onChanged: controller.setReplacement,
+                          child: _editorField(
+                            key: const ValueKey('find-pattern-control'),
+                            controller: _patternField,
+                            focusNode: _patternFocusNode,
+                            hintText: '查找',
+                            trailingText: controller.matchCount == 0
+                                ? '无匹配'
+                                : '${controller.currentIndex + 1}/${controller.matchCount}',
+                            textInputAction: TextInputAction.search,
+                            onChanged: (value) {
+                              controller.setPattern(value);
+                              controller.setReplacement(_replaceField.text);
+                              _scheduleRecompute();
+                            },
+                            onSubmitted: (_) => controller.next(),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        TextButton(
-                          onPressed: controller.currentMatch == null
-                              ? null
-                              : _replaceCurrent,
-                          child: const Text('替换'),
-                        ),
-                        FilledButton.tonal(
+                        const SizedBox(width: _controlGap),
+                        _compactIconButton(
+                          tooltip: '上一个',
                           onPressed: controller.matchCount == 0
                               ? null
-                              : _replaceAll,
-                          child: const Text('全部替换'),
+                              : controller.previous,
+                          icon: Icons.keyboard_arrow_up,
+                        ),
+                        _compactIconButton(
+                          tooltip: '下一个',
+                          onPressed: controller.matchCount == 0
+                              ? null
+                              : controller.next,
+                          icon: Icons.keyboard_arrow_down,
+                        ),
+                        _compactIconButton(
+                          tooltip: '区分大小写',
+                          active: controller.caseSensitive,
+                          onPressed: () {
+                            controller.setCaseSensitive(
+                              !controller.caseSensitive,
+                            );
+                            _scheduleRecompute();
+                          },
+                          icon: Icons.text_fields,
+                        ),
+                        _compactIconButton(
+                          tooltip: '正则表达式',
+                          active: controller.useRegex,
+                          onPressed: () {
+                            controller.setUseRegex(!controller.useRegex);
+                            _scheduleRecompute();
+                          },
+                          icon: Icons.code,
+                        ),
+                        _compactIconButton(
+                          tooltip: '关闭',
+                          onPressed: widget.onClose,
+                          icon: Icons.close,
                         ),
                       ],
                     ),
-                  ),
-              ],
+                    if (_showReplace)
+                      Padding(
+                        padding: const EdgeInsets.only(
+                          left: _iconButtonSize + _controlGap,
+                          top: 5,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: _editorField(
+                                key: const ValueKey('find-replacement-control'),
+                                controller: _replaceField,
+                                hintText: '替换为',
+                                onChanged: controller.setReplacement,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            SizedBox(
+                              height: _actionButtonHeight,
+                              child: OutlinedButton(
+                                style: _actionButtonStyle(outlined: true),
+                                onPressed: controller.currentMatch == null
+                                    ? null
+                                    : _replaceCurrent,
+                                child: const Text('替换'),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            SizedBox(
+                              height: _actionButtonHeight,
+                              child: FilledButton.tonal(
+                                style: _actionButtonStyle(outlined: false),
+                                onPressed: controller.matchCount == 0
+                                    ? null
+                                    : _replaceAll,
+                                child: const Text('全部'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _editorField({
+    required Key key,
+    required TextEditingController controller,
+    required String hintText,
+    FocusNode? focusNode,
+    String? trailingText,
+    TextInputAction? textInputAction,
+    ValueChanged<String>? onChanged,
+    ValueChanged<String>? onSubmitted,
+  }) {
+    final theme = Theme.of(context);
+    final textStyle = theme.textTheme.bodyMedium?.copyWith(height: 1);
+    return SizedBox(
+      key: key,
+      height: _controlHeight,
+      child: TextField(
+        controller: controller,
+        focusNode: focusNode,
+        autofocus: identical(focusNode, _patternFocusNode),
+        expands: true,
+        minLines: null,
+        maxLines: null,
+        style: textStyle,
+        textAlignVertical: TextAlignVertical.center,
+        textInputAction: textInputAction,
+        decoration: _fieldDecoration(
+          theme,
+          hintText: hintText,
+          trailingText: trailingText,
+        ),
+        onChanged: onChanged,
+        onSubmitted: onSubmitted,
+      ),
+    );
+  }
+
+  InputDecoration _fieldDecoration(
+    ThemeData theme, {
+    required String hintText,
+    String? trailingText,
+  }) {
+    final colors = theme.colorScheme;
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(3),
+      borderSide: BorderSide(color: colors.outlineVariant),
+    );
+    return InputDecoration(
+      isDense: true,
+      isCollapsed: false,
+      filled: true,
+      fillColor: colors.surfaceContainerLow,
+      hoverColor: colors.onSurface.withValues(alpha: 0.035),
+      hintText: hintText,
+      hintStyle: theme.textTheme.bodyMedium?.copyWith(
+        color: colors.onSurfaceVariant,
+        height: 1,
+      ),
+      suffixText: trailingText,
+      suffixStyle: theme.textTheme.labelMedium?.copyWith(
+        color: colors.onSurfaceVariant,
+        height: 1,
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+      constraints: const BoxConstraints.tightFor(height: _controlHeight),
+      border: border,
+      enabledBorder: border,
+      focusedBorder: border.copyWith(
+        borderSide: BorderSide(color: colors.primary, width: 1.2),
+      ),
+      disabledBorder: border,
+    );
+  }
+
+  Widget _compactIconButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onPressed,
+    bool active = false,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox.square(
+      dimension: _iconButtonSize,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        isSelected: active,
+        color: active ? colors.onPrimaryContainer : colors.onSurfaceVariant,
+        disabledColor: colors.onSurface.withValues(alpha: 0.38),
+        selectedIcon: Icon(icon, size: 17),
+        icon: Icon(icon, size: 17),
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(_iconButtonSize),
+          maximumSize: const Size.square(_iconButtonSize),
+          fixedSize: const Size.square(_iconButtonSize),
+          padding: EdgeInsets.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+          backgroundColor: active ? colors.primaryContainer : null,
+          hoverColor: colors.onSurface.withValues(alpha: 0.06),
+          highlightColor: colors.onSurface.withValues(alpha: 0.09),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+        ),
+      ),
+    );
+  }
+
+  ButtonStyle _actionButtonStyle({required bool outlined}) {
+    final colors = Theme.of(context).colorScheme;
+    return ButtonStyle(
+      minimumSize: const WidgetStatePropertyAll(Size(0, _actionButtonHeight)),
+      maximumSize: const WidgetStatePropertyAll(
+        Size(double.infinity, _actionButtonHeight),
+      ),
+      padding: const WidgetStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 10),
+      ),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      textStyle: WidgetStatePropertyAll(
+        Theme.of(context).textTheme.labelMedium,
+      ),
+      iconSize: const WidgetStatePropertyAll(15),
+      shape: const WidgetStatePropertyAll(
+        RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(3)),
+        ),
+      ),
+      side: outlined
+          ? WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.disabled)) {
+                return BorderSide(
+                  color: colors.onSurface.withValues(alpha: 0.12),
+                );
+              }
+              return BorderSide(color: colors.outlineVariant);
+            })
+          : const WidgetStatePropertyAll(BorderSide.none),
     );
   }
 

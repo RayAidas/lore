@@ -141,8 +141,10 @@ final class NovelSearchController extends ChangeNotifier {
     // 又冒出来）。
     _searchGeneration += 1;
     _debounce?.cancel();
+    // 查询条件已经变化，旧结果不再对应当前 pattern / flags。立即清空，避免
+    // 防抖或异步搜索期间点击旧结果，却用新查询执行章节定位。
+    _results = const [];
     if (_pattern.isEmpty) {
-      _results = const [];
       _searching = false;
       return;
     }

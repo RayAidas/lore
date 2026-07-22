@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_app/features/preferences/preferences_providers.dart';
 import 'package:lore_app/features/workspace/document_pane.dart';
 import 'package:lore_app/features/workspace/chapter_title_bar.dart';
+import 'package:lore_app/features/workspace/novel_search_controller.dart';
 import 'package:lore_app/features/workspace/workspace_controller.dart';
 import 'package:lore_app/features/workspace/workspace_novel_store.dart';
 import 'package:lore_application/lore_application.dart';
@@ -47,6 +48,40 @@ void main() {
 
     expect(controller.tabs, isEmpty); // 触发 _tabsStore
     expect(controller.diffTarget, isNull); // 触发 _historyStore
+  });
+
+  test('new novel search query clears stale results immediately', () async {
+    final snapshot = _chapterNovelSnapshot();
+    final repository = _MemoryWorkspaceRepository()..diskText = '第1章\n正文段';
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+      novelStructureService: NovelStructureService(
+        novelRepository: _FakeNovelRepository(snapshot),
+        contentTreeRepository: _FakeContentTreeRepository(snapshot),
+      ),
+    );
+    final search = NovelSearchController(
+      workspace: controller,
+      session: session,
+    );
+    addTearDown(repository.dispose);
+    addTearDown(search.dispose);
+    addTearDown(controller.dispose);
+
+    await controller.initialize();
+    await controller.openPath('我的小说/正文/第1章.txt');
+    search.setPattern('正文');
+    await search.runSearch();
+    expect(search.results, isNotEmpty);
+
+    search.setPattern('新查询');
+    expect(search.results, isEmpty);
+    expect(search.searching, isTrue);
   });
 
   testWidgets('auto-save persists the latest editor snapshot', (tester) async {

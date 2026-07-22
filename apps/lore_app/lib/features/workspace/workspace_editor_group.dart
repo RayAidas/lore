@@ -159,44 +159,60 @@ final class WorkspaceEditorGroup extends StatelessWidget {
               ),
             if (hideTabs) const SizedBox.shrink() else const Divider(height: 1),
             Expanded(
-              child: showStructure
-                  ? NovelStructurePane(
-                      controller: controller,
-                      snapshot: selectedNovel,
-                      selectedEntry: selectedEntry!,
-                      onFailure: callbacks.onStructureFailure,
-                    )
-                  : activeDocument != null
-                  ? DocumentPane(
-                      controller: controller,
-                      document: activeDocument,
-                      session: session,
-                      onReloadConflict: () =>
-                          callbacks.onReloadConflict(activeDocument),
-                      // hideTabs 仅在全屏为真：文档工具条显示「退出全屏」入口。
-                      onToggleFullscreen: hideTabs
-                          ? callbacks.onToggleFullscreen
-                          : null,
-                    )
-                  : ColoredBox(
-                      color: Theme.of(context).colorScheme.surface,
-                      child: Center(
-                        child: EmptyWorkspace(
-                          hasSelection: controller.selectedPath != null,
-                          selectedPath: controller.selectedPath,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: showStructure
+                        ? NovelStructurePane(
+                            controller: controller,
+                            snapshot: selectedNovel,
+                            selectedEntry: selectedEntry!,
+                            onFailure: callbacks.onStructureFailure,
+                          )
+                        : activeDocument != null
+                        ? DocumentPane(
+                            controller: controller,
+                            document: activeDocument,
+                            session: session,
+                            onReloadConflict: () =>
+                                callbacks.onReloadConflict(activeDocument),
+                            // hideTabs 仅在全屏为真：文档工具条显示「退出全屏」入口。
+                            onToggleFullscreen: hideTabs
+                                ? callbacks.onToggleFullscreen
+                                : null,
+                          )
+                        : ColoredBox(
+                            color: Theme.of(context).colorScheme.surface,
+                            child: Center(
+                              child: EmptyWorkspace(
+                                hasSelection: controller.selectedPath != null,
+                                selectedPath: controller.selectedPath,
+                              ),
+                            ),
+                          ),
+                  ),
+                  if (findController != null &&
+                      activeDocument != null &&
+                      groupId == controller.focusedGroupId)
+                    Positioned(
+                      top: 56,
+                      right: 12,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 440),
+                        child: SizedBox(
+                          width: 440,
+                          child: FindReplaceOverlay(
+                            findController: findController!,
+                            editorController: activeDocument.editorController,
+                            initialShowReplace: findReplaceMode,
+                            onClose: callbacks.onCloseFindReplace,
+                          ),
                         ),
                       ),
                     ),
-            ),
-            if (findController != null &&
-                activeDocument != null &&
-                groupId == controller.focusedGroupId)
-              FindReplaceOverlay(
-                findController: findController!,
-                editorController: activeDocument.editorController,
-                initialShowReplace: findReplaceMode,
-                onClose: callbacks.onCloseFindReplace,
+                ],
               ),
+            ),
           ],
         ),
       ),
