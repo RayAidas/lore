@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_editor/lore_editor.dart';
 
@@ -45,5 +46,16 @@ void main() {
 
     controller.replaceFromDisk('磁盘 版本');
     expect(controller.characterCount, 4); // '磁盘版本'（覆盖 replaceFromDisk 路径）
+  });
+
+  test('characterCount is stable across selection-only changes', () {
+    final controller = LoreTextController(text: 'abc def');
+    addTearDown(controller.dispose);
+    expect(controller.characterCount, 6); // 'abcdef'
+    final versionBefore = controller.editVersion;
+    controller.selection = const TextSelection.collapsed(offset: 2);
+    // 仅 selection 变化：不进 set value 的 textChanged 分支，缓存与版本都不动。
+    expect(controller.characterCount, 6);
+    expect(controller.editVersion, versionBefore);
   });
 }
