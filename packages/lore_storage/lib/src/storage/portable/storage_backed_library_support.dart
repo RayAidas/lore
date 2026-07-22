@@ -848,14 +848,57 @@ mixin _StorageBackedLibrarySupport {
 
   String _validName(String value) {
     final trimmed = value.trim();
+    // 结果直接用作文件系统路径段（小说/卷目录、章节文件名），故按跨平台
+    // 文件名规则严校验：与 ChapterTitleText.filenameIllegalChars 同集（含
+    // 控制字符），另拦 Windows 保留名与超长名——避免 mac 建档后同步到
+    // Windows/Android 失败，或落盘时抛原始 IOException 而非 invalidName。
     if (trimmed.isEmpty ||
         trimmed.startsWith('.') ||
-        trimmed.contains('/') ||
-        trimmed.contains(r'\')) {
+        ChapterTitleText.filenameIllegalChars.hasMatch(trimmed) ||
+        _isReservedName(trimmed) ||
+        utf8.encode(trimmed).length > _maxNameBytes) {
       throw _invalidName('名称无效。');
     }
     return trimmed;
   }
+
+  /// 单段名称的 UTF-8 字节上限（APFS/HFS+/NTFS 均为 255）。
+  static const _maxNameBytes = 255;
+
+  bool _isReservedName(String name) {
+    final ext = _extension(name);
+    final stem = ext.isEmpty
+        ? name
+        : name.substring(0, name.length - ext.length);
+    return _windowsReservedNames.contains(stem.toUpperCase());
+  }
+
+  /// Windows 保留设备名：本地优先架构下 mac 建档可能同步到 Windows/Android，
+  /// 这些名在该平台会创建失败或映射到设备，按 stem（不含扩展名）防御性拒绝。
+  static const _windowsReservedNames = <String>{
+    'CON',
+    'PRN',
+    'AUX',
+    'NUL',
+    'COM1',
+    'COM2',
+    'COM3',
+    'COM4',
+    'COM5',
+    'COM6',
+    'COM7',
+    'COM8',
+    'COM9',
+    'LPT1',
+    'LPT2',
+    'LPT3',
+    'LPT4',
+    'LPT5',
+    'LPT6',
+    'LPT7',
+    'LPT8',
+    'LPT9',
+  };
 
   int _maxNumber(Iterable<ContentNode> nodes) => nodes.fold(
     0,

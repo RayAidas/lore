@@ -785,6 +785,63 @@ void main() {
     expect(oversized.number, isNull); // int.tryParse 失败 → 视为无号
   });
 
+  test('rejects names with filesystem-illegal characters', () async {
+    await repository.initialize(access);
+    const invalids = <String>[
+      'a/b',
+      'a\\b',
+      'a:b',
+      'a*b',
+      'a?b',
+      'a"b',
+      'a<b',
+      'a>b',
+      'a|b',
+      '.hidden',
+      'a\x00b',
+      'a\nb',
+    ];
+    for (final invalid in invalids) {
+      await expectLater(
+        repository.createNovel(access, title: invalid),
+        throwsA(
+          isA<LibraryOperationException>().having(
+            (e) => e.failure.code,
+            'code',
+            LibraryFailureCode.invalidName,
+          ),
+        ),
+      );
+    }
+  });
+
+  test('rejects Windows-reserved and oversized names', () async {
+    await repository.initialize(access);
+    const reserved = ['CON', 'nul', 'AUX.txt', 'COM5', 'lpt1'];
+    for (final name in reserved) {
+      await expectLater(
+        repository.createNovel(access, title: name),
+        throwsA(
+          isA<LibraryOperationException>().having(
+            (e) => e.failure.code,
+            'code',
+            LibraryFailureCode.invalidName,
+          ),
+        ),
+      );
+    }
+    await expectLater(
+      repository.createNovel(access, title: 'x' * 256),
+      throwsA(
+        isA<LibraryOperationException>().having(
+          (e) => e.failure.code,
+          'code',
+          LibraryFailureCode.invalidName,
+        ),
+      ),
+    );
+  });
+
   test('rejects direct access to internal metadata', () async {
     await repository.initialize(access);
 
