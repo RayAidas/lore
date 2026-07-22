@@ -74,91 +74,72 @@ final class _ChapterTitleBarState extends State<ChapterTitleBar> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final titleStyle =
-        theme.textTheme.titleLarge?.copyWith(
-          fontSize: widget.style.titleFontSize,
-          fontWeight: widget.style.titleFontWeight,
-          height: widget.style.titleLineHeight,
-          letterSpacing: widget.style.letterSpacing,
-          fontFamily: widget.style.fontFamily,
-          fontFamilyFallback: widget.style.fontFamilyFallback,
-          color: colorScheme.onSurface,
-        ) ??
-        TextStyle(
-          fontSize: widget.style.titleFontSize,
-          fontWeight: widget.style.titleFontWeight,
-          fontFamily: widget.style.fontFamily,
-          fontFamilyFallback: widget.style.fontFamilyFallback,
-        );
-    // 与正文编辑器同款宽度约束 + 水平内边距：ConstrainedBox 把宽度封顶到
-    // contentWidth（窄视口下随父约束收窄），52 内边距置于封顶**之内**。这样无论
-    // 挂在外层全宽 Column（.md 编辑/预览）还是编辑器滚动视口的 header（.txt），
-    // 标题左缘都与正文左缘对齐，且不会溢出父约束。
-    return Align(
-      alignment: Alignment.topCenter,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: widget.style.contentWidth),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            52,
-            42,
-            52,
-            widget.style.titleBottomSpacing,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Text(
-                ChapterTitleText.prefix(widget.chapterNumber),
+    final titleStyle = EditorTypography.titleText(widget.style, theme);
+    // 与正文编辑器同款宽度约束 + 水平内边距：contentFrame 把宽度封顶到
+    // contentWidth（窄视口下随父约束收窄），readingInset 内边距置于封顶**之内**。
+    // 这样无论挂在外层全宽 Column（.md 编辑/预览）还是编辑器滚动视口的 header
+    //（.txt），标题左缘都与正文左缘对齐，且不会溢出父约束。几何来自 EditorTypography
+    // 单一来源，与 diff 视图共用，杜绝漂移。
+    return EditorTypography.contentFrame(
+      widget.style,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          EditorTypography.readingInset,
+          EditorTypography.titleTopInset,
+          EditorTypography.readingInset,
+          widget.style.titleBottomSpacing,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              ChapterTitleText.prefix(widget.chapterNumber),
+              style: titleStyle,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                autofocus: widget.autofocusSubtitle,
+                maxLines: 1,
+                minLines: 1,
+                // 用 done 而非 next：next 会触发 Flutter 默认的焦点遍历，
+                // 把焦点送到目录树等下一个可聚焦控件。done 仅触发 onSubmitted，
+                // 由我们在其中显式把焦点交给正文。
+                textInputAction: TextInputAction.done,
+                textAlign: TextAlign.start,
+                // 副标题会成为文件名的一部分：输入即按 sanitizeForFilename 的
+                // 同一套非法字符集剥掉，使「文件首行」与「文件名」保持一致。
+                inputFormatters: [
+                  FilteringTextInputFormatter.deny(
+                    ChapterTitleText.filenameIllegalChars,
+                  ),
+                ],
                 style: titleStyle,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  autofocus: widget.autofocusSubtitle,
-                  maxLines: 1,
-                  minLines: 1,
-                  // 用 done 而非 next：next 会触发 Flutter 默认的焦点遍历，
-                  // 把焦点送到目录树等下一个可聚焦控件。done 仅触发 onSubmitted，
-                  // 由我们在其中显式把焦点交给正文。
-                  textInputAction: TextInputAction.done,
-                  textAlign: TextAlign.start,
-                  // 副标题会成为文件名的一部分：输入即按 sanitizeForFilename 的
-                  // 同一套非法字符集剥掉，使「文件首行」与「文件名」保持一致。
-                  inputFormatters: [
-                    FilteringTextInputFormatter.deny(
-                      ChapterTitleText.filenameIllegalChars,
-                    ),
-                  ],
-                  style: titleStyle,
-                  cursorColor: EditorCaret.color(colorScheme),
-                  cursorWidth: EditorCaret.width,
-                  cursorRadius: EditorCaret.radius,
-                  cursorHeight: EditorCaret.heightFor(
-                    widget.style.titleFontSize,
-                  ),
-                  decoration: const InputDecoration(
-                    isCollapsed: true,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    filled: false,
-                  ),
-                  onChanged: (value) {
-                    if (_syncing) {
-                      return;
-                    }
-                    widget.onChanged(value);
-                  },
-                  onSubmitted: (_) => widget.onEnter?.call(),
+                cursorColor: EditorCaret.color(colorScheme),
+                cursorWidth: EditorCaret.width,
+                cursorRadius: EditorCaret.radius,
+                cursorHeight: EditorCaret.heightFor(widget.style.titleFontSize),
+                decoration: const InputDecoration(
+                  isCollapsed: true,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  filled: false,
                 ),
+                onChanged: (value) {
+                  if (_syncing) {
+                    return;
+                  }
+                  widget.onChanged(value);
+                },
+                onSubmitted: (_) => widget.onEnter?.call(),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

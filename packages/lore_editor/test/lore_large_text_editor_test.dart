@@ -1311,12 +1311,11 @@ void main() {
     'grid line layer mounts only for non-none mode and skips first paragraph '
     'top',
     (tester) async {
-      // 直接定位网格 painter（私有类，按 runtimeType 匹配）；drawTopLine 经
-      // dynamic 读取——若类被重命名，本测试需同步更新。
+      // 定位网格 painter（TextGridLinePainter，与 diff 视图共用）。drawTopLine 经
+      // dynamic 读取。
       Finder gridPainters() => find.byWidgetPredicate(
         (widget) =>
-            widget is CustomPaint &&
-            widget.painter?.runtimeType.toString() == '_BlockGridLinePainter',
+            widget is CustomPaint && widget.painter is TextGridLinePainter,
       );
 
       final controller = LoreLargeTextController(text: '第一段\n第二段');

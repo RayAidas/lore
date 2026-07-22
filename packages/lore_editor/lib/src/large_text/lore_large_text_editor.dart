@@ -6,7 +6,10 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:lore_domain/lore_domain.dart';
 
+import '../annotation/grid_line_painter.dart';
+import '../annotation/text_annotation.dart';
 import '../editor_style.dart';
+import '../editor_typography.dart';
 import 'lore_large_text_controller.dart';
 import 'pasted_text_normalizer.dart';
 
@@ -17,9 +20,6 @@ const String _paragraphIndent = paragraphIndent;
 /// Tab 缩进：单全角空格（U+3000），即中文排版「一个字」的宽度，也是
 /// [_paragraphIndent] 的基本单位。按 Tab 在光标处插入一个；选区非空时替换选区。
 const String _tabIndent = '　';
-
-/// 单个 block 内的局部高亮区间:已 clamp 到本 block 坐标,颜色已含渲染透明度。
-typedef _LocalHighlight = ({int start, int end, Color color});
 
 final class LoreLargeTextEditor extends StatefulWidget {
   const LoreLargeTextEditor({
@@ -1146,36 +1146,38 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
   /// 落在本 block 内的高亮子集:全局区间与 `[blockStart, blockStart+blockLength)`
   /// 求交、平移到局部坐标,颜色叠加渲染透明度。跨 chunk 边界的高亮自动分摊到
   /// 各 block(每块只画交集)。
-  List<_LocalHighlight> _localHighlightsForBlock(
+  ///
+  /// 输出为统一的 [TextAnnotation]（仅 background）——highlight 与 diff 共用此
+  /// 标注模型，由 `_BlockHighlightPainter` 按背景色绘制。
+  List<TextAnnotation> _localHighlightsForBlock(
     int blockStart,
     int blockLength,
   ) {
     final highlights = widget.documentController.highlights;
     if (highlights.isEmpty || blockLength == 0) return const [];
     final blockEnd = blockStart + blockLength;
-    final result = <_LocalHighlight>[];
+    final result = <TextAnnotation>[];
     for (final h in highlights) {
       if (h.end <= blockStart || h.start >= blockEnd) continue;
       final localStart = (h.start - blockStart).clamp(0, blockLength);
       final localEnd = (h.end - blockStart).clamp(0, blockLength);
       if (localEnd <= localStart) continue;
-      result.add((
-        start: localStart,
-        end: localEnd,
-        color: Color(h.colorArgb).withValues(alpha: 0.35),
-      ));
+      result.add(
+        TextAnnotation(
+          start: localStart,
+          end: localEnd,
+          background: Color(h.colorArgb).withValues(alpha: 0.35),
+        ),
+      );
     }
     return result;
   }
 
   @override
   Widget build(BuildContext context) {
-    final textStyle = Theme.of(context).textTheme.bodyLarge?.copyWith(
-      height: widget.style.lineHeight,
-      fontSize: widget.style.fontSize,
-      letterSpacing: widget.style.letterSpacing,
-      fontFamily: widget.style.fontFamily,
-      fontFamilyFallback: widget.style.fontFamilyFallback,
+    final textStyle = EditorTypography.bodyText(
+      widget.style,
+      Theme.of(context),
     );
     final blockStart = widget.documentController.blockStart(widget.blockIndex);
     final selection = widget.documentController.selection;
@@ -1208,7 +1210,7 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
           Positioned.fill(
             child: IgnorePointer(
               child: CustomPaint(
-                painter: _BlockGridLinePainter(
+                painter: TextGridLinePainter(
                   mode: gridLineMode,
                   color: Theme.of(
                     context,
@@ -1363,7 +1365,7 @@ final class _BlockHighlightPainter extends CustomPainter {
 
   final String text;
   final TextStyle? style;
-  final List<_LocalHighlight> highlights;
+  final List<TextAnnotation> highlights;
   final TextDirection textDirection;
   final TextScaler textScaler;
   final TextPainter Function(double width) layoutFor;
@@ -1372,11 +1374,13 @@ final class _BlockHighlightPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (highlights.isEmpty || text.isEmpty) return;
     final painter = layoutFor(size.width);
-    for (final h in highlights) {
-      final paint = Paint()..color = h.color;
+    for (final a in highlights) {
+      final bg = a.background;
+      if (bg == null) continue;
+      final paint = Paint()..color = bg;
       // TextPainter 无 getBoxesForRange;用 getBoxesForSelection 传入 [start,end)
       // 区间(非 collapsed,无 caret 矩形),与 _BlockSelectionPainter 同源。
-      final selection = TextSelection(baseOffset: h.start, extentOffset: h.end);
+      final selection = TextSelection(baseOffset: a.start, extentOffset: a.end);
       for (final box in painter.getBoxesForSelection(selection)) {
         canvas.drawRect(box.toRect(), paint);
       }
@@ -1386,102 +1390,12 @@ final class _BlockHighlightPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _BlockHighlightPainter oldDelegate) {
     // 故意不比较 layoutFor(闭包无有意义相等性,其输入已被 text/style/...覆盖)。
+    // TextAnnotation 有值相等,listEquals 按值比较两轮标注列表。
     return oldDelegate.text != text ||
         oldDelegate.style != style ||
         oldDelegate.textDirection != textDirection ||
         oldDelegate.textScaler != textScaler ||
         !listEquals(oldDelegate.highlights, highlights);
-  }
-}
-
-/// 段落网格线：在每行文字底部画一条横线（实线/虚线）。[drawTopLine] 为真时
-/// 在 block 顶部 y=0 补一条，代表上一段空行底部——即本段上方的网格线；首段
-/// 不画。复用 [_LargeTextBlockFieldState._layoutPainterFor] 缓存的已 layout
-/// painter 取行高，使网格线与文字行底对齐。
-final class _BlockGridLinePainter extends CustomPainter {
-  _BlockGridLinePainter({
-    required this.mode,
-    required this.color,
-    required this.drawTopLine,
-    required this.text,
-    required this.style,
-    required this.textDirection,
-    required this.textScaler,
-    required this.layoutFor,
-  });
-
-  final GridLineMode mode;
-  final Color color;
-  final bool drawTopLine;
-  final String text;
-  // style/textDirection/textScaler 仅用于 shouldRepaint 比较——paint 不自己
-  // layout，而是通过 [layoutFor] 借用 state 缓存的已 layout painter。
-  final TextStyle? style;
-  final TextDirection textDirection;
-  final TextScaler textScaler;
-  final TextPainter Function(double width) layoutFor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (mode == GridLineMode.none || size.isEmpty) return;
-    final painter = layoutFor(size.width);
-    final lineHeight = painter.preferredLineHeight;
-    if (lineHeight <= 0) return;
-    // block 实际高度除以行高 → 视觉行数（TextField minLines:1 保证至少 1）。
-    // 上限 10000 远超单 block 现实行数——长段在 controller 层已按
-    // [ChunkedTextBuffer.targetChunkLength] 拆成多 block，此处仅防 lineHeight
-    // 趋近 0 的病态值把行数放大。
-    final rows = (size.height / lineHeight).round().clamp(1, 10000);
-    const strokeWidth = 0.6;
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = strokeWidth
-      ..style = PaintingStyle.stroke;
-
-    // 收集所有横线的 y：顶部线（偏移半个线宽，避免描边上半被 canvas 顶部裁掉
-    // 而比行底线细一半）+ 每行底部（末行贴 block 底吸收 sub-pixel）。
-    final ys = <double>[
-      if (drawTopLine) strokeWidth / 2,
-      for (var i = 1; i <= rows; i += 1)
-        i == rows ? size.height : i * lineHeight,
-    ];
-
-    // 所有线段并入单个 [Path]、一次 [Canvas.drawPath] 提交。dashed 下尤其关键：
-    // 原先每行 × 每 dash 一次 [Canvas.drawLine]（900px × 20 行 ≈ 2.4k 次/块/帧），
-    // 合并后每 block 仅一次 draw 调用。
-    final path = Path();
-    if (mode == GridLineMode.dashed) {
-      const dash = 4.0;
-      const step = dash + 4.0; // dash + gap
-      for (final y in ys) {
-        for (var x = 0.0; x < size.width; x += step) {
-          final end = x + dash < size.width ? x + dash : size.width;
-          path.moveTo(x, y);
-          path.lineTo(end, y);
-        }
-      }
-    } else {
-      for (final y in ys) {
-        path.moveTo(0, y);
-        path.lineTo(size.width, y);
-      }
-    }
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _BlockGridLinePainter oldDelegate) {
-    // 故意不比较 [layoutFor]：闭包无有意义的相等性，其输入已被
-    // text/style/textDirection/textScaler 覆盖，这些字段变自然重绘。
-    // 另未比较画布宽度：contentWidth 调整或窗口缩放改变 width 时，
-    // [RenderCustomPaint] 会因 size 变化触发重绘，故无需在此显式比较。
-    return oldDelegate.mode != mode ||
-        oldDelegate.color != color ||
-        oldDelegate.drawTopLine != drawTopLine ||
-        oldDelegate.text != text ||
-        oldDelegate.style != style ||
-        oldDelegate.textDirection != textDirection ||
-        oldDelegate.textScaler != textScaler;
   }
 }
 
