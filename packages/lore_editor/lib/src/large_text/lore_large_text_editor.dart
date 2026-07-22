@@ -1301,7 +1301,23 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
       // 专注模式：淡化非当前段落。Opacity 不影响命中测试，点击淡化段落
       // 仍可聚焦它，焦点移过去后该段恢复全不透明。content 含网格线层，故网格
       // 线随文字一并淡化（视觉一致：网格线属于段落而非全局辅助）。
-      child: widget.dimmed ? Opacity(opacity: 0.28, child: content) : content,
+      //
+      // 关键：专注模式开启时 Opacity 包裹必须始终存在、只切换 opacity 数值，而非
+      // 按 dimmed 条件增删。否则淡化↔恢复会让此 Focus 的子树类型在 Opacity↔Stack
+      // 间切换，Flutter 因 runtimeType 不同无法 reconcile，遂销毁并重建整个 content
+      // 子树——含 TextField 内部的 EditableText 及其持有光标闪烁计时器的 State。block
+      // 的 FocusNode 归 _LargeTextBlockFieldState 所有、跨重建保留，hasFocus 仍为
+      // 真，但新生的 EditableText 收不到焦点「变化」事件（焦点在它诞生前已设置），
+      // 光标闪烁永不启动 → 专注模式下点击段落只激活却不显光标，需移位再点一次才
+      // 出现，方向键跨段同样丢光标。
+      //
+      // 守卫挂在 style.focusMode（模式级，开启后基本恒定）而非 dimmed（每次光标
+      // 跨段都变）：专注模式内子树恒为 Opacity，dimmed 仅改数值、不重建子树；专注
+      // 模式关闭则根本不包 Opacity，默认渲染与改前一致、零额外 RenderObject。模式
+      // 偶发切换时一次性重建无妨（光标下次交互即恢复）。
+      child: widget.style.focusMode
+          ? Opacity(opacity: widget.dimmed ? 0.28 : 1.0, child: content)
+          : content,
     );
   }
 }

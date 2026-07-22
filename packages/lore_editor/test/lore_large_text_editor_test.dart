@@ -1498,6 +1498,81 @@ void main() {
   });
 
   testWidgets(
+    'focus mode keeps the caret visible after focusing a dimmed paragraph',
+    (tester) async {
+      // 回归：专注模式下点击淡化段后，光标必须立即可见，而非要点第二下。根因——
+      // 若按 widget.dimmed 条件增删 Opacity 包裹，淡化↔恢复切换会让 Focus 子树
+      // 类型在 Opacity↔Stack 间变化，Flutter 因 runtimeType 不同无法 reconcile，
+      // 遂销毁并重建 content 子树（含 TextField 内部的 EditableText 及其持有光标
+      // 闪烁计时器的 State）。block 的 FocusNode 归 _LargeTextBlockFieldState 所有、
+      // 跨重建保留，hasFocus 仍真，但新生的 EditableText 收不到焦点「变化」事件
+      // （焦点在它诞生前已设置），光标闪烁永不启动 → 点段落只激活却不显光标，需
+      // 移位再点一次才出现；方向键跨段同理丢光标。修复让 Opacity 恒在、仅切数值。
+      //
+      // widget 测试无法直接观测光标闪烁（blink 状态藏在 EditableText 内部、非公开），
+      // 故从两条互补路径锁定「光标可见」，任一被破坏都会让光标不可见：
+      // ① 可观测的透明度——光标所在段为全不透明、非 Opacity(0.28)（淡化段里的光标
+      //    「几乎不可见」，见 autofocus 测试注释）；
+      // ② 结构前提——被聚焦段的 EditableText 元素在淡化切换前后保持同一实例（未被
+      //    销毁重建，光标闪烁计时器得以保留）。修复前 ② 的 identical 为 false。
+      final controller = LoreLargeTextController(text: '第一段\n第二段\n第三段');
+      final scrollController = ScrollController();
+      addTearDown(controller.dispose);
+      addTearDown(scrollController.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: SizedBox(
+              width: 800,
+              height: 500,
+              child: LoreLargeTextEditor(
+                controller: controller,
+                scrollController: scrollController,
+                style: const EditorStyle.defaults().copyWith(focusMode: true),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // 初始 selection 在末尾（block 2 激活、未淡化），block 1 被淡化。记下 block 1
+      // 的 EditableText 元素身份（淡化态下已存在）。
+      final editableBefore = tester.element(find.byType(EditableText).at(1));
+
+      // 点 block 1：它由淡化→恢复（focus 落入），触发淡化切换——正是踩 bug 的路径。
+      await tester.tap(find.byType(TextField).at(1));
+      await tester.pumpAndSettle();
+
+      // ① 可观测：光标所在段（block 1）须为全不透明——不被 Opacity(0.28) 包裹。
+      expect(
+        find
+            .ancestor(
+              of: find.byType(TextField).at(1),
+              matching: find.byWidgetPredicate(
+                (widget) => widget is Opacity && widget.opacity == 0.28,
+              ),
+            )
+            .evaluate(),
+        isEmpty,
+      );
+
+      // block 1 已获焦（既有断言，跨重建仍成立，不足以挡住本 bug）。
+      expect(
+        tester
+            .widget<TextField>(find.byType(TextField).at(1))
+            .focusNode!
+            .hasFocus,
+        isTrue,
+      );
+      // ② 结构前提：block 1 的 EditableText 元素未被重建（仍为同一实例）。子树就地
+      // 更新而非销毁重建，光标闪烁计时器得以保留 → 光标可见。
+      final editableAfter = tester.element(find.byType(EditableText).at(1));
+      expect(identical(editableBefore, editableAfter), isTrue);
+    },
+  );
+
+  testWidgets(
     'multi-line paste before an indented paragraph keeps the pasted top line unindented',
     (tester) async {
       // inserted != '\n'（多行粘贴）不触发前置分支，走原 expansions：上方粘贴行
