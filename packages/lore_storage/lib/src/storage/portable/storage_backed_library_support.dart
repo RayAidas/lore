@@ -743,7 +743,7 @@ mixin _StorageBackedLibrarySupport {
     LibraryStorageSession storage,
     List<NovelRegistration>? Function(List<NovelRegistration> current) mutate,
   ) async {
-    for (var attempt = 0; attempt <= _manifestWriteAttempts; attempt++) {
+    for (var attempt = 1; attempt <= _manifestWriteAttempts; attempt++) {
       try {
         final library = await _readJson(storage, _libraryManifest);
         final next = mutate(_registrations(library));
@@ -753,7 +753,7 @@ mixin _StorageBackedLibrarySupport {
       } on LibraryOperationException catch (error) {
         final retriable =
             error.failure.code == LibraryFailureCode.externalModification;
-        if (!retriable || attempt == _manifestWriteAttempts) rethrow;
+        if (!retriable || attempt >= _manifestWriteAttempts) rethrow;
       }
     }
   }

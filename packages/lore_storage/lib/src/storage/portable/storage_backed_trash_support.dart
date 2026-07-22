@@ -142,7 +142,7 @@ mixin _StorageBackedTrashSupport on _StorageBackedLibrarySupport {
     LibraryStorageSession storage,
     List<_TrashRecord>? Function(List<_TrashRecord> current) mutate,
   ) async {
-    for (var attempt = 0; attempt <= _trashWriteAttempts; attempt++) {
+    for (var attempt = 1; attempt <= _trashWriteAttempts; attempt++) {
       try {
         final records = await _trashRecords(storage);
         final next = mutate(records);
@@ -152,7 +152,7 @@ mixin _StorageBackedTrashSupport on _StorageBackedLibrarySupport {
       } on LibraryOperationException catch (error) {
         final retriable =
             error.failure.code == LibraryFailureCode.externalModification;
-        if (!retriable || attempt == _trashWriteAttempts) rethrow;
+        if (!retriable || attempt >= _trashWriteAttempts) rethrow;
       }
     }
   }

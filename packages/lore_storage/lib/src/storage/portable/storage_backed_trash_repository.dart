@@ -95,6 +95,10 @@ mixin _StorageBackedTrashRepository
     if (await storage.stat(tokenRoot) != null) {
       await storage.delete(tokenRoot, recursive: true);
     }
+    // restore 的 manifest 写不走 _modifyTrashRecords：occupant 是「先 move 进
+    // 回收站、后落盘」,_modifyTrashRecords 内部的孤儿协调会把已 move 但未
+    // 记录的 occupant 误判为孤儿并用末段路径补登记,与这里的全路径补记冲突。
+    // 故沿用直接写(occupant 已在 records 内存列表中)。
     records.removeAt(index);
     await _writeTrashRecords(storage, records);
     return _copyTrashItem(record.item, originalPath: target.value);
@@ -207,8 +211,10 @@ mixin _StorageBackedTrashRepository
     if (await storage.stat(tokenRoot) != null) {
       await storage.delete(tokenRoot, recursive: true);
     }
-    records.removeAt(index);
-    await _writeTrashRecords(storage, records);
+    await _modifyTrashRecords(
+      storage,
+      (current) => current.where((r) => r.item.token != trashToken).toList(),
+    );
   }
 
   @override
@@ -221,6 +227,6 @@ mixin _StorageBackedTrashRepository
         await storage.delete(tokenRoot, recursive: true);
       }
     }
-    await _writeTrashRecords(storage, const []);
+    await _modifyTrashRecords(storage, (_) => const []);
   }
 }
