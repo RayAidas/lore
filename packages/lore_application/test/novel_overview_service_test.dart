@@ -114,6 +114,26 @@ void main() {
     expect(overview.volumeSummaries.single.characterCount, 13); // 10 + 3
   });
 
+  test('excludes chapters whose document read fails from the total', () async {
+    final now = DateTime.utc(2026, 7, 17);
+    final service = NovelOverviewService(
+      novelRepository: _FakeNovelRepository(snapshot()),
+      documentRepository: _FakeDocumentRepository({
+        'novel/正文/序章.md': 'hello', // 5
+        'novel/正文/第一卷/第1章.md': 'hello world', // 10
+        // 第2章故意缺失 → readDocument 抛 LibraryOperationException。
+      }),
+      clock: _FixedClock(now),
+    );
+
+    final overview = await service.computeOverview(session, novelId: novelId);
+
+    // 失败章不崩溃、不计入总数：5 + 10 = 15（第2章被排除，而非误记为 0）。
+    expect(overview.chapterCount, 3);
+    expect(overview.totalCharacterCount, 15);
+    expect(overview.volumeSummaries.single.characterCount, 10); // 仅第1章
+  });
+
   test('reports zero today when progress repository absent', () async {
     final service = NovelOverviewService(
       novelRepository: _FakeNovelRepository(snapshot()),

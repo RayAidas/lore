@@ -57,6 +57,14 @@ void main() {
         ChapterTitleText.tryParse('第99999999999999999999999999章\n正文'),
         isNull,
       );
+      // markdown H1 路径（_mdPrefixPattern 走同一 int.tryParse）同样不崩。
+      expect(
+        ChapterTitleText.tryParse(
+          '# 第99999999999999999999999999章\n正文',
+          markdown: true,
+        ),
+        isNull,
+      );
     });
   });
 
