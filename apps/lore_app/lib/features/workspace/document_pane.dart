@@ -12,6 +12,8 @@ import '../preferences/font_options.dart';
 import '../preferences/preferences_providers.dart';
 import '../library/library_providers.dart';
 import 'chapter_title_bar.dart';
+import 'history_diff_mode.dart';
+import 'history_diff_view.dart';
 import 'library_failure_snackbar.dart';
 import 'local_markdown_image.dart';
 import 'open_document_extensions.dart';
@@ -46,6 +48,13 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
   /// 章节标题栏按回车后聚焦正文的入口节点；交给 [LoreLargeTextEditor] 转发
   /// 到首个段落块。
   final FocusNode _bodyFocusNode = FocusNode();
+
+  /// 同时监听文档与控制器：文档变化（保存状态等）与控制器变化（diff 状态）
+  /// 都需触发重绘。
+  late final Listenable _listenable = Listenable.merge([
+    widget.document,
+    widget.controller,
+  ]);
 
   @override
   void dispose() {
@@ -182,12 +191,80 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: document,
+      listenable: _listenable,
       builder: (context, _) => _buildContent(context),
     );
   }
 
+  /// diff 对比视图：替换编辑器内容区。对比工具条（标题 + 内联/并排 + 退出）
+  /// + HistoryDiffView（该快照 vs 当前磁盘）。
+  Widget _buildDiff(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final target = controller.diffTarget!;
+    return Column(
+      children: [
+        Container(
+          height: 48,
+          color: cs.surface,
+          child: Row(
+            children: [
+              const SizedBox(width: 18),
+              Icon(
+                Icons.compare_arrows_rounded,
+                size: 16,
+                color: cs.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${target.snapshotTitle}  →  当前',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              SegmentedButton<DiffViewMode>(
+                showSelectedIcon: false,
+                style: const ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                segments: const [
+                  ButtonSegment(value: DiffViewMode.inline, label: Text('内联')),
+                  ButtonSegment(value: DiffViewMode.split, label: Text('并排')),
+                ],
+                selected: {controller.diffMode},
+                onSelectionChanged: (selection) =>
+                    controller.setDiffMode(selection.first),
+              ),
+              IconButton(
+                tooltip: '退出对比',
+                onPressed: controller.exitHistoryDiff,
+                icon: const Icon(Icons.close_rounded, size: 18),
+              ),
+              const SizedBox(width: 10),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: HistoryDiffView(
+            oldText: target.snapshotText,
+            newText: document.snapshot.text,
+            mode: controller.diffMode,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildContent(BuildContext context) {
+    if (controller.isDiffing(document)) {
+      return _buildDiff(context);
+    }
     final colorScheme = Theme.of(context).colorScheme;
     final prefs =
         ref.watch(appPreferencesProvider).value ?? AppPreferences.defaults();

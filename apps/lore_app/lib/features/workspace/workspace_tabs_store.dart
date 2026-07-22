@@ -38,6 +38,8 @@ final class WorkspaceTabsStore {
     required void Function(LibraryFailure failure) reportFailure,
     required Future<void> Function(OpenDocument document) requestTitleSync,
     this.onChapterSaved,
+    this.onDocumentSaved,
+    this.onDocumentClosing,
   }) : _notify = notify,
        _novelIdForPath = novelIdForPath,
        _bumpTreeRevision = bumpTreeRevision,
@@ -59,6 +61,12 @@ final class WorkspaceTabsStore {
 
   /// 章节保存成功后回调控制器，把最新字数写回 content.json（仅注册章节）。
   final void Function(String relativePath, int characterCount)? onChapterSaved;
+
+  /// 文档保存成功后回调控制器，触发历史快照的变更量阈值判定。
+  final void Function(OpenDocument document)? onDocumentSaved;
+
+  /// 文档关闭前回调控制器，为当前内容留一个 checkpoint 快照。
+  final Future<void> Function(OpenDocument document)? onDocumentClosing;
 
   final void Function() _notify;
   final NovelId? Function(String) _novelIdForPath;
@@ -532,6 +540,10 @@ final class WorkspaceTabsStore {
       }
       document.notifyChanged();
     }
+    final saved = onDocumentSaved;
+    if (saved != null) {
+      saved(document);
+    }
     await _persistHighlights(document);
     _scheduleSessionSave();
     return true;
@@ -545,6 +557,10 @@ final class WorkspaceTabsStore {
   }
 
   Future<bool> closeDocument(OpenDocument document) async {
+    final closing = onDocumentClosing;
+    if (closing != null) {
+      await closing(document);
+    }
     if (document.hasUnsavedChanges && !await saveDocument(document)) {
       return false;
     }
@@ -750,6 +766,9 @@ final class WorkspaceTabsStore {
     document.chapterNumber = parsed?.number;
     document.chapterTitleSubtitle = parsed?.subtitle ?? '';
     document.characterCount = controller.characterCount;
+    // 历史快照基准初始化为磁盘内容：首次保存按真实变更量判定阈值，避免
+    // last==null 时 magnitude=整篇长度导致「打开即留底」。
+    document.lastHistorySnapshotText = snapshot.text;
     var observedVersion = controller.editVersion;
     controller.addListener(() {
       if (_disposed) {
@@ -989,6 +1008,11 @@ final class WorkspaceTabsStore {
       }
       await _inspectExternalChange(document);
     }
+  }
+
+  /// 重载单个文档的磁盘内容到编辑器（历史恢复后调用）。
+  Future<void> reloadDocumentFromDisk(OpenDocument document) {
+    return _inspectExternalChange(document);
   }
 
   Future<void> _inspectExternalChange(

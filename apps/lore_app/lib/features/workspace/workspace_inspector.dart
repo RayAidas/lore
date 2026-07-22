@@ -3,6 +3,7 @@ import 'package:lore_domain/lore_domain.dart';
 
 import 'inspector_empty.dart';
 import 'open_document_extensions.dart';
+import 'version_pane.dart';
 import 'workspace_controller.dart';
 
 /// 竖向工具轨道的固定宽度（轨道 SizedBox 与每个标签单元共用）。公开供布局
@@ -16,6 +17,7 @@ enum WorkspaceInspectorTab {
     keyName: 'assistant',
   ),
   outline(label: '大纲', icon: Icons.format_list_bulleted, keyName: 'outline'),
+  version(label: '版本', icon: Icons.history_rounded, keyName: 'version'),
   info(label: '信息', icon: Icons.info_outline, keyName: 'info');
 
   const WorkspaceInspectorTab({
@@ -50,6 +52,7 @@ final class WorkspaceInspector extends StatelessWidget {
         WorkspaceInspectorTab.outline => _OutlinePanel(
           document: controller.activeDocument,
         ),
+        WorkspaceInspectorTab.version => VersionPane(controller: controller),
         WorkspaceInspectorTab.info => _DocumentInfoPanel(
           document: controller.activeDocument,
         ),

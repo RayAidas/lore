@@ -64,6 +64,10 @@ final class OpenDocument extends WorkspaceTab {
   /// 副标题是否有未保存改动（与正文控制器的脏标记独立，因副标题不在控制器内）。
   bool titleDirty = false;
 
+  /// 上次历史快照的正文文本（与磁盘一致；null 表示尚未记录）。用于保存后判定
+  /// 变更量阈值，避免每次保存都产生快照。
+  String? lastHistorySnapshotText;
+
   @override
   String get relativePath => snapshot.ref.relativePath;
 

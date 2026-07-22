@@ -105,6 +105,13 @@ final trashRepositoryProvider = Provider<TrashRepository>((ref) {
   return ref.watch(storageBackedLibraryRepositoryProvider);
 });
 
+final historyServiceProvider = Provider<HistoryService>((ref) {
+  return HistoryService(
+    historyRepository: ref.watch(storageBackedLibraryRepositoryProvider),
+    documentRepository: ref.watch(documentRepositoryProvider),
+  );
+});
+
 final libraryRevealGatewayProvider = Provider<LibraryRevealGateway?>((ref) {
   if (Platform.isMacOS) {
     return MacOsLibraryRevealGateway();
@@ -137,6 +144,7 @@ final workspaceControllerProvider = Provider.autoDispose
         novelOverviewService: ref.watch(novelOverviewServiceProvider),
         writingProgressRepository: ref.watch(writingProgressRepositoryProvider),
         trashRepository: ref.watch(trashRepositoryProvider),
+        historyService: ref.watch(historyServiceProvider),
         revealGateway: ref.watch(libraryRevealGatewayProvider),
       );
       ref.onDispose(controller.dispose);
