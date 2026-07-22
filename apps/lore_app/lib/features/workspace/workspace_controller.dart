@@ -5,32 +5,13 @@ import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:path/path.dart' as p;
 
-import 'history_change_magnitude.dart';
 import 'history_diff_mode.dart';
 import 'workspace_document.dart';
+import 'workspace_history_store.dart';
 import 'workspace_novel_store.dart';
 import 'workspace_tabs_store.dart';
 
 export 'workspace_document.dart';
-
-/// diff 对比目标：当前在中间区展示的「某历史快照 vs 当前磁盘」对比。
-final class HistoryDiffTarget {
-  const HistoryDiffTarget({
-    required this.relativePath,
-    required this.snapshotId,
-    required this.snapshotText,
-    required this.snapshotTitle,
-  });
-
-  final String relativePath;
-  final String snapshotId;
-
-  /// 已加载的历史快照正文（diff 的「旧」一侧）。
-  final String snapshotText;
-
-  /// 工具条显示的快照标题（时间 + 可选命名）。
-  final String snapshotTitle;
-}
 
 /// 工作区控制器：跨 [WorkspaceTabsStore]（标签/文档/导航）与
 /// [WorkspaceNovelStore]（小说结构）编排，持有目录树版本号、工作区级失败态、
@@ -59,13 +40,6 @@ final class WorkspaceController extends ChangeNotifier {
   final HistoryService? historyService;
   final LibraryRevealGateway? revealGateway;
 
-  /// 当前 diff 对比目标（点版本列表项时设置，退出 diff 时清空）。
-  HistoryDiffTarget? _diffTarget;
-  DiffViewMode _diffMode = DiffViewMode.inline;
-
-  /// showHistoryDiff 的序列号：丢弃加载期间被取代的过期结果。
-  int _showDiffGen = 0;
-
   final WorkspaceNovelStore _novelStore;
   late final WorkspaceTabsStore _tabsStore = WorkspaceTabsStore(
     service: service,
@@ -80,8 +54,24 @@ final class WorkspaceController extends ChangeNotifier {
     requestTitleSync: _syncChapterTitle,
     onChapterSaved: (path, count) =>
         unawaited(_refreshChapterCharacterCount(path, count)),
-    onDocumentSaved: _onDocumentSaved,
-    onDocumentClosing: _recordHistoryCheckpoint,
+    onDocumentSaved: _historyStore.onDocumentSaved,
+    onDocumentClosing: _historyStore.onDocumentClosing,
+  );
+
+  late final WorkspaceHistoryStore _historyStore = WorkspaceHistoryStore(
+    session: session,
+    historyService: historyService,
+    notify: _notify,
+    isOpenDocument: _isOpen,
+    openDocumentByPath: _openDocumentByPath,
+    // 闭包而非 `_tabsStore.reloadDocumentFromDisk` tear-off：tear-off 在 _historyStore
+    // 初始化期会强制求值尚未完成初始化的 _tabsStore，与 _tabsStore 反向注入
+    // _historyStore.onDocumentSaved 形成 late final 互初始化递归（栈溢出）。改回
+    // tear-off 前请先打破两 store 的初始化期相互引用。
+    reloadDocumentFromDisk: (document) =>
+        _tabsStore.reloadDocumentFromDisk(document),
+    chapterNodeIdForPath: (path) =>
+        _novelStore.chapterNodeForPath(path)?.node.id.value,
   );
 
   final Map<String, Timer> _structureChangeTimers = {};
@@ -299,205 +289,51 @@ final class WorkspaceController extends ChangeNotifier {
     return (novelId: match.novel.metadata.id, nodeId: match.node.id);
   }
 
-  // --- 历史版本 ---
+  // --- 历史版本（委托 WorkspaceHistoryStore） ---
 
-  /// 历史快照变更量阈值（自上次快照后的近似净变更字符数）。
-  static const int _historyChangeThreshold = 800;
-
-  DocumentIdentity _historyIdentityFor(OpenDocument document) {
-    final match = _novelStore.chapterNodeForPath(document.relativePath);
-    return DocumentIdentity(
-      nodeId: match?.node.id.value,
-      relativePath: document.relativePath,
-      format: document.format,
-    );
-  }
-
-  /// 保存成功后判定变更量阈值，达阈值则记录自动快照（threshold）。
-  void _onDocumentSaved(OpenDocument document) {
-    final history = historyService;
-    if (history == null) return;
-    final text = document.snapshot.text;
-    final last = document.lastHistorySnapshotText;
-    final magnitude = last == null
-        ? text.length
-        : historyChangeMagnitude(last, text);
-    if (last == null || magnitude >= _historyChangeThreshold) {
-      unawaited(_recordHistory(document, text, HistoryTrigger.autoThreshold));
-    }
-  }
-
-  /// 文档关闭前为当前内容留 checkpoint（与上次快照不同才记）。
-  Future<void> _recordHistoryCheckpoint(OpenDocument document) async {
-    final history = historyService;
-    if (history == null) return;
-    final text = document.snapshot.text;
-    if (document.lastHistorySnapshotText != text) {
-      await _recordHistory(document, text, HistoryTrigger.autoCheckpoint);
-    }
-  }
-
-  Future<void> _recordHistory(
-    OpenDocument document,
-    String text,
-    HistoryTrigger trigger,
-  ) async {
-    final history = historyService;
-    if (history == null) return;
-    final identity = _historyIdentityFor(document);
-    try {
-      await history.recordAuto(
-        session.access,
-        doc: identity,
-        text: text,
-        trigger: trigger,
-      );
-      if (_isOpen(document)) {
-        document.lastHistorySnapshotText = text;
-      }
-      unawaited(history.prune(session.access, identity));
-    } catch (_) {
-      // 历史记录是 best-effort，失败不影响主流程。
-    }
-  }
-
-  // --- 历史版本：面板入口 ---
-
-  DocumentIdentity? historyIdentityFor(OpenDocument document) {
-    if (historyService == null) return null;
-    return _historyIdentityFor(document);
-  }
+  DocumentIdentity? historyIdentityFor(OpenDocument document) =>
+      _historyStore.historyIdentityFor(document);
 
   Future<List<HistorySnapshot>> listHistorySnapshots(
     DocumentIdentity identity,
-  ) {
-    final history = historyService;
-    if (history == null) return Future.value(const <HistorySnapshot>[]);
-    return history.list(session.access, identity);
-  }
-
-  Future<String> readHistorySnapshotText(
-    DocumentIdentity identity,
-    String snapshotId,
-  ) {
-    return historyService!.readSnapshotText(
-      session.access,
-      doc: identity,
-      snapshotId: snapshotId,
-    );
-  }
+  ) => _historyStore.listHistorySnapshots(identity);
 
   Future<HistorySnapshot> createHistoryVersion(
     DocumentIdentity identity,
     String text, {
     String? label,
     String? note,
-  }) {
-    return historyService!.createVersion(
-      session.access,
-      doc: identity,
-      text: text,
-      label: label,
-      note: note,
-    );
-  }
+  }) => _historyStore.createHistoryVersion(
+    identity,
+    text,
+    label: label,
+    note: note,
+  );
 
   Future<void> deleteHistorySnapshot(
     DocumentIdentity identity,
     String snapshotId,
-  ) {
-    return historyService!.deleteSnapshot(
-      session.access,
-      doc: identity,
-      snapshotId: snapshotId,
-    );
-  }
+  ) => _historyStore.deleteHistorySnapshot(identity, snapshotId);
 
-  /// 恢复历史版本：留底 + 覆盖磁盘 + 重载编辑器。
   Future<RestoreResult> restoreHistorySnapshot(
     DocumentIdentity identity,
     String snapshotId,
-  ) async {
-    final history = historyService;
-    final result = await history!.restore(
-      session.access,
-      doc: identity,
-      snapshotId: snapshotId,
-    );
-    if (result is RestoreSuccess) {
-      _diffTarget = null;
-      final document = _openDocumentByPath(identity.relativePath);
-      if (document != null) {
-        await _tabsStore.reloadDocumentFromDisk(document);
-        document.lastHistorySnapshotText = result.snapshot.text;
-      }
-    }
-    return result;
-  }
+  ) => _historyStore.restoreHistorySnapshot(identity, snapshotId);
 
-  // --- 历史版本：diff 视图（替换编辑器） ---
+  HistoryDiffTarget? get diffTarget => _historyStore.diffTarget;
 
-  HistoryDiffTarget? get diffTarget => _diffTarget;
+  DiffViewMode get diffMode => _historyStore.diffMode;
 
-  DiffViewMode get diffMode => _diffMode;
+  bool isDiffing(OpenDocument document) => _historyStore.isDiffing(document);
 
-  bool isDiffing(OpenDocument document) =>
-      _diffTarget != null && _diffTarget!.relativePath == document.relativePath;
-
-  /// 点版本列表项：加载该快照文本，进入 diff（替换编辑器视图）。
   Future<void> showHistoryDiff(
     OpenDocument document,
     HistorySnapshot snapshot,
-  ) async {
-    final history = historyService;
-    if (history == null) return;
-    final gen = ++_showDiffGen;
-    final identity = _historyIdentityFor(document);
-    try {
-      final text = await history.readSnapshotText(
-        session.access,
-        doc: identity,
-        snapshotId: snapshot.id,
-      );
-      // 加载期间若用户点了别的版本或退出 diff，丢弃本次过期结果。
-      if (gen != _showDiffGen) return;
-      _diffTarget = HistoryDiffTarget(
-        relativePath: document.relativePath,
-        snapshotId: snapshot.id,
-        snapshotText: text,
-        snapshotTitle: _formatSnapshotTitle(snapshot),
-      );
-      _notify();
-    } catch (_) {
-      // best-effort：加载失败静默放弃，不影响主流程。
-    }
-  }
+  ) => _historyStore.showHistoryDiff(document, snapshot);
 
-  void exitHistoryDiff() {
-    _showDiffGen += 1; // 使进行中的 showHistoryDiff 失效。
-    if (_diffTarget == null) return;
-    _diffTarget = null;
-    _notify();
-  }
+  void exitHistoryDiff() => _historyStore.exitHistoryDiff();
 
-  void setDiffMode(DiffViewMode mode) {
-    if (_diffMode == mode) return;
-    _diffMode = mode;
-    _notify();
-  }
-
-  String _formatSnapshotTitle(HistorySnapshot snapshot) {
-    final time = _formatHistoryTime(snapshot.createdAt);
-    final label = snapshot.label;
-    return label == null ? time : '$time · $label';
-  }
-
-  String _formatHistoryTime(DateTime value) {
-    final local = value.toLocal();
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${local.year}-${two(local.month)}-${two(local.day)} '
-        '${two(local.hour)}:${two(local.minute)}';
-  }
+  void setDiffMode(DiffViewMode mode) => _historyStore.setDiffMode(mode);
 
   OpenDocument? _openDocumentByPath(String relativePath) {
     for (final document in documents) {

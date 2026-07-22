@@ -29,6 +29,26 @@ void main() {
     metadata: metadata,
   );
 
+  test('history and tabs stores initialize without a late-final cycle', () {
+    // 回归守护：_tabsStore 与 _historyStore 互相注入回调，曾因注入
+    // _tabsStore.reloadDocumentFromDisk 的 tear-off 在初始化期强制求值尚未完成的
+    // _tabsStore 而栈溢出。访问两侧 getter 触发 late final 初始化，确认无递归。
+    final repository = _MemoryWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+
+    expect(controller.tabs, isEmpty); // 触发 _tabsStore
+    expect(controller.diffTarget, isNull); // 触发 _historyStore
+  });
+
   testWidgets('auto-save persists the latest editor snapshot', (tester) async {
     final repository = _MemoryWorkspaceRepository(
       emitAtomicReplacementEventsOnSave: true,
