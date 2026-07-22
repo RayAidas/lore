@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../document_controller.dart';
+import '../large_text/lore_large_text_controller.dart';
 import 'find_replace_controller.dart';
 
 /// 底部贴附的查找替换面板。
@@ -80,22 +81,82 @@ final class _FindReplaceOverlayStatefulState
     _lastEditVersion = widget.editorController.editVersion;
     widget.findController.addListener(_handleFindChanged);
     widget.editorController.addListener(_handleEditorChanged);
-    _applyCurrentSelection();
+    // initState 处于 build 阶段：设 selection / setFindMatches 会 notify，连锁触发
+    // OpenDocument.notifyChanged → 别处 ListenableBuilder markNeedsBuild（"called
+    // during build"）。延迟到首帧后（框架解锁）再同步初始选区与整文高亮。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _applyCurrentSelection();
+      _pushFindMatches();
+    });
   }
 
   @override
   void dispose() {
     widget.findController.removeListener(_handleFindChanged);
     widget.editorController.removeListener(_handleEditorChanged);
+    // 关闭面板清除整文高亮：dispose 发生在 widget tree locked 阶段（unmount），
+    // 不能同步 notify（会触发 ListenableBuilder.markNeedsBuild 而崩，且连锁触发
+    // OpenDocument.notifyChanged）。延迟到下一帧框架解锁后再清；若 editorController
+    // 已随文档关闭而 dispose，setFindMatches 的 _disposed 守卫会安全跳过。
+    final ec = widget.editorController;
+    if (ec is LoreLargeTextController) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ec.setFindMatches(const []);
+      });
+    }
     _recomputeTimer?.cancel();
     _patternField.dispose();
     _replaceField.dispose();
     super.dispose();
   }
 
-  /// 匹配/游标变化时，把当前匹配同步为编辑器选区（仅 selection，不改文本）。
+  // 跨章节连续点不同结果时，外层 FindReplaceController 实例更换，但本 Stateful 的
+  // canUpdate 仅看 runtimeType+key（无 key），故 Flutter 走 update 而非 remount、
+  // State 复用——必须在此切走旧监听、按新 controller 重推选区与整文高亮。
+  // 切勿为本 widget 加 key 或重写 ==，否则会退化为 remount、绕过此同步路径。
+  @override
+  void didUpdateWidget(covariant _FindReplaceOverlayStateful oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final findChanged = widget.findController != oldWidget.findController;
+    final editorChanged = widget.editorController != oldWidget.editorController;
+    if (findChanged) {
+      oldWidget.findController.removeListener(_handleFindChanged);
+      widget.findController.addListener(_handleFindChanged);
+    }
+    if (editorChanged) {
+      oldWidget.editorController.removeListener(_handleEditorChanged);
+      widget.editorController.addListener(_handleEditorChanged);
+      _lastEditVersion = widget.editorController.editVersion;
+    }
+    if (findChanged || editorChanged) {
+      // 切换章节或 findController 后重新同步选区与整文高亮：跨章节连续点不同结果时
+      // overlay State 保持复用（widget update，非 remount），必须切走旧监听、按新
+      // controller 重推，否则第二段起既不定位也不高亮。postFrame 避开 build 阶段。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _applyCurrentSelection();
+        _pushFindMatches();
+      });
+    }
+  }
+
+  /// 匹配/游标变化时，把当前匹配同步为编辑器选区（仅 selection，不改文本），
+  /// 并把整文匹配推给编辑器渲染层做整文高亮。
   void _handleFindChanged() {
     _applyCurrentSelection();
+    _pushFindMatches();
+  }
+
+  /// 把整文匹配推给编辑器渲染层（仅大文本编辑器支持整文高亮）。
+  void _pushFindMatches() {
+    final ec = widget.editorController;
+    if (ec is LoreLargeTextController) {
+      ec.setFindMatches(
+        widget.findController.matches,
+        currentIndex: widget.findController.currentIndex,
+      );
+    }
   }
 
   /// 编辑器变化时，仅在文本真正改变（editVersion 变）时重算匹配；
@@ -134,6 +195,11 @@ final class _FindReplaceOverlayStatefulState
       baseOffset: match.start,
       extentOffset: match.end,
     );
+    // 程序设 selection 不会触发编辑器自动滚动，显式请求把匹配滚入视口。
+    final ec = widget.editorController;
+    if (ec is LoreLargeTextController) {
+      ec.requestReveal(match.start);
+    }
   }
 
   @override

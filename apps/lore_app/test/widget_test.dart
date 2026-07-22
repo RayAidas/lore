@@ -112,9 +112,9 @@ void main() {
     expect(find.text('书库'), findsOneWidget);
     expect(find.byType(DocumentTabs), findsOneWidget);
     expect(find.byType(AppBar), findsOneWidget);
-    expect(find.byTooltip('全屏 (Cmd+Shift+F)'), findsOneWidget);
+    expect(find.byTooltip('全屏 (Cmd+Shift+Enter)'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+F)'));
+    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+Enter)'));
     await tester.pump();
 
     // 全屏：侧栏/标签页/AppBar 消失，文档工具条出现「退出全屏」入口。
@@ -194,7 +194,7 @@ void main() {
     // 锁定"不重挂载"不变量：DocumentPane element 身份在切换前后必须相同；
     // 否则即便 offset 被兜底 restore 拉回也视为回归。
     final docPaneBefore = tester.element(find.byType(DocumentPane));
-    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+F)'));
+    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+Enter)'));
     await tester.pump();
     await tester.pump();
     expect(
@@ -273,7 +273,7 @@ void main() {
     expect(scrollController.offset, closeTo(target, 1));
 
     final docPaneBefore = tester.element(find.byType(DocumentPane));
-    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+F)'));
+    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+Enter)'));
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 20));
@@ -364,7 +364,7 @@ void main() {
 
     // 分屏下两个 DocumentPane（树序：主在前）；锁定主 pane element 身份不变。
     final docPaneBefore = tester.element(find.byType(DocumentPane).first);
-    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+F)').first);
+    await tester.tap(find.byTooltip('全屏 (Cmd+Shift+Enter)').first);
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 20));

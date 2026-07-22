@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:lore_domain/lore_domain.dart';
 
 import '../document_controller.dart';
+import '../find_replace/search_query.dart';
 import 'chunked_text_buffer.dart';
 
 final class LargeTextBlock {
@@ -47,6 +48,20 @@ final class LoreLargeTextController extends ChangeNotifier
   var _selectionDragActive = false;
   List<Highlight> _highlights = const [];
   int _highlightSeq = 0;
+
+  /// 查找面板推送的「整文匹配」高亮（纯视觉临时态，不进保存/undo）。
+  /// offset 为全局文档坐标，与 [highlights] 同坐标系。
+  List<FindMatch> _findMatches = const [];
+  int _findCurrentIndex = -1;
+  bool _disposed = false;
+
+  /// 查找跳转请求编辑器滚动到的 offset。程序设 selection 不会自动滚动到选区，
+  /// 需由查找面板显式 requestReveal，编辑器在 controller 变化时读取并滚动。
+  int? _revealOffset;
+
+  /// reveal 请求的递增序号：即使两次请求 offset 相同（连续点同一结果），序号也
+  /// 会变，确保编辑器每次都响应而非被判为「未变化」而丢弃。
+  int _revealSeq = 0;
 
   List<LargeTextBlock> get blocks => _blocksView;
 
@@ -125,6 +140,44 @@ final class LoreLargeTextController extends ChangeNotifier
       _editVersion += 1;
     }
     notifyListeners();
+  }
+
+  /// 查找面板推送的整文匹配高亮（视觉态，不进保存/undo）。编辑后由查找面板
+  /// 重算并重新推送；offset 与 [highlights] 同为全局坐标。
+  List<FindMatch> get findMatches => _findMatches;
+
+  /// 当前匹配在 [findMatches] 中的下标（-1 表示无）。渲染时用更深底色区分。
+  int get findCurrentIndex => _findCurrentIndex;
+
+  void setFindMatches(List<FindMatch> matches, {int currentIndex = -1}) {
+    if (_disposed) return;
+    if (listEquals(matches, _findMatches) &&
+        currentIndex == _findCurrentIndex) {
+      return;
+    }
+    _findMatches = List.of(matches);
+    _findCurrentIndex = currentIndex;
+    notifyListeners();
+  }
+
+  /// 待处理的滚动请求 offset（查找跳转用）。编辑器读取后据此滚动。
+  int? get revealOffset => _revealOffset;
+
+  /// reveal 请求序号，每次 requestReveal 递增。
+  int get revealSeq => _revealSeq;
+
+  /// 请求编辑器把该 offset 所在段落滚入视口并居中。
+  void requestReveal(int offset) {
+    if (_disposed) return;
+    _revealOffset = offset;
+    _revealSeq += 1;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   /// 用 [colorArgb] 给 `[start, end)` 区间新增一条高亮,anchorText 自动取原文。

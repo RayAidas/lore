@@ -131,6 +131,18 @@ final class FindReplaceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 直接定位到第 [index] 条匹配（跨章节搜索跳转用，越界或无变化静默忽略）。
+  void setCurrentIndex(int index) {
+    if (_matches.isEmpty || index < 0 || index >= _matches.length) {
+      return;
+    }
+    if (_currentIndex == index) {
+      return;
+    }
+    _currentIndex = index;
+    notifyListeners();
+  }
+
   /// 替换当前匹配，返回新文本与建议光标位置。
   FindReplaceResult applyReplaceCurrent(String text) {
     final match = currentMatch;

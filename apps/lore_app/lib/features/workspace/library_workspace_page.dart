@@ -15,6 +15,7 @@ import 'document_pane.dart';
 import 'document_tabs.dart';
 import 'library_failure_snackbar.dart';
 import 'library_sidebar.dart';
+import 'novel_search_controller.dart';
 import 'trash_pane.dart';
 import 'workspace_controller.dart';
 import 'workspace_editor_group.dart';
@@ -224,10 +225,15 @@ final class _LibraryWorkspacePageState
                       .setTypewriterMode(!current.typewriterMode);
                 },
                 const SingleActivator(
-                  LogicalKeyboardKey.keyF,
+                  LogicalKeyboardKey.enter,
                   meta: true,
                   shift: true,
                 ): _toggleFullscreen,
+                const SingleActivator(
+                  LogicalKeyboardKey.keyF,
+                  meta: true,
+                  shift: true,
+                ): _openNovelSearch,
                 const SingleActivator(
                   LogicalKeyboardKey.comma,
                   meta: true,
@@ -299,7 +305,7 @@ final class _LibraryWorkspacePageState
                             if (controller.activeDocument != null)
                               IconButton(
                                 onPressed: _toggleFullscreen,
-                                tooltip: '全屏 (Cmd+Shift+F)',
+                                tooltip: '全屏 (Cmd+Shift+Enter)',
                                 style: _appBarIconButtonStyle,
                                 icon: const Icon(Icons.fullscreen, size: 19),
                               ),
@@ -441,6 +447,8 @@ final class _LibraryWorkspacePageState
                                       child: WorkspaceInspector(
                                         controller: controller,
                                         tab: _activeInspectorTab!,
+                                        onSelectSearchMatch:
+                                            _handleSelectSearchMatch,
                                       ),
                                     ),
                                   )
@@ -781,6 +789,44 @@ final class _LibraryWorkspacePageState
     setState(() {
       _findController?.dispose();
       _findController = null;
+    });
+  }
+
+  /// ⌘⇧F：打开右栏「小说搜索」面板。
+  void _openNovelSearch() {
+    setState(() => _activeInspectorTab = WorkspaceInspectorTab.search);
+  }
+
+  /// 跨章节搜索点结果：打开目标章节 + 桥接单文档查找（定位 + 整文高亮）。
+  Future<void> _handleSelectSearchMatch(
+    ChapterSearchResult result,
+    ChapterMatch match,
+  ) async {
+    final controller = ref.read(workspaceControllerProvider(widget.session));
+    final search = ref.read(novelSearchControllerProvider(widget.session));
+    await controller.openPath(result.relativePath);
+    if (!mounted) return;
+    final document = controller.activeDocument;
+    // await 期间用户可能切了 tab，确认仍是目标章节再桥接，避免匹配写到错文档。
+    if (document == null || document.relativePath != result.relativePath) {
+      return;
+    }
+    // 桥接单文档查找：同样的 query 触发整文高亮（Part 1 自动），并定位到点中的匹配。
+    final fc = FindReplaceController()
+      ..setCaseSensitive(search.caseSensitive)
+      ..setUseRegex(search.useRegex)
+      ..setPattern(search.pattern)
+      ..recompute(document.editorController.text);
+    // 正文 offset → 全文 offset（补回标题行长度）。
+    final fullOffset = match.bodyOffset + result.titlePrefixLength;
+    final index = fc.matches.indexWhere((m) => m.start == fullOffset);
+    if (index >= 0) {
+      fc.setCurrentIndex(index);
+    }
+    setState(() {
+      _findReplaceMode = false;
+      _findController?.dispose();
+      _findController = fc;
     });
   }
 

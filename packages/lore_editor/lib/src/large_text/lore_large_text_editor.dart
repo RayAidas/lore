@@ -73,6 +73,7 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
   int? _pointerSelectionAnchor;
   var _globalSelectionDrag = false;
   late int _observedBlocksRevision;
+  int _observedRevealSeq = 0;
   bool _transferringExternalFocus = false;
   Timer? _longPressTimer;
   Offset? _longPressStartPosition;
@@ -84,6 +85,7 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
   void initState() {
     super.initState();
     _observedBlocksRevision = widget.controller.blocksRevision;
+    _observedRevealSeq = widget.controller.revealSeq;
     widget.controller.addListener(_handleControllerChanged);
     widget.focusNode?.addListener(_handleExternalFocus);
     _blockRegistry.ensureBlockVisibleAndFocus = _ensureBlockVisibleAndFocus;
@@ -174,6 +176,11 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
     final blocksChanged =
         _observedBlocksRevision != widget.controller.blocksRevision;
     _observedBlocksRevision = widget.controller.blocksRevision;
+    // 查找跳转的 reveal 请求：程序设 selection 不会自动滚动到选区，需显式响应。
+    // 用递增序号比较，避免「连续点同一结果（同 offset）」被判为未变化而丢弃。
+    final reveal = widget.controller.revealOffset;
+    final revealChanged = widget.controller.revealSeq != _observedRevealSeq;
+    _observedRevealSeq = widget.controller.revealSeq;
     if (mounted) {
       setState(() {});
       if (blocksChanged) {
@@ -187,6 +194,19 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
             ),
             widget.controller,
           );
+        });
+      }
+      if (revealChanged && reveal != null) {
+        // 把匹配所在段落滚入视口并居中（非打字机模式也执行：查找跳转需把目标带入视口）。
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || widget.controller.length == 0) {
+            return;
+          }
+          _blockRegistry.focusBlock(
+            widget.controller.blockIndexForOffset(reveal),
+            widget.controller,
+          );
+          _scrollCaretToCenter();
         });
       }
       // 打字机模式：每次编辑/选区变化后把光标行滚动到视口中央。post-frame
@@ -1173,6 +1193,38 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
     return result;
   }
 
+  /// 落在本 block 内的查找匹配高亮：把全局 [LoreLargeTextController.findMatches]
+  /// 与本 block 求交、平移到局部坐标，普通匹配浅色、当前匹配（[findCurrentIndex]）
+  /// 深色。复用 [_BlockHighlightPainter]，与持久化 highlight 同一渲染机制；这是
+  /// `TextAnnotation` 注释里预留的「搜索高亮」复用点。
+  List<TextAnnotation> _localFindMatchesForBlock(
+    int blockStart,
+    int blockLength,
+  ) {
+    final matches = widget.documentController.findMatches;
+    if (matches.isEmpty || blockLength == 0) return const [];
+    final blockEnd = blockStart + blockLength;
+    final currentIndex = widget.documentController.findCurrentIndex;
+    final result = <TextAnnotation>[];
+    for (var i = 0; i < matches.length; i++) {
+      final m = matches[i];
+      if (m.end <= blockStart || m.start >= blockEnd) continue;
+      final localStart = (m.start - blockStart).clamp(0, blockLength);
+      final localEnd = (m.end - blockStart).clamp(0, blockLength);
+      if (localEnd <= localStart) continue;
+      result.add(
+        TextAnnotation(
+          start: localStart,
+          end: localEnd,
+          background: i == currentIndex
+              ? const Color(0xFFE89B00).withValues(alpha: 0.65)
+              : const Color(0xFFF5C518).withValues(alpha: 0.30),
+        ),
+      );
+    }
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     final textStyle = EditorTypography.bodyText(
@@ -1232,6 +1284,23 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
                 text: widget.block.text,
                 style: textStyle,
                 highlights: _localHighlightsForBlock(
+                  blockStart,
+                  widget.block.text.length,
+                ),
+                textDirection: textDirection,
+                textScaler: textScaler,
+                layoutFor: layoutFor,
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: _BlockHighlightPainter(
+                text: widget.block.text,
+                style: textStyle,
+                highlights: _localFindMatchesForBlock(
                   blockStart,
                   widget.block.text.length,
                 ),

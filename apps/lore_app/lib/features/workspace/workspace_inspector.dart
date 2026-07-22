@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:lore_domain/lore_domain.dart';
 
 import 'inspector_empty.dart';
+import 'novel_search_controller.dart';
+import 'novel_search_panel.dart';
 import 'open_document_extensions.dart';
 import 'version_pane.dart';
 import 'workspace_controller.dart';
@@ -18,7 +20,8 @@ enum WorkspaceInspectorTab {
   ),
   outline(label: '大纲', icon: Icons.format_list_bulleted, keyName: 'outline'),
   version(label: '版本', icon: Icons.history_rounded, keyName: 'version'),
-  info(label: '信息', icon: Icons.info_outline, keyName: 'info');
+  info(label: '信息', icon: Icons.info_outline, keyName: 'info'),
+  search(label: '搜索', icon: Icons.search_outlined, keyName: 'search');
 
   const WorkspaceInspectorTab({
     required this.label,
@@ -36,11 +39,16 @@ final class WorkspaceInspector extends StatelessWidget {
   const WorkspaceInspector({
     required this.controller,
     required this.tab,
+    this.onSelectSearchMatch,
     super.key,
   });
 
   final WorkspaceController controller;
   final WorkspaceInspectorTab tab;
+
+  /// 「搜索」tab 点匹配时回调到页面层做跳转桥接（打开章节 + 定位 + 整文高亮）。
+  final void Function(ChapterSearchResult result, ChapterMatch match)?
+  onSelectSearchMatch;
 
   @override
   Widget build(BuildContext context) {
@@ -55,6 +63,10 @@ final class WorkspaceInspector extends StatelessWidget {
         WorkspaceInspectorTab.version => VersionPane(controller: controller),
         WorkspaceInspectorTab.info => _DocumentInfoPanel(
           document: controller.activeDocument,
+        ),
+        WorkspaceInspectorTab.search => NovelSearchPanel(
+          controller: controller,
+          onSelectMatch: onSelectSearchMatch ?? (_, _) {},
         ),
       },
     );

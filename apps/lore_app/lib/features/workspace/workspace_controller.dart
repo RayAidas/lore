@@ -188,6 +188,15 @@ final class WorkspaceController extends ChangeNotifier {
   NovelSnapshot? get selectedNovel =>
       _novelStore.novelByEntryValue(_tabsStore.selectedEntry?.novelId);
 
+  /// 当前正在编辑的文档所属小说（按 activePath 反查），用于跨章节搜索范围。
+  /// 无活动文档或不属于任何小说时返回 null。
+  NovelSnapshot? get activeNovel {
+    final path = _tabsStore.activePath;
+    if (path == null) return null;
+    final id = _novelStore.novelIdForPath(path);
+    return id == null ? null : _novelStore.novelById(id);
+  }
+
   ContentNode? get selectedContentNode {
     final entry = _tabsStore.selectedEntry;
     final novel = selectedNovel;
