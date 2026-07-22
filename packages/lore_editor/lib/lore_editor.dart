@@ -1,4 +1,8 @@
+export 'src/annotation/annotation_spans.dart';
+export 'src/annotation/grid_line_painter.dart';
+export 'src/annotation/text_annotation.dart';
 export 'src/editor_style.dart';
+export 'src/editor_typography.dart';
 
 /// [EditorStyle.gridLineMode] 的类型来自领域层，随编辑器样式一并暴露，
 /// 使消费者构造 [EditorStyle] 时无需单独 import lore_domain。
