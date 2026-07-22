@@ -116,8 +116,11 @@ final class _FindReplaceOverlayStatefulState
       widget.findController.recompute(widget.editorController.text);
       return;
     }
-    final text = widget.editorController.text;
     _recomputeTimer = Timer(const Duration(milliseconds: 150), () {
+      if (!mounted) return;
+      // 防抖后才物化全文：之前 text 在 Timer 外读取，每次按键都 O(n) 构造
+      // 一个 150ms 内大概率被 cancel 丢弃的字符串。
+      final text = widget.editorController.text;
       unawaited(widget.findController.recomputeAsync(text));
     });
   }
