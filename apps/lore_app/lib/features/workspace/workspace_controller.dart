@@ -57,6 +57,7 @@ final class WorkspaceController extends ChangeNotifier {
   StreamSubscription<DocumentChange>? _changeSubscription;
   int _treeRevision = 0;
   String? _lastSavedChapterPath;
+  Timer? _lastSavedChapterClearTimer;
   int _statsLabelCacheRevision = -1;
   final Map<String, String?> _statsLabelCache = {};
   LibraryFailure? _workspaceFailure;
@@ -863,7 +864,13 @@ final class WorkspaceController extends ChangeNotifier {
   ) async {
     // 标记自身保存：文件监听会把这次 .md 写入也当 modified 回流，跳过它
     // 避免与本次回写重复写 content.json（onChapterSaved 同步先于 watch microtask）。
+    // 用去抖窗口而非「首个 modified 即清」：macOS/SAF 单次保存常发两次
+    // modified（数据 + mtime），首个清掉后第二个会被误当外部修改触发重复重算。
     _lastSavedChapterPath = relativePath;
+    _lastSavedChapterClearTimer?.cancel();
+    _lastSavedChapterClearTimer = Timer(const Duration(milliseconds: 500), () {
+      _lastSavedChapterPath = null;
+    });
     final hit = _novelStore.chapterNodeForPath(relativePath);
     if (hit == null) {
       return;
@@ -977,13 +984,12 @@ final class WorkspaceController extends ChangeNotifier {
     if (treeChanged && !deferStructuralChange) {
       _recordStructuralChange(change.relativePath);
     } else if (!treeChanged) {
-      if (change.relativePath == _lastSavedChapterPath) {
-        // 自身保存触发的 modified 回流：字数已由 onChapterSaved 写回，跳过。
-        _lastSavedChapterPath = null;
-      } else {
-        // 章节内容外部修改：重算字数写回（覆盖持久化值）。
+      if (change.relativePath != _lastSavedChapterPath) {
+        // 非自身保存回流：章节内容外部修改，重算字数写回（覆盖持久化值）。
         unawaited(_refreshChapterCharacterCountFromDisk(change.relativePath));
       }
+      // 自身保存回流（== _lastSavedChapterPath）跳过；标记由去抖 Timer 清除，
+      // 故同一保存的多次 modified 都被吸收。
     }
     _tabsStore.handleDocumentChange(
       change,
@@ -1071,6 +1077,7 @@ final class WorkspaceController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _lastSavedChapterClearTimer?.cancel();
     for (final timer in _structureChangeTimers.values) {
       timer.cancel();
     }
