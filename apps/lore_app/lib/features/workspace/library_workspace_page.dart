@@ -17,6 +17,7 @@ import 'document_tabs.dart';
 import 'library_failure_snackbar.dart';
 import 'library_sidebar.dart';
 import 'novel_search_controller.dart';
+import 'quick_open/quick_open_panel.dart';
 import 'trash_pane.dart';
 import 'workspace_controller.dart';
 import 'workspace_editor_group.dart';
@@ -211,6 +212,8 @@ final class _LibraryWorkspacePageState
                     _openNovelSearch,
                 ?keybindingActivators[ShortcutAction.openSettings]: () =>
                     showSettingsPanel(context),
+                ?keybindingActivators[ShortcutAction.openQuickOpen]:
+                    _openQuickOpen,
                 if (_isFullscreen)
                   const SingleActivator(LogicalKeyboardKey.escape):
                       _toggleFullscreen,
@@ -784,6 +787,15 @@ final class _LibraryWorkspacePageState
   /// ⌘⇧F：打开右栏「小说搜索」面板。
   void _openNovelSearch() {
     setState(() => _activeInspectorTab = WorkspaceInspectorTab.search);
+  }
+
+  /// ⌘P：模糊搜索并快速跳转到文件。
+  Future<void> _openQuickOpen() async {
+    await showQuickOpenPanel(
+      context: context,
+      controller: _controller,
+      onFailure: _showFailure,
+    );
   }
 
   /// 跨章节搜索点结果：打开目标章节 + 桥接单文档查找（定位 + 整文高亮）。

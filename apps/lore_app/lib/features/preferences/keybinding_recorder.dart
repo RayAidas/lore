@@ -14,6 +14,7 @@ String shortcutActionLabel(ShortcutAction action) => switch (action) {
   ShortcutAction.toggleFullscreen => '切换全屏',
   ShortcutAction.openNovelSearch => '全局小说搜索',
   ShortcutAction.openSettings => '打开设置',
+  ShortcutAction.openQuickOpen => '快速打开',
   ShortcutAction.toggleSplit => '切换分屏',
   ShortcutAction.focusPrimary => '聚焦主编辑区',
   ShortcutAction.focusSecondary => '聚焦副编辑区',

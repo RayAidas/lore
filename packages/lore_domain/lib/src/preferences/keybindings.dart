@@ -67,6 +67,7 @@ enum ShortcutAction {
   toggleFullscreen,
   openNovelSearch,
   openSettings,
+  openQuickOpen,
   toggleSplit,
   focusPrimary,
   focusSecondary,
@@ -119,6 +120,10 @@ final class Keybindings {
       logicalKeyId: 0x2c,
       meta: true,
     ), // comma
+    ShortcutAction.openQuickOpen: KeyCombination(
+      logicalKeyId: 0x70,
+      meta: true,
+    ), // keyP
     ShortcutAction.toggleSplit: KeyCombination(
       logicalKeyId: 0x5c,
       meta: true,
