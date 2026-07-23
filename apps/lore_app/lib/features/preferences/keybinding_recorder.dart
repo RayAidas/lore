@@ -36,7 +36,8 @@ String formatKeyLabel(int logicalKeyId) {
   return label.isEmpty ? 'Key' : label;
 }
 
-/// 单个键帽：与设置面板其它控件同风格的紧凑圆角小方块。
+/// 单个键帽：紧凑圆角小色块，高度与「未设置」文本行对齐（两者共用外层 chip
+/// 容器，键帽不额外撑高 → 绑定态与未绑定态行高一致）。
 class _KeyCap extends StatelessWidget {
   const _KeyCap(this.label);
 
@@ -46,12 +47,10 @@ class _KeyCap extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
-      constraints: const BoxConstraints(minWidth: 22, minHeight: 26),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(3),
         border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Text(
@@ -59,6 +58,7 @@ class _KeyCap extends StatelessWidget {
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
           fontSize: 12,
           fontWeight: FontWeight.w600,
+          height: 1.2,
           fontFeatures: const [FontFeature.tabularFigures()],
         ),
       ),
@@ -259,7 +259,7 @@ class _KeybindingFieldState extends State<KeybindingField> {
                       color: colorScheme.surfaceContainerHigh.withValues(
                         alpha: _recording ? 0.5 : 0.72,
                       ),
-                      borderRadius: BorderRadius.circular(7),
+                      borderRadius: BorderRadius.circular(5),
                       border: Border.all(
                         color: borderColor,
                         width: _recording ? 1.5 : 1,
