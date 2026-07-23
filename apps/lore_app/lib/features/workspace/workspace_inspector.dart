@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:lore_domain/lore_domain.dart';
 
-import 'inspector_empty.dart';
 import 'novel_search_controller.dart';
 import 'novel_search_panel.dart';
-import 'open_document_extensions.dart';
 import 'version_pane.dart';
 import 'writing_statistics_pane.dart';
 import 'workspace_controller.dart';
@@ -19,14 +16,12 @@ enum WorkspaceInspectorTab {
     icon: Icons.auto_awesome_outlined,
     keyName: 'assistant',
   ),
-  outline(label: '大纲', icon: Icons.format_list_bulleted, keyName: 'outline'),
   statistics(
     label: '统计',
     icon: Icons.bar_chart_outlined,
     keyName: 'statistics',
   ),
   version(label: '版本', icon: Icons.history_rounded, keyName: 'version'),
-  info(label: '信息', icon: Icons.info_outline, keyName: 'info'),
   search(label: '搜索', icon: Icons.search_outlined, keyName: 'search');
 
   const WorkspaceInspectorTab({
@@ -63,16 +58,10 @@ final class WorkspaceInspector extends StatelessWidget {
       color: colorScheme.surfaceContainerLowest,
       child: switch (tab) {
         WorkspaceInspectorTab.assistant => const _AssistantPanel(),
-        WorkspaceInspectorTab.outline => _OutlinePanel(
-          document: controller.activeDocument,
-        ),
         WorkspaceInspectorTab.statistics => WritingStatisticsPane(
           controller: controller,
         ),
         WorkspaceInspectorTab.version => VersionPane(controller: controller),
-        WorkspaceInspectorTab.info => _DocumentInfoPanel(
-          document: controller.activeDocument,
-        ),
         WorkspaceInspectorTab.search => NovelSearchPanel(
           controller: controller,
           onSelectMatch: onSelectSearchMatch ?? (_, _) {},
@@ -143,10 +132,6 @@ final class _InspectorRailTab extends StatelessWidget {
             color: selected
                 ? colorScheme.primaryContainer.withValues(alpha: 0.68)
                 : Colors.transparent,
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.horizontal(left: Radius.circular(8)),
-            ),
-            clipBehavior: Clip.antiAlias,
             child: InkWell(
               key: ValueKey('workspace-inspector-tab-${tab.keyName}'),
               onTap: onPressed,
@@ -283,156 +268,6 @@ final class _PlannedToolTile extends StatelessWidget {
       title: Text(title),
       subtitle: Text(subtitle),
       trailing: const Icon(Icons.lock_clock_outlined, size: 16),
-    );
-  }
-}
-
-final class _OutlinePanel extends StatelessWidget {
-  const _OutlinePanel({required this.document});
-
-  final OpenDocument? document;
-
-  @override
-  Widget build(BuildContext context) {
-    final current = document;
-    if (current == null) {
-      return const InspectorEmpty(
-        icon: Icons.format_list_bulleted,
-        message: '打开文档后查看大纲',
-      );
-    }
-    if (!current.isMarkdown) {
-      return const InspectorEmpty(
-        icon: Icons.text_snippet_outlined,
-        message: 'TXT 文档暂不生成大纲',
-      );
-    }
-    return ListenableBuilder(
-      listenable: current,
-      builder: (context, _) => _buildOutline(context, current),
-    );
-  }
-
-  Widget _buildOutline(BuildContext context, OpenDocument current) {
-    final headings = <({int level, String title})>[];
-    final headingPattern = RegExp(r'^(#{1,6})\s+(.+)$');
-    for (final line in current.editorController.text.split('\n')) {
-      final match = headingPattern.firstMatch(line.trimRight());
-      if (match != null) {
-        headings.add((level: match.group(1)!.length, title: match.group(2)!));
-      }
-    }
-    if (headings.isEmpty) {
-      return const InspectorEmpty(
-        icon: Icons.tag_outlined,
-        message: '使用 Markdown 标题生成文档大纲',
-      );
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      itemCount: headings.length,
-      itemBuilder: (context, index) {
-        final heading = headings[index];
-        return ListTile(
-          dense: true,
-          contentPadding: EdgeInsets.only(
-            left: 14.0 + (heading.level - 1) * 14,
-            right: 14,
-          ),
-          leading: Icon(
-            heading.level == 1 ? Icons.tag : Icons.subdirectory_arrow_right,
-            size: 16,
-          ),
-          title: Text(
-            heading.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        );
-      },
-    );
-  }
-}
-
-final class _DocumentInfoPanel extends StatelessWidget {
-  const _DocumentInfoPanel({required this.document});
-
-  final OpenDocument? document;
-
-  @override
-  Widget build(BuildContext context) {
-    final current = document;
-    if (current == null) {
-      return const InspectorEmpty(
-        icon: Icons.info_outline,
-        message: '打开文档后查看详细信息',
-      );
-    }
-    return ListenableBuilder(
-      listenable: current,
-      builder: (context, _) => _buildInfo(context, current),
-    );
-  }
-
-  Widget _buildInfo(BuildContext context, OpenDocument current) {
-    return ListView(
-      padding: const EdgeInsets.all(18),
-      children: [
-        Text(
-          current.name,
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          current.relativePath,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 22),
-        _InfoRow(label: '格式', value: current.isMarkdown ? 'Markdown' : 'TXT'),
-        _InfoRow(label: '字数', value: '${current.characterCount}'),
-        _InfoRow(label: '状态', value: current.saveStatusText),
-        _InfoRow(
-          label: '换行符',
-          value: current.snapshot.lineEnding.name.toUpperCase(),
-        ),
-        _InfoRow(
-          label: '编码',
-          value: current.snapshot.encoding == TextEncoding.utf8Bom
-              ? 'UTF-8 BOM'
-              : 'UTF-8',
-        ),
-      ],
-    );
-  }
-}
-
-final class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 9),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
-      ),
     );
   }
 }

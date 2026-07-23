@@ -656,8 +656,9 @@ void main() {
     expect(find.text('第一章.md'), findsOneWidget);
     expect(find.text('选择或新建文件开始写作'), findsOneWidget);
     expect(find.text('助手'), findsOneWidget);
-    expect(find.text('大纲'), findsOneWidget);
-    expect(find.text('信息'), findsOneWidget);
+    expect(find.text('统计'), findsOneWidget);
+    expect(find.text('版本'), findsOneWidget);
+    expect(find.text('搜索'), findsOneWidget);
     expect(
       tester
           .getSize(find.byKey(const ValueKey('workspace-inspector-rail')))
@@ -713,10 +714,9 @@ void main() {
     );
 
     await tester.tap(
-      find.byKey(const ValueKey('workspace-inspector-tab-info')),
+      find.byKey(const ValueKey('workspace-inspector-tab-assistant')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('4'), findsOneWidget);
 
     final inspector = find.byKey(const ValueKey('workspace-inspector-content'));
     final inspectorResizeHandle = find.byKey(
@@ -736,19 +736,13 @@ void main() {
     await tester.enterText(find.byType(TextField), '# 新标题\n正文 内容');
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('8 字'), findsOneWidget);
-    expect(find.text('8'), findsOneWidget);
-
-    await tester.tap(
-      find.byKey(const ValueKey('workspace-inspector-tab-outline')),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('新标题'), findsOneWidget);
 
     tester.view.physicalSize = const Size(500, 900);
     await tester.pumpAndSettle();
     expect(find.text('助手'), findsOneWidget);
-    expect(find.text('大纲'), findsOneWidget);
-    expect(find.text('信息'), findsOneWidget);
+    expect(find.text('统计'), findsOneWidget);
+    expect(find.text('版本'), findsOneWidget);
+    expect(find.text('搜索'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('workspace-inspector-content')),
       findsNothing,
