@@ -26,9 +26,32 @@ bool shortcutActionDesktopOnly(ShortcutAction action) =>
     action == ShortcutAction.focusPrimary ||
     action == ShortcutAction.focusSecondary;
 
-/// 把逻辑键码格式化为单个键帽文本：字母转大写、可打印 ASCII 直接取字符，
-/// 其余（回车、方向键、功能键）回落 `LogicalKeyboardKey.keyLabel`。
+/// 特殊键的显示文本。这些键的 `LogicalKeyboardKey.keyLabel` 返回的是原始控制
+/// 字符（如回车返回 `\r`），直接渲染会变成空白，故显式映射为可读符号/名称。
+final _specialKeyLabels = <int, String>{
+  LogicalKeyboardKey.enter.keyId: '↩',
+  LogicalKeyboardKey.backspace.keyId: '⌫',
+  LogicalKeyboardKey.tab.keyId: '⇥',
+  LogicalKeyboardKey.space.keyId: 'Space',
+  LogicalKeyboardKey.escape.keyId: 'Esc',
+  LogicalKeyboardKey.delete.keyId: '⌦',
+  LogicalKeyboardKey.arrowUp.keyId: '↑',
+  LogicalKeyboardKey.arrowDown.keyId: '↓',
+  LogicalKeyboardKey.arrowLeft.keyId: '←',
+  LogicalKeyboardKey.arrowRight.keyId: '→',
+  LogicalKeyboardKey.home.keyId: 'Home',
+  LogicalKeyboardKey.end.keyId: 'End',
+  LogicalKeyboardKey.pageUp.keyId: 'PgUp',
+  LogicalKeyboardKey.pageDown.keyId: 'PgDn',
+};
+
+/// 把逻辑键码格式化为单个键帽文本：特殊键查 [_specialKeyLabels]，字母转大写、
+/// 可打印 ASCII 直接取字符，其余（功能键等）回落 `LogicalKeyboardKey.keyLabel`。
 String formatKeyLabel(int logicalKeyId) {
+  final special = _specialKeyLabels[logicalKeyId];
+  if (special != null) {
+    return special;
+  }
   if (logicalKeyId >= 0x20 && logicalKeyId <= 0x7e) {
     return String.fromCharCode(logicalKeyId).toUpperCase();
   }

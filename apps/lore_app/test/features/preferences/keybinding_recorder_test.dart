@@ -12,6 +12,18 @@ void main() {
       expect(formatKeyLabel(0x2c), ','); // 标点
       expect(formatKeyLabel(0x5c), r'\'); // 反斜杠
     });
+
+    test(
+      'maps special keys to readable symbols instead of blank control chars',
+      () {
+        // 这些键的 keyLabel 是原始控制字符（回车=\r），直接渲染会空白。
+        expect(formatKeyLabel(LogicalKeyboardKey.enter.keyId), '↩');
+        expect(formatKeyLabel(LogicalKeyboardKey.backspace.keyId), '⌫');
+        expect(formatKeyLabel(LogicalKeyboardKey.tab.keyId), '⇥');
+        expect(formatKeyLabel(LogicalKeyboardKey.space.keyId), 'Space');
+        expect(formatKeyLabel(LogicalKeyboardKey.arrowUp.keyId), '↑');
+      },
+    );
   });
 
   group('KeyCombinationDisplay', () {
