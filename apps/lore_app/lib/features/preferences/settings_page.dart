@@ -11,6 +11,7 @@ import 'font_options.dart';
 import 'background_image_storage.dart';
 import 'keybinding_recorder.dart';
 import 'preferences_providers.dart';
+import 'theme_options.dart';
 import '../workspace/workspace_platform.dart';
 
 part 'settings_controls.dart';
@@ -239,18 +240,9 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
         _SettingsGroup(
           title: '界面',
           children: [
-            _SettingRow(
-              label: '主题',
-              trailing: _Dropdown<AppThemeMode>(
-                value: prefs.themeMode,
-                onChanged: guard(controller.setThemeMode),
-                items: const [
-                  _DropdownOption(AppThemeMode.system, '跟随系统'),
-                  _DropdownOption(AppThemeMode.light, '极简白'),
-                  _DropdownOption(AppThemeMode.sepia, '纸张'),
-                  _DropdownOption(AppThemeMode.dark, '夜间'),
-                ],
-              ),
+            _ThemePicker(
+              value: prefs.themeMode,
+              onChanged: guard(controller.setThemeMode),
             ),
             _SettingRow(
               label: '背景',

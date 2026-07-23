@@ -73,13 +73,20 @@ void main() {
       expect(find.text('专注、目标与查找选项'), findsNothing);
       expect(find.text('新查找窗口的默认选项'), findsNothing);
       expect(find.byType(DropdownButton<dynamic>), findsNothing);
+      // 主题已从下拉改为卡片选择器，6 个具名主题 + 「自动」齐全。
       expect(
         find.byWidgetPredicate(
-          (widget) =>
-              widget.runtimeType.toString() == '_Dropdown<AppThemeMode>',
+          (widget) => widget.runtimeType.toString() == '_ThemePicker',
         ),
         findsOneWidget,
       );
+      expect(find.text('素白'), findsOneWidget);
+      expect(find.text('纸张'), findsOneWidget);
+      expect(find.text('夜间'), findsOneWidget);
+      expect(find.text('霜华'), findsOneWidget);
+      expect(find.text('翠微'), findsOneWidget);
+      expect(find.text('墨渊'), findsOneWidget);
+      expect(find.text('自动'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('settings-nav-selection-appearance')),
         findsOneWidget,
@@ -219,6 +226,28 @@ void main() {
       tester.getSemantics(second).flagsCollection.isSelected,
       Tristate.isTrue,
     );
+  });
+
+  testWidgets('tapping a theme card persists the selection', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: LoreTheme.light(),
+          home: const Scaffold(body: SettingsContent()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 默认跟随系统；点「墨渊」卡片应切换并落盘。
+    expect(find.text('墨渊'), findsOneWidget);
+    await tester.tap(find.text('墨渊'));
+    await tester.pumpAndSettle();
+
+    final stored = await SharedPreferences.getInstance();
+    final blob = jsonDecode(stored.getString('lore.app.preferences')!);
+    expect(blob['themeMode'], 'ink');
   });
 
   testWidgets(

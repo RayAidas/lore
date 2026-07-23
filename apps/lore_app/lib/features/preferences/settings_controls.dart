@@ -235,6 +235,255 @@ final class _BackgroundThumbnail extends StatelessWidget {
   }
 }
 
+/// 主题选择器：以卡片网格展示所有主题（含「自动」跟随系统），点击即选。
+///
+/// 卡片预览直接取各主题真实 [ThemeData] 的 colorScheme 渲染迷你界面，所见即
+/// 所选；与背景图库同为全宽块（不走 [_SettingRow]），让卡片有足够横向空间。
+final class _ThemePicker extends StatelessWidget {
+  const _ThemePicker({required this.value, required this.onChanged});
+
+  final AppThemeMode value;
+  final ValueChanged<AppThemeMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 2, bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('主题', style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 12,
+            children: [
+              _ThemeCard.system(
+                selected: value == AppThemeMode.system,
+                onTap: () => onChanged(AppThemeMode.system),
+              ),
+              for (final option in AppThemeOptions.options)
+                _ThemeCard(
+                  option: option,
+                  selected: value == option.mode,
+                  onTap: () => onChanged(option.mode),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 单张主题卡片：上方迷你预览（取主题真实配色）+ 下方 2 字名；选中态用主色
+/// 边框 + 角标勾选。「自动」卡走亮 / 暗分屏预览，区别于具名主题。
+final class _ThemeCard extends StatelessWidget {
+  const _ThemeCard({
+    required this.option,
+    required this.selected,
+    required this.onTap,
+  }) : isSystem = false;
+
+  const _ThemeCard.system({required this.selected, required this.onTap})
+    : option = null,
+      isSystem = true;
+
+  static const double _previewWidth = 96;
+  static const double _previewHeight = 60;
+
+  final AppThemeOption? option;
+  final bool isSystem;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final label = isSystem ? '自动' : option!.label;
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: isSystem ? '跟随系统' : label,
+      child: SizedBox(
+        width: _previewWidth,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(9),
+            child: Column(
+              children: [
+                SizedBox(
+                  width: _previewWidth,
+                  height: _previewHeight,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: selected
+                            ? colorScheme.primary
+                            : colorScheme.outlineVariant,
+                        width: selected ? 2 : 1,
+                      ),
+                    ),
+                    // 边框画在固定 SizedBox 内部：选中态由 1→2px 只向内吃，外框
+                    // 尺寸不变，避免选中时卡片在网格里产生 1px 抖动。
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(7),
+                      child: isSystem
+                          ? const _SystemThemePreview()
+                          : _NamedThemePreview(option: option!),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.1,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected
+                        ? colorScheme.primary
+                        : colorScheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 具名主题的迷你预览：用主题 colorScheme 画一条假应用栏 + 几行正文 + 一个
+/// 强调色角标，让用户一眼看到该主题的底色、文字与强调色搭配。
+final class _NamedThemePreview extends StatelessWidget {
+  const _NamedThemePreview({required this.option});
+
+  final AppThemeOption option;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = option.data.colorScheme;
+    Widget line(double width, Color color) => Container(
+      width: width,
+      height: 3.5,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(2),
+      ),
+    );
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(child: ColoredBox(color: cs.surface)),
+        // 假应用栏
+        Positioned(
+          left: 0,
+          top: 0,
+          right: 0,
+          height: 13,
+          child: ColoredBox(color: cs.surfaceContainerLowest),
+        ),
+        Positioned(
+          left: 0,
+          top: 13,
+          right: 0,
+          height: 1,
+          child: ColoredBox(color: cs.outlineVariant),
+        ),
+        // 正文行
+        Positioned(
+          left: 8,
+          top: 19,
+          right: 8,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              line(54, cs.onSurface),
+              const SizedBox(height: 4),
+              line(72, cs.onSurfaceVariant),
+              const SizedBox(height: 4),
+              line(40, cs.onSurfaceVariant),
+            ],
+          ),
+        ),
+        // 强调色角标
+        Positioned(
+          right: 7,
+          bottom: 7,
+          child: Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
+              color: cs.primary,
+              shape: BoxShape.circle,
+              border: Border.all(color: cs.surface, width: 2),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 「自动 / 跟随系统」的分屏预览：左半亮色、右半暗色，中央一个 auto 图标，
+/// 表达「按系统亮度在两套方案间切换」。
+final class _SystemThemePreview extends StatelessWidget {
+  const _SystemThemePreview();
+
+  @override
+  Widget build(BuildContext context) {
+    final host = Theme.of(context).colorScheme;
+    final halfWidth = _ThemeCard._previewWidth / 2;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: halfWidth,
+          child: ColoredBox(color: LoreTheme.light().colorScheme.surface),
+        ),
+        Positioned(
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: halfWidth,
+          child: ColoredBox(color: LoreTheme.dark().colorScheme.surface),
+        ),
+        Center(
+          child: Container(
+            width: 20,
+            height: 20,
+            decoration: BoxDecoration(
+              color: host.surfaceContainerLowest,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: host.shadow.withValues(alpha: 0.25),
+                  blurRadius: 3,
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.brightness_auto_rounded,
+              size: 13,
+              color: host.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// 标签 + 控件行：左侧标签（可带副标题），右侧任意控件（开关 / 下拉 / 按钮）。
 final class _SettingRow extends StatelessWidget {
   const _SettingRow({

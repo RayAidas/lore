@@ -6,6 +6,7 @@ import 'package:lore_ui/lore_ui.dart';
 import 'app_background.dart';
 import '../features/library/library_page.dart';
 import '../features/preferences/preferences_providers.dart';
+import '../features/preferences/theme_options.dart';
 
 class LoreApp extends ConsumerWidget {
   const LoreApp({super.key});
@@ -25,24 +26,20 @@ class LoreApp extends ConsumerWidget {
         home: _PreferencesError(message: '$error'),
       ),
       data: (prefs) {
-        // MaterialApp.themeMode 仅支持 system/light/dark 三态；
-        // sepia 作为亮色变体，用 theme: 直接指向 LoreTheme.sepia() + ThemeMode.light 表达。
-        final (theme, themeMode) = switch (prefs.themeMode) {
-          AppThemeMode.system => (LoreTheme.light(), ThemeMode.system),
-          AppThemeMode.light => (LoreTheme.light(), ThemeMode.light),
-          AppThemeMode.sepia => (LoreTheme.sepia(), ThemeMode.light),
-          AppThemeMode.dark => (LoreTheme.dark(), ThemeMode.dark),
-        };
         final surfaceOpacity = prefs.backgroundMode == AppBackgroundMode.theme
             ? 1.0
             : prefs.backgroundOpacity;
+        // system 走真·系统跟随；显式模式把 theme 与 darkTheme 都指向所选主题，
+        // 让「选哪个显示哪个」（墨渊这类第二个暗色主题不会被 dark() 覆盖成夜间）。
+        // 详见 [AppThemeOptions.resolveAppliedTheme]，逻辑已单测锁定。
+        final applied = AppThemeOptions.resolveAppliedTheme(prefs.themeMode);
         return _materialApp(
-          theme: LoreTheme.withSurfaceOpacity(theme, surfaceOpacity),
+          theme: LoreTheme.withSurfaceOpacity(applied.theme, surfaceOpacity),
           darkTheme: LoreTheme.withSurfaceOpacity(
-            LoreTheme.dark(),
+            applied.darkTheme,
             surfaceOpacity,
           ),
-          themeMode: themeMode,
+          themeMode: applied.themeMode,
           home: AppBackground(preferences: prefs, child: const LibraryPage()),
         );
       },
