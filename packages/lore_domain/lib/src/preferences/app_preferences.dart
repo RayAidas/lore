@@ -50,7 +50,7 @@ final class AppPreferences {
     this.backgroundImageDimness = 0.2,
   });
 
-  static const schemaVersionCurrent = 8;
+  static const schemaVersionCurrent = 9;
 
   /// 开箱默认：字号 18、行高 1.45、段间距 1.2（字号倍数）；标题→首段留白由
   /// EditorStyle 派生（(段间距 + 1.0) × 字号）保证始终宽于段间距。

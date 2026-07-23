@@ -29,7 +29,7 @@ bool shortcutActionDesktopOnly(ShortcutAction action) =>
 /// 特殊键的显示文本。这些键的 `LogicalKeyboardKey.keyLabel` 返回的是原始控制
 /// 字符（如回车返回 `\r`），直接渲染会变成空白，故显式映射为可读符号/名称。
 final _specialKeyLabels = <int, String>{
-  LogicalKeyboardKey.enter.keyId: '↩',
+  LogicalKeyboardKey.enter.keyId: 'Enter',
   LogicalKeyboardKey.backspace.keyId: '⌫',
   LogicalKeyboardKey.tab.keyId: '⇥',
   LogicalKeyboardKey.space.keyId: 'Space',

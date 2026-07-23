@@ -106,10 +106,10 @@ final class Keybindings {
       shift: true,
     ), // Shift + keyT
     ShortcutAction.toggleFullscreen: KeyCombination(
-      logicalKeyId: 0x0d,
+      logicalKeyId: 0x10000000d,
       meta: true,
       shift: true,
-    ), // Shift + enter
+    ), // Shift + enter（Flutter enter 键码带 HID 前缀 0x100000000，非原始 0x0d）
     ShortcutAction.openNovelSearch: KeyCombination(
       logicalKeyId: 0x66,
       meta: true,
@@ -138,7 +138,7 @@ final class Keybindings {
       Keybindings({...bindings, action: combo});
 
   /// 移除单个动作的绑定（未绑定的动作在 UI 显示「未设置」）。
-  Keybindings withoutBinding(ShortcutAction action) =>
-      Keybindings(Map<ShortcutAction, KeyCombination>.from(bindings)
-        ..remove(action));
+  Keybindings withoutBinding(ShortcutAction action) => Keybindings(
+    Map<ShortcutAction, KeyCombination>.from(bindings)..remove(action),
+  );
 }

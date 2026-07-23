@@ -16,10 +16,7 @@ void main() {
           const KeyCombination(logicalKeyId: 0x73, meta: true, shift: true),
         ),
       );
-      expect(
-        base,
-        isNot(const KeyCombination(logicalKeyId: 0x66, meta: true)),
-      );
+      expect(base, isNot(const KeyCombination(logicalKeyId: 0x66, meta: true)));
     });
   });
 
@@ -27,10 +24,7 @@ void main() {
     test('defaults cover every configurable action exactly once', () {
       final bindings = Keybindings.defaults.bindings;
       for (final action in ShortcutAction.values) {
-        expect(
-          bindings,
-          containsPair(action, isA<KeyCombination>()),
-        );
+        expect(bindings, containsPair(action, isA<KeyCombination>()));
       }
       expect(bindings, hasLength(ShortcutAction.values.length));
     });
@@ -55,7 +49,11 @@ void main() {
       );
       expect(
         b[ShortcutAction.toggleFullscreen],
-        const KeyCombination(logicalKeyId: 0x0d, meta: true, shift: true),
+        const KeyCombination(
+          logicalKeyId: 0x10000000d,
+          meta: true,
+          shift: true,
+        ),
       );
     });
 
@@ -76,10 +74,7 @@ void main() {
       final next = Keybindings.defaults.withoutBinding(ShortcutAction.save);
       expect(next.bindings.containsKey(ShortcutAction.save), isFalse);
       // 其余动作不受影响。
-      expect(
-        next.bindings.containsKey(ShortcutAction.find),
-        isTrue,
-      );
+      expect(next.bindings.containsKey(ShortcutAction.find), isTrue);
     });
   });
 
@@ -95,10 +90,7 @@ void main() {
       final base = AppPreferences.defaults();
       const rebound = KeyCombination(logicalKeyId: 0x51, meta: true);
       final updated = base.copyWith(
-        keybindings: base.keybindings.withBinding(
-          ShortcutAction.save,
-          rebound,
-        ),
+        keybindings: base.keybindings.withBinding(ShortcutAction.save, rebound),
       );
 
       expect(updated.keybindings.bindings[ShortcutAction.save], rebound);

@@ -15,15 +15,16 @@ final class SharedPreferencesAppPreferencesRepository
   SharedPreferencesAppPreferencesRepository();
 
   static const _key = 'lore.app.preferences';
-  static const _schemaVersion = 8;
+  static const _schemaVersion = 9;
 
-  /// load 时接受的历史 schema 版本：v1–v7 均就地迁移到当前 v8。
+  /// load 时接受的历史 schema 版本：v1–v8 均就地迁移到当前 v9。
   ///
   /// v1→v2 收紧行高默认（按值匹配替换，保留用户自定义）；v2→v3 仅新增网格线
   /// 字段；v3→v4 仅新增高亮调色板字段（缺失取默认）；v4→v5 段间距由绝对像素
   /// 改为字号倍数（÷字号，保留用户实际看到的比例）；v7→v8 新增快捷键映射
-  /// 字段（缺失整体取默认，未知动作名前向兼容跳过）。
-  static const _legacySchemaVersions = {1, 2, 3, 4, 5, 6, 7};
+  /// 字段（缺失整体取默认，未知动作名前向兼容跳过）；v8→v9 修正回车键码
+  /// （0x0d → 真实 enter 0x10000000d，否则显示空白且不触发）。
+  static const _legacySchemaVersions = {1, 2, 3, 4, 5, 6, 7, 8};
   static const _pixelParagraphSpacingSchemaVersions = {1, 2, 3, 4};
 
   /// v1 行高默认值：迁移时识别「仍停留在旧默认」的行高，替换为当前默认。
@@ -46,7 +47,7 @@ final class SharedPreferencesAppPreferencesRepository
       if (value is! Map<String, Object?>) {
         return null;
       }
-      // 接受 v1–v7（旧版，就地迁移）或 v8（当前）；其它版本号视为损坏。
+      // 接受 v1–v8（旧版，就地迁移）或 v9（当前）；其它版本号视为损坏。
       final storedVersion = value['schemaVersion'];
       final migratingFromV1 = storedVersion == 1;
       final migratingFromLegacy =
@@ -150,7 +151,12 @@ final class SharedPreferencesAppPreferencesRepository
           : AppPreferences.defaults().backgroundImageDimness;
       // 快捷键映射是 v8 新增字段。v7 及更早的 blob 里没有——缺失整体取默认；
       // 存在则逐条解析：未知动作名（前向兼容）与损坏组合（留作未设置）跳过。
-      final keybindings = _keybindingsFromJson(value['keybindings']);
+      final rawKeybindings = _keybindingsFromJson(value['keybindings']);
+      // v8 及更早的默认把回车存成原始码点 0x0d（≠ 真实 enter 键 0x10000000d），
+      // 既显示空白也匹配不上按键事件——legacy 迁移时改写为真实 enter 键码。
+      final keybindings = migratingFromLegacy
+          ? _normalizeEnterKey(rawKeybindings)
+          : rawKeybindings;
       // v1 → v2 迁移（行高）：仅当行高仍停留在 v1 默认 1.5 时替换为当前默认
       // （视觉瘦身）；用户自定义原样保留。按值匹配使迁移对同一输入幂等，不会
       // 每次冷启动把自定义抹回默认。
@@ -352,5 +358,28 @@ final class SharedPreferencesAppPreferencesRepository
       alt: value['alt'] is bool ? value['alt']! as bool : false,
       shift: value['shift'] is bool ? value['shift']! as bool : false,
     );
+  }
+
+  /// 把映射里所有原始回车码点（0x0d）改写为真实 enter 键码（0x10000000d）。
+  /// v8 默认误用 0x0d，导致显示空白且运行时匹配不上回车事件。
+  Keybindings _normalizeEnterKey(Keybindings keybindings) {
+    var changed = false;
+    final next = <ShortcutAction, KeyCombination>{};
+    for (final entry in keybindings.bindings.entries) {
+      final combo = entry.value;
+      if (combo.logicalKeyId == 0x0d) {
+        next[entry.key] = KeyCombination(
+          logicalKeyId: 0x10000000d,
+          meta: combo.meta,
+          control: combo.control,
+          alt: combo.alt,
+          shift: combo.shift,
+        );
+        changed = true;
+      } else {
+        next[entry.key] = combo;
+      }
+    }
+    return changed ? Keybindings(next) : keybindings;
   }
 }

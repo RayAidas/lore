@@ -17,7 +17,7 @@ void main() {
       'maps special keys to readable symbols instead of blank control chars',
       () {
         // 这些键的 keyLabel 是原始控制字符（回车=\r），直接渲染会空白。
-        expect(formatKeyLabel(LogicalKeyboardKey.enter.keyId), '↩');
+        expect(formatKeyLabel(LogicalKeyboardKey.enter.keyId), 'Enter');
         expect(formatKeyLabel(LogicalKeyboardKey.backspace.keyId), '⌫');
         expect(formatKeyLabel(LogicalKeyboardKey.tab.keyId), '⇥');
         expect(formatKeyLabel(LogicalKeyboardKey.space.keyId), 'Space');

@@ -329,7 +329,7 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 8);
+      expect(loaded!.schemaVersion, 9);
       expect(loaded.gridLineMode, GridLineMode.none);
       expect(loaded.editorLineHeight, 1.8);
       expect(loaded.paragraphSpacing, 1.25);
@@ -363,7 +363,7 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 8);
+      expect(loaded!.schemaVersion, 9);
       expect(loaded.highlightPalette, HighlightPalette.defaults);
       expect(loaded.gridLineMode, GridLineMode.dashed);
     },
@@ -401,7 +401,7 @@ void main() {
       await repository.save(first);
       final reloaded = await repository.load();
       expect(reloaded, isNotNull);
-      expect(reloaded!.schemaVersion, 8);
+      expect(reloaded!.schemaVersion, 9);
       // 仍是 0.8，没有被二次除以字号。
       expect(reloaded.paragraphSpacing, 0.8);
     },
@@ -426,7 +426,7 @@ void main() {
     final loaded = await repository.load();
 
     expect(loaded, isNotNull);
-    expect(loaded!.schemaVersion, 8);
+    expect(loaded!.schemaVersion, 9);
     expect(loaded.paragraphSpacing, 1.2);
     expect(loaded.backgroundMode, AppBackgroundMode.theme);
     expect(loaded.backgroundImagePath, isNull);
@@ -453,7 +453,7 @@ void main() {
     final loaded = await repository.load();
 
     expect(loaded, isNotNull);
-    expect(loaded!.schemaVersion, 8);
+    expect(loaded!.schemaVersion, 9);
     expect(loaded.backgroundMode, AppBackgroundMode.image);
     expect(loaded.backgroundImagePaths, ['/managed/legacy.jpg']);
     expect(loaded.backgroundImagePath, '/managed/legacy.jpg');
@@ -600,11 +600,39 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 8);
+      expect(loaded!.schemaVersion, 9);
       expect(loaded.keybindings.bindings, Keybindings.defaults.bindings);
       expect(loaded.editorFontFamily, AppFontFamily.serif);
     },
   );
+
+  test('v8 blob normalizes raw enter key code to the real enter key', () async {
+    // v8 默认把回车存成原始码点 0x0d（≠ 真实 enter 0x10000000d）：迁移到 v9 时
+    // 改写，否则全屏快捷键显示空白且运行时匹配不上回车事件。
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 8,
+        'themeMode': 'system',
+        'defaultChapterFormat': 'text',
+        'editorLineHeight': 1.45,
+        'editorFontSize': 18,
+        'editorContentWidth': 900,
+        'dailyWordGoal': 2000,
+        'findMatchCase': false,
+        'findUseRegex': false,
+        'keybindings': {
+          'toggleFullscreen': {'key': 13, 'meta': true, 'shift': true},
+        },
+      }),
+    });
+    final loaded = await repository.load();
+    expect(loaded, isNotNull);
+    expect(loaded!.schemaVersion, 9);
+    expect(
+      loaded.keybindings.bindings[ShortcutAction.toggleFullscreen],
+      const KeyCombination(logicalKeyId: 0x10000000d, meta: true, shift: true),
+    );
+  });
 
   test(
     'keybindings tolerate unknown action names and malformed combos',
