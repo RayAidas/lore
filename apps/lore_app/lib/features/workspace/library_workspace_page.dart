@@ -63,6 +63,16 @@ final class _LibraryWorkspacePageState
   bool _findReplaceMode = false;
   WorkspaceTabDragData? _draggingTab;
 
+  /// 页面级焦点作用域。编辑器等可聚焦控件都在本作用域内：点击页面内非可聚焦
+  /// 区域（AppBar/侧栏/分隔条）时，编辑器（TextField）默认的 onTapOutside 会把
+  /// 焦点交还给其 enclosingScope——即本节点，而非冒泡到 CallbackShortcuts 之外的
+  /// Navigator 路由作用域。否则焦点会落到快捷键子树外，全屏/快速打开等在
+  /// 「点击别处失去光标」后静默失效。本节点是 CallbackShortcuts 的后代，故焦点
+  /// 留在此处时所有页面快捷键仍可触发。
+  final FocusScopeNode _focusScopeNode = FocusScopeNode(
+    debugLabel: 'library-workspace-scope',
+  );
+
   /// [WorkspaceEditorGroup] 的稳定回调集。方法闭包绑定 this，引用的 controller
   /// 用 [_controller]（与 build 中 ref.watch 的实例一致）。
   late final WorkspaceEditorGroupCallbacks _editorGroupCallbacks =
@@ -134,6 +144,7 @@ final class _LibraryWorkspacePageState
     _findController?.dispose();
     _sidebarWidth.dispose();
     _inspectorWidth.dispose();
+    _focusScopeNode.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -218,7 +229,8 @@ final class _LibraryWorkspacePageState
                   const SingleActivator(LogicalKeyboardKey.escape):
                       _toggleFullscreen,
               },
-              child: Focus(
+              child: FocusScope(
+                node: _focusScopeNode,
                 autofocus: true,
                 child: Scaffold(
                   drawer: permanentSidebar

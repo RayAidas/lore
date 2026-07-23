@@ -203,6 +203,88 @@ void main() {
     },
   );
 
+  testWidgets('page shortcuts still fire after clicking away from the editor', (
+    tester,
+  ) async {
+    // 回归守护：用户「点击页面其他区域失去光标」后，全屏等页面快捷键仍应可用。
+    //
+    // 机理：EditableText 默认 onTapOutside 仅在桌面端（macOS/Linux/Windows）调用
+    // focusNode.unfocus()（默认 UnfocusDisposition.scope，见 SDK
+    // _EditableTextTapOutsideAction），把焦点交给其 enclosingScope。修复前页面没有
+    // 自己的 FocusScope，enclosingScope 是位于 CallbackShortcuts 之外的 Navigator
+    // 路由作用域（_ModalScopeState），焦点逸出快捷键子树后 Shortcuts.onKeyEvent 不再
+    // 触发，全屏/快速打开等静默失效。
+    //
+    // 锁定 macOS 与同文件其它桌面测试一致；这里直接调用 focusNode.unfocus()——与
+    // 系统点击外部触发的调用完全一致，跳过不稳定的命中测试，确定性地复现焦点逸出。
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final session = LibrarySession(access: access, metadata: metadata);
+    final repository = _FakeWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemoryWorkspaceSessionRepository(),
+      ),
+    );
+    await controller.initialize();
+    await controller.openPath('第一章.md');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workspaceControllerProvider(
+            session,
+          ).overrideWith((ref) => controller),
+        ],
+        child: MaterialApp(
+          home: LibraryWorkspacePage(session: session, onSelectLibrary: () {}),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // 让编辑器（EditableText）持有焦点，再以与系统「点击外部」相同的方式失焦。
+    final editable = tester.widget<EditableText>(
+      find.byType(EditableText).first,
+    );
+    editable.focusNode.requestFocus();
+    await tester.pump();
+    expect(editable.focusNode.hasFocus, isTrue);
+    editable.focusNode.unfocus();
+    await tester.pump();
+
+    // 焦点已离开编辑器：Cmd+Shift+Enter 仍应进入全屏（焦点留在页面 FocusScope 内）。
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.byTooltip('退出全屏 (Esc)'), findsOneWidget);
+
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    // 在 body 内（而非仅 addTearDown）显式还原平台 override，确保框架
+    // _verifyInvariants 检查 foundation debug 变量时已归位。
+    debugDefaultTargetPlatformOverride = null;
+    controller.dispose();
+  });
+
   testWidgets('fullscreen toggle preserves scroll position', (tester) async {
     // 构造可滚动的长文档：DocumentPane 全屏切换不应让编辑器重挂载、滚动归零。
     final longBody = List<String>.generate(
