@@ -8,31 +8,24 @@ import 'package:lore_editor/lore_editor.dart';
 void main() {
   Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
-  testWidgets('相同文本摘要为 +0 / −0', (tester) async {
-    await tester.pumpWidget(
-      wrap(const HistoryDiffView(oldText: '雨夜倾盆而下', newText: '雨夜倾盆而下')),
-    );
-    await tester.pump();
-    expect(find.text('+0'), findsOneWidget);
-    expect(find.text('−0'), findsOneWidget);
+  // 净增删摘要已从 HistoryDiffView 上移到对比工具行，由顶层 diffCharStats 计算；
+  // 这里直接测该纯函数（同源算法：cleanupSemantic 后按 operation 累加字符数）。
+  test('相同文本摘要为 +0 / −0', () {
+    final s = diffCharStats('雨夜倾盆而下', '雨夜倾盆而下');
+    expect(s.added, 0);
+    expect(s.removed, 0);
   });
 
-  testWidgets('纯新增产生正的增计摘要', (tester) async {
-    await tester.pumpWidget(
-      wrap(const HistoryDiffView(oldText: '原文', newText: '原文加了一句话')),
-    );
-    await tester.pump();
-    expect(find.text('+5'), findsOneWidget);
-    expect(find.text('−0'), findsOneWidget);
+  test('纯新增产生正的增计摘要', () {
+    final s = diffCharStats('原文', '原文加了一句话');
+    expect(s.added, 5);
+    expect(s.removed, 0);
   });
 
-  testWidgets('纯删除产生正的删计摘要', (tester) async {
-    await tester.pumpWidget(
-      wrap(const HistoryDiffView(oldText: '原文删掉几个字', newText: '原文')),
-    );
-    await tester.pump();
-    expect(find.text('+0'), findsOneWidget);
-    expect(find.text('−5'), findsOneWidget);
+  test('纯删除产生正的删计摘要', () {
+    final s = diffCharStats('原文删掉几个字', '原文');
+    expect(s.added, 0);
+    expect(s.removed, 5);
   });
 
   testWidgets('复用 State 切换版本时重算 diff（不卡在第一个版本）', (tester) async {
@@ -41,14 +34,25 @@ void main() {
       wrap(const HistoryDiffView(oldText: '原文', newText: '原文')),
     );
     await tester.pump();
-    expect(find.text('+0'), findsOneWidget);
+    expect(
+      _flatten(
+        tester.widget<SelectableText>(find.byType(SelectableText)).textSpan
+            as TextSpan,
+      ),
+      '原文',
+    );
     // 模拟点版本 B：同一实例换 newText → State 复用，须走 didUpdateWidget 重算。
     await tester.pumpWidget(
       wrap(const HistoryDiffView(oldText: '原文', newText: '原文加了一句话')),
     );
     await tester.pump();
-    expect(find.text('+5'), findsOneWidget);
-    expect(find.text('−0'), findsOneWidget);
+    expect(
+      _flatten(
+        tester.widget<SelectableText>(find.byType(SelectableText)).textSpan
+            as TextSpan,
+      ),
+      '原文加了一句话',
+    );
   });
 
   testWidgets('窄屏渲染 unified，宽屏渲染并排双栏', (tester) async {
@@ -206,11 +210,9 @@ void main() {
       ),
     );
     await tester.pump();
-    // 标题块 + 正文块 = 两个 SelectableText。
+    // 标题块 + 正文块 = 两个 SelectableText。（净增删摘要已移至对比工具行，
+    // 由 diffCharStats(oldBody, newBody) 计算，标题不计入正文增删。）
     expect(find.byType(SelectableText), findsNWidgets(2));
-    // 正文未变 → 摘要仍为 +0 / −0（标题不计入正文增删）。
-    expect(find.text('+0'), findsOneWidget);
-    expect(find.text('−0'), findsOneWidget);
   });
 
   testWidgets('标题变更在 unified 下做字符级 diff（红删绿增）', (tester) async {

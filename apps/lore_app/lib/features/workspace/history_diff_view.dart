@@ -4,8 +4,30 @@ import 'package:lore_editor/lore_editor.dart';
 
 import 'history_diff_mode.dart';
 
+/// 历史对比净增删字数（字符级）：供对比工具行展示。与 [HistoryDiffView] 内部 diff
+/// 同源——cleanupSemantic 后按 operation 累加字符数（INSERT 计增、DELETE 计减）。
+({int added, int removed}) diffCharStats(String oldText, String newText) {
+  final diffs = diff(oldText, newText);
+  cleanupSemantic(diffs);
+  var added = 0;
+  var removed = 0;
+  for (final d in diffs) {
+    if (d.operation > 0) {
+      added += d.text.length;
+    } else if (d.operation < 0) {
+      removed += d.text.length;
+    }
+  }
+  return (added: added, removed: removed);
+}
+
+/// diff 着色：增绿 / 删红。饱和度足够、不依赖 ColorScheme 派生色，亮暗主题通用。
+const Color diffInsertColor = Color(0xFF1B7F3A);
+const Color diffDeleteColor = Color(0xFFC2364B);
+
 /// 历史版本 diff 视图：字符级差异着色，响应式布局（宽屏并排 split + 同步滚动；
-/// 窄屏 unified 内联）。顶部显示净增删字数摘要。
+/// 窄屏 unified 内联）。净增删字数摘要（[diffCharStats]）由宿主对比工具行展示，
+/// 本视图只负责正文着色。
 ///
 /// 排版与几何完全复用编辑器同源原语（[EditorTypography] / [buildAnnotationSpans]）：
 /// 正文 / 标题字号字体行高、内容宽度居中、52 阅读内边距、段首缩进、段间距、标题块
@@ -63,8 +85,6 @@ class _HistoryDiffViewState extends State<HistoryDiffView> {
   //（见 didUpdateWidget），故非 final。
   late List<Diff> _diffs;
   List<Diff>? _titleDiffs;
-  late int _added;
-  late int _removed;
   late final ScrollController _unifiedController;
   late final ScrollController _leftController;
   late final ScrollController _rightController;
@@ -112,17 +132,6 @@ class _HistoryDiffViewState extends State<HistoryDiffView> {
   void _computeDiff() {
     _diffs = diff(widget.oldText, widget.newText);
     cleanupSemantic(_diffs);
-    var added = 0;
-    var removed = 0;
-    for (final d in _diffs) {
-      if (d.operation > 0) {
-        added += d.text.length;
-      } else if (d.operation < 0) {
-        removed += d.text.length;
-      }
-    }
-    _added = added;
-    _removed = removed;
     // 标题 diff：仅当两侧标题都存在且不同时才计算（相同时渲染中性单行）。
     _titleDiffs =
         (widget.oldTitle != null &&
@@ -164,44 +173,15 @@ class _HistoryDiffViewState extends State<HistoryDiffView> {
       dir: Directionality.of(context),
       scaler: MediaQuery.textScalerOf(context),
     );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
-          child: Wrap(
-            spacing: 14,
-            children: [
-              Text(
-                '+$_added',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: _insertColor,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              Text(
-                '−$_removed',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: _deleteColor,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Divider(height: 1, color: cs.outlineVariant),
-        Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              if (widget.mode == DiffViewMode.split &&
-                  constraints.maxWidth >= 640) {
-                return _split(theme, cs, base, titleStyle, grid);
-              }
-              return _unified(base, titleStyle, grid);
-            },
-          ),
-        ),
-      ],
+    // 净增删摘要（+N −N）已上移到对比工具行（见 DocumentPane._buildDiff），
+    // 本视图只负责 diff 正文着色。
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (widget.mode == DiffViewMode.split && constraints.maxWidth >= 640) {
+          return _split(theme, cs, base, titleStyle, grid);
+        }
+        return _unified(base, titleStyle, grid);
+      },
     );
   }
 
@@ -514,8 +494,8 @@ class _HistoryDiffViewState extends State<HistoryDiffView> {
   }
 
   // diff 着色：绿增红删（跨主题一致惯例），背景低 alpha 适应明暗模式。
-  static const _insertColor = Color(0xFF1B7F3A);
-  static const _deleteColor = Color(0xFFC2364B);
+  static const _insertColor = diffInsertColor;
+  static const _deleteColor = diffDeleteColor;
   static Color get _insertBg => _insertColor.withValues(alpha: 0.16);
   static Color get _deleteBg => _deleteColor.withValues(alpha: 0.16);
 }

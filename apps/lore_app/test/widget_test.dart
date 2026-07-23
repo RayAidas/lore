@@ -203,6 +203,67 @@ void main() {
     },
   );
 
+  testWidgets('编辑/预览切换按钮点击生效（.md 文档）', (tester) async {
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final session = LibrarySession(access: access, metadata: metadata);
+    final repository = _FakeWorkspaceRepository();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemoryWorkspaceSessionRepository(),
+      ),
+    );
+    await controller.initialize();
+    await controller.openPath('第一章.md');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workspaceControllerProvider(
+            session,
+          ).overrideWith((ref) => controller),
+        ],
+        child: MaterialApp(
+          home: LibraryWorkspacePage(session: session, onSelectLibrary: () {}),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final doc = controller.activeDocument!;
+    expect(doc.isMarkdown, isTrue);
+    expect(doc.showPreview, isFalse);
+    expect(find.byTooltip('编辑模式（点击切换到预览）'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('编辑模式（点击切换到预览）'));
+    await tester.pumpAndSettle();
+
+    expect(doc.showPreview, isTrue);
+    expect(find.byTooltip('预览模式（点击切回编辑）'), findsOneWidget);
+
+    // 再点一次切回编辑态，验证两个方向都生效。
+    await tester.tap(find.byTooltip('预览模式（点击切回编辑）'));
+    await tester.pumpAndSettle();
+
+    expect(doc.showPreview, isFalse);
+    expect(find.byTooltip('编辑模式（点击切换到预览）'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+  });
+
   testWidgets('page shortcuts still fire after clicking away from the editor', (
     tester,
   ) async {
@@ -849,8 +910,8 @@ void main() {
     await tester.tap(find.text('第一章.md'));
     await tester.pumpAndSettle();
 
-    expect(find.text('编辑'), findsOneWidget);
-    expect(find.text('预览'), findsOneWidget);
+    // .md 文档默认编辑态：编辑/预览切换为单个图标按钮，tooltip 标明当前模式。
+    expect(find.byTooltip('编辑模式（点击切换到预览）'), findsOneWidget);
     expect(find.text('已保存'), findsOneWidget);
     expect(find.text('4 字'), findsOneWidget);
     final sidebarFooter = find.byKey(const ValueKey('library-sidebar-footer'));

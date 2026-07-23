@@ -242,10 +242,12 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
       oldBody = target.snapshotText;
       newBody = document.snapshot.text;
     }
+    final stats = diffCharStats(oldBody, newBody);
     return Column(
       children: [
+        // 与编辑态工具行、上方标签行同高（38）。
         Container(
-          height: 48,
+          height: 38,
           color: cs.surface,
           child: Row(
             children: [
@@ -256,34 +258,60 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                 color: cs.onSurfaceVariant,
               ),
               const SizedBox(width: 8),
+              // 标题 + 净增删摘要归到左侧（摘要紧跟标题），内联/并排与退出留在右侧。
               Expanded(
-                child: Text(
-                  '${target.snapshotTitle}  →  当前',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                  ),
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        '${target.snapshotTitle}  →  当前',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      '+${stats.added}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: diffInsertColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '−${stats.removed}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: diffDeleteColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              SegmentedButton<DiffViewMode>(
-                showSelectedIcon: false,
-                style: const ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                segments: const [
-                  ButtonSegment(value: DiffViewMode.inline, label: Text('内联')),
-                  ButtonSegment(value: DiffViewMode.split, label: Text('并排')),
-                ],
-                selected: {controller.diffMode},
-                onSelectionChanged: (selection) =>
-                    controller.setDiffMode(selection.first),
               ),
               IconButton(
+                tooltip: '内联',
+                isSelected: controller.diffMode == DiffViewMode.inline,
+                style: _toolbarIconButtonStyle(cs),
+                onPressed: () => controller.setDiffMode(DiffViewMode.inline),
+                icon: const Icon(Icons.article_outlined, size: 16),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: '并排',
+                isSelected: controller.diffMode == DiffViewMode.split,
+                style: _toolbarIconButtonStyle(cs),
+                onPressed: () => controller.setDiffMode(DiffViewMode.split),
+                icon: const Icon(Icons.vertical_split_outlined, size: 16),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
                 tooltip: '退出对比',
+                style: _toolbarIconButtonStyle(cs),
                 onPressed: controller.exitHistoryDiff,
-                icon: const Icon(Icons.close_rounded, size: 18),
+                icon: const Icon(Icons.close_rounded, size: 16),
               ),
               const SizedBox(width: 10),
             ],
@@ -360,15 +388,16 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
     );
     return Column(
       children: [
+        // 工具行与上方标签行（DocumentTabs.barHeight = 38）等高，视觉对齐。
         Container(
-          height: 48,
+          height: 38,
           color: colorScheme.surface,
           child: Row(
             children: [
               const SizedBox(width: 18),
               Icon(
                 Icons.folder_open_outlined,
-                size: 15,
+                size: 14,
                 color: colorScheme.onSurfaceVariant,
               ),
               const SizedBox(width: 8),
@@ -383,51 +412,53 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                 ),
               ),
               if (document.isMarkdown)
-                SegmentedButton<bool>(
-                  showSelectedIcon: false,
-                  style: const ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                IconButton(
+                  // 图标反映当前模式：编辑态显铅笔、预览态显眼睛（Obsidian 风格）。
+                  // tooltip 同时说明当前模式与点击后切换到的模式。
+                  tooltip: document.showPreview
+                      ? '预览模式（点击切回编辑）'
+                      : '编辑模式（点击切换到预览）',
+                  isSelected: document.showPreview,
+                  style: _toolbarIconButtonStyle(colorScheme),
+                  onPressed: () =>
+                      controller.setPreview(document, !document.showPreview),
+                  icon: Icon(
+                    document.showPreview
+                        ? Icons.remove_red_eye_outlined
+                        : Icons.edit_outlined,
+                    size: 16,
                   ),
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('编辑')),
-                    ButtonSegment(value: true, label: Text('预览')),
-                  ],
-                  selected: {document.showPreview},
-                  onSelectionChanged: (selection) {
-                    controller.setPreview(document, selection.first);
-                  },
                 ),
               if (!document.isMarkdown) ...[
                 IconButton(
                   tooltip: '打字机模式 (Cmd+Shift+T)',
                   isSelected: prefs.typewriterMode,
+                  style: _toolbarIconButtonStyle(colorScheme),
                   onPressed: () => ref
                       .read(appPreferencesProvider.notifier)
                       .setTypewriterMode(!prefs.typewriterMode),
-                  icon: const Icon(Icons.vertical_align_center, size: 18),
+                  icon: const Icon(Icons.vertical_align_center, size: 16),
                 ),
+                const SizedBox(width: 4),
                 IconButton(
                   tooltip: '专注模式',
                   isSelected: prefs.focusMode,
+                  style: _toolbarIconButtonStyle(colorScheme),
                   onPressed: () => ref
                       .read(appPreferencesProvider.notifier)
                       .setFocusMode(!prefs.focusMode),
-                  icon: const Icon(Icons.center_focus_strong, size: 18),
+                  icon: const Icon(Icons.center_focus_strong, size: 16),
                 ),
               ],
-              const SizedBox(width: 10),
-              IconButton(
-                tooltip: '保存 (Cmd+S)',
-                onPressed: () => unawaited(controller.saveDocument(document)),
-                icon: const Icon(Icons.save_outlined, size: 18),
-              ),
-              if (widget.onToggleFullscreen != null)
+              if (widget.onToggleFullscreen != null) ...[
+                const SizedBox(width: 8),
                 IconButton(
                   tooltip: '退出全屏 (Esc)',
+                  style: _toolbarIconButtonStyle(colorScheme),
                   onPressed: widget.onToggleFullscreen,
-                  icon: const Icon(Icons.fullscreen_exit, size: 18),
+                  icon: const Icon(Icons.fullscreen_exit, size: 16),
                 ),
+              ],
               const SizedBox(width: 10),
             ],
           ),
@@ -635,3 +666,31 @@ final class _DocumentCharCount extends StatelessWidget {
     );
   }
 }
+
+/// 文档工具行图标按钮样式：紧凑方形命中区（30×30），避免默认 48×48 最小
+/// 尺寸撑高仅 38px 的工具行。打字机/专注/退出全屏共用。
+///
+/// 选中态（打字机/专注开启，IconButton 由 isSelected 推出 WidgetState.selected）
+/// 以两层弱信号叠成清晰开/关：图标转 onSurface 实色 + 一层 primary@16% 淡底色；
+/// 未选中为 onSurfaceVariant 淡色、透明底。悬停反馈交给 IconButton 默认 overlay。
+/// 按钮间在调用处留 SizedBox(width:4) 间隔，避免两个都选中时淡底色边界相连。
+ButtonStyle _toolbarIconButtonStyle(ColorScheme colorScheme) => ButtonStyle(
+  minimumSize: const WidgetStatePropertyAll(Size.square(30)),
+  maximumSize: const WidgetStatePropertyAll(Size.square(30)),
+  padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+  shape: const WidgetStatePropertyAll(
+    RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(7))),
+  ),
+  foregroundColor: WidgetStateProperty.resolveWith((states) {
+    if (states.contains(WidgetState.selected)) {
+      return colorScheme.onSurface;
+    }
+    return colorScheme.onSurfaceVariant;
+  }),
+  backgroundColor: WidgetStateProperty.resolveWith((states) {
+    if (states.contains(WidgetState.selected)) {
+      return colorScheme.primary.withValues(alpha: 0.16);
+    }
+    return Colors.transparent;
+  }),
+);
