@@ -7,7 +7,6 @@ import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_ui/lore_ui.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:path/path.dart' as p;
 
 import '../preferences/preferences_providers.dart';
 import '../import_export/export_panel.dart';
@@ -139,14 +138,16 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     );
   }
 
-  Future<void> _createDirectory() async {
+  /// 新建文件夹。[parentPath] 默认空串=书库根目录（顶部「新建」按钮入口）；
+  /// 右键某目录新建时传该目录路径，使文件夹落在该目录内而非根目录。
+  Future<void> _createDirectory({String parentPath = ''}) async {
     final name = await _promptName(title: '新建文件夹', label: '文件夹名称');
     if (name == null) {
       return;
     }
     try {
       await widget.controller.createDirectory(
-        parentPath: _creationParentPath(),
+        parentPath: parentPath,
         name: name,
       );
     } on LibraryOperationException catch (error) {
@@ -154,7 +155,10 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     }
   }
 
-  Future<void> _createDocument(DocumentFormat format) async {
+  Future<void> _createDocument(
+    DocumentFormat format, {
+    String parentPath = '',
+  }) async {
     final extension = format == DocumentFormat.text ? '.txt' : '.md';
     final name = await _promptName(
       title: format == DocumentFormat.text ? '新建 TXT 文件' : '新建 Markdown 文件',
@@ -166,7 +170,7 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     }
     try {
       await widget.controller.createDocument(
-        parentPath: _creationParentPath(),
+        parentPath: parentPath,
         name: name,
         format: format,
       );
@@ -326,18 +330,6 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     }
   }
 
-  String _creationParentPath() {
-    final entry = widget.controller.selectedEntry;
-    if (entry == null) {
-      return '';
-    }
-    if (entry.isDirectory) {
-      return entry.relativePath;
-    }
-    final parent = p.dirname(entry.relativePath);
-    return parent == '.' ? '' : parent;
-  }
-
   void _showFailure(LibraryFailure failure) {
     if (!mounted) {
       return;
@@ -384,7 +376,13 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
 
   List<LoreContextMenuItem> _buildContextMenuItems(LibraryEntry entry) {
     final isDir = entry.isDirectory;
-    final isPlainDir = isDir && entry.semanticKind == null;
+    // 普通目录与小说根目录都允许新建子文件夹/散文件：小说根目录下的散文件
+    // 落在 body（正文）子树之外，不参与卷/章结构扫描，安全；body 与卷则不可
+    // （其下任意子目录会被扫为卷、文档文件会被扫为章节，会污染结构）。
+    final canCreatePlainChildren =
+        isDir &&
+        (entry.semanticKind == null ||
+            entry.semanticKind == LibraryEntrySemanticKind.novel);
     final canDelete = entry.semanticKind != LibraryEntrySemanticKind.body;
     final canCreateVolume =
         entry.semanticKind == LibraryEntrySemanticKind.novel ||
@@ -404,7 +402,7 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
     return <LoreContextMenuItem>[
       if (canCreateVolume) item('新建卷', _ContextMenuAction.newVolume),
       if (canCreateChapter) item('新建章节', _ContextMenuAction.newChapter),
-      if (isPlainDir) ...[
+      if (canCreatePlainChildren) ...[
         item('新建子文件夹', _ContextMenuAction.newFolder),
         item('新建 TXT', _ContextMenuAction.newText),
         item('新建 Markdown', _ContextMenuAction.newMarkdown),
@@ -428,11 +426,17 @@ final class _LibrarySidebarState extends ConsumerState<LibrarySidebar> {
   ) async {
     switch (action) {
       case _ContextMenuAction.newFolder:
-        await _createDirectory();
+        await _createDirectory(parentPath: entry.relativePath);
       case _ContextMenuAction.newText:
-        await _createDocument(DocumentFormat.text);
+        await _createDocument(
+          DocumentFormat.text,
+          parentPath: entry.relativePath,
+        );
       case _ContextMenuAction.newMarkdown:
-        await _createDocument(DocumentFormat.markdown);
+        await _createDocument(
+          DocumentFormat.markdown,
+          parentPath: entry.relativePath,
+        );
       case _ContextMenuAction.newVolume:
         await _runMutation(
           () => widget.controller.createVolume(NovelId(entry.novelId!)),
