@@ -34,7 +34,6 @@ void main() {
       firstLineIndent: false,
       paragraphSpacing: 1.5,
       editorFontFamily: AppFontFamily.serif,
-      backgroundMode: AppBackgroundMode.image,
       backgroundImagePaths: const [
         '/managed/background-1.jpg',
         '/managed/background-2.jpg',
@@ -61,7 +60,6 @@ void main() {
     expect(loaded.firstLineIndent, isFalse);
     expect(loaded.paragraphSpacing, 1.5);
     expect(loaded.editorFontFamily, AppFontFamily.serif);
-    expect(loaded.backgroundMode, AppBackgroundMode.image);
     expect(loaded.backgroundImagePaths, [
       '/managed/background-1.jpg',
       '/managed/background-2.jpg',
@@ -329,7 +327,7 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 9);
+      expect(loaded!.schemaVersion, 10);
       expect(loaded.gridLineMode, GridLineMode.none);
       expect(loaded.editorLineHeight, 1.8);
       expect(loaded.paragraphSpacing, 1.25);
@@ -363,7 +361,7 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 9);
+      expect(loaded!.schemaVersion, 10);
       expect(loaded.highlightPalette, HighlightPalette.defaults);
       expect(loaded.gridLineMode, GridLineMode.dashed);
     },
@@ -401,7 +399,7 @@ void main() {
       await repository.save(first);
       final reloaded = await repository.load();
       expect(reloaded, isNotNull);
-      expect(reloaded!.schemaVersion, 9);
+      expect(reloaded!.schemaVersion, 10);
       // 仍是 0.8，没有被二次除以字号。
       expect(reloaded.paragraphSpacing, 0.8);
     },
@@ -426,9 +424,8 @@ void main() {
     final loaded = await repository.load();
 
     expect(loaded, isNotNull);
-    expect(loaded!.schemaVersion, 9);
+    expect(loaded!.schemaVersion, 10);
     expect(loaded.paragraphSpacing, 1.2);
-    expect(loaded.backgroundMode, AppBackgroundMode.theme);
     expect(loaded.backgroundImagePath, isNull);
     expect(loaded.backgroundImagePaths, isEmpty);
   });
@@ -453,8 +450,7 @@ void main() {
     final loaded = await repository.load();
 
     expect(loaded, isNotNull);
-    expect(loaded!.schemaVersion, 9);
-    expect(loaded.backgroundMode, AppBackgroundMode.image);
+    expect(loaded!.schemaVersion, 10);
     expect(loaded.backgroundImagePaths, ['/managed/legacy.jpg']);
     expect(loaded.backgroundImagePath, '/managed/legacy.jpg');
   });
@@ -478,7 +474,69 @@ void main() {
     final loaded = await repository.load();
 
     expect(loaded, isNotNull);
-    expect(loaded!.backgroundMode, AppBackgroundMode.theme);
+    expect(loaded!.backgroundImagePath, isNull);
+    expect(loaded.backgroundImagePaths, isEmpty);
+  });
+
+  test('v9 image mode keeps the background on migration', () async {
+    // 旧 image 模式：图库有图但 blob 没写 backgroundImagePath 时，迁移应回退首张。
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 9,
+        'themeMode': 'light',
+        'defaultChapterFormat': 'text',
+        'editorLineHeight': 1.45,
+        'editorFontSize': 18,
+        'editorContentWidth': 900,
+        'dailyWordGoal': 2000,
+        'findMatchCase': false,
+        'findUseRegex': false,
+        'backgroundMode': 'image',
+        'backgroundImagePaths': [
+          '/managed/background-1.jpg',
+          '/managed/background-2.jpg',
+        ],
+      }),
+    });
+
+    final loaded = await repository.load();
+
+    expect(loaded, isNotNull);
+    expect(loaded!.schemaVersion, 10);
+    expect(loaded.backgroundImagePath, '/managed/background-1.jpg');
+  });
+
+  test('v9 theme mode clears the background selection on migration', () async {
+    // 老用户当时停在「主题色」：即便图库有图、曾选过某张，迁移后也不显示图片。
+    SharedPreferences.setMockInitialValues({
+      'lore.app.preferences': jsonEncode({
+        'schemaVersion': 9,
+        'themeMode': 'light',
+        'defaultChapterFormat': 'text',
+        'editorLineHeight': 1.45,
+        'editorFontSize': 18,
+        'editorContentWidth': 900,
+        'dailyWordGoal': 2000,
+        'findMatchCase': false,
+        'findUseRegex': false,
+        'backgroundMode': 'theme',
+        'backgroundImagePaths': [
+          '/managed/background-1.jpg',
+          '/managed/background-2.jpg',
+        ],
+        'backgroundImagePath': '/managed/background-2.jpg',
+      }),
+    });
+
+    final loaded = await repository.load();
+
+    expect(loaded, isNotNull);
+    expect(loaded!.schemaVersion, 10);
+    expect(loaded.backgroundImagePath, isNull);
+    expect(loaded.backgroundImagePaths, [
+      '/managed/background-1.jpg',
+      '/managed/background-2.jpg',
+    ]);
   });
 
   test(
@@ -600,7 +658,7 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 9);
+      expect(loaded!.schemaVersion, 10);
       expect(loaded.keybindings.bindings, Keybindings.defaults.bindings);
       expect(loaded.editorFontFamily, AppFontFamily.serif);
     },
@@ -627,7 +685,7 @@ void main() {
     });
     final loaded = await repository.load();
     expect(loaded, isNotNull);
-    expect(loaded!.schemaVersion, 9);
+    expect(loaded!.schemaVersion, 10);
     expect(
       loaded.keybindings.bindings[ShortcutAction.toggleFullscreen],
       const KeyCombination(logicalKeyId: 0x10000000d, meta: true, shift: true),

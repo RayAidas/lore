@@ -9,9 +9,6 @@ import 'keybindings.dart';
 /// app 层注册表 [AppThemeOptions]、持久化的字符串映射。
 enum AppThemeMode { system, light, sepia, dark, frost, green, ink }
 
-/// 应用背景的来源。图片背景在 macOS 与 Android 可用。
-enum AppBackgroundMode { theme, image }
-
 /// 编辑器正文字体偏好。
 ///
 /// `system` 走平台默认；其余按字体 family 名解析，宿主缺该字体时自动走
@@ -48,14 +45,13 @@ final class AppPreferences {
     required this.gridLineMode,
     required this.highlightPalette,
     this.keybindings = Keybindings.defaults,
-    this.backgroundMode = AppBackgroundMode.theme,
     this.backgroundImagePaths = const [],
     this.backgroundImagePath,
     this.backgroundOpacity = 0.84,
     this.backgroundImageDimness = 0.2,
   });
 
-  static const schemaVersionCurrent = 9;
+  static const schemaVersionCurrent = 10;
 
   /// 开箱默认：字号 18、行高 1.45、段间距 1.2（字号倍数）；标题→首段留白由
   /// EditorStyle 派生（(段间距 + 1.0) × 字号）保证始终宽于段间距。
@@ -77,7 +73,6 @@ final class AppPreferences {
     gridLineMode: GridLineMode.none,
     highlightPalette: HighlightPalette.defaults,
     keybindings: Keybindings.defaults,
-    backgroundMode: AppBackgroundMode.theme,
     backgroundImagePaths: [],
     backgroundOpacity: 0.84,
     backgroundImageDimness: 0.2,
@@ -107,16 +102,15 @@ final class AppPreferences {
   /// ([Highlight.colorArgb]),改调色板只影响新建高亮的快捷选色。
   final List<int> highlightPalette;
 
-  /// 背景来源；图片路径由应用复制并管理，不依赖用户原始文件仍然存在。
-  final AppBackgroundMode backgroundMode;
-
   /// 已复制到应用数据目录、可供切换的背景图片。
   final List<String> backgroundImagePaths;
 
-  /// 当前选中的背景图片；应为 [backgroundImagePaths] 中的一项。
+  /// 当前选中的背景图片，同时也是「图片背景」的总开关：非 null 即在主题色
+  /// 之上叠加显示该图片，null 即仅显示主题色底。应为 [backgroundImagePaths]
+  /// 中的一项；图片由应用复制并管理，不依赖用户原始文件仍然存在。
   final String? backgroundImagePath;
 
-  /// 背景模式下主要界面表面的不透明度，值域 [0, 1]。
+  /// 图片背景下主要界面表面的不透明度，值域 [0, 1]。
   final double backgroundOpacity;
 
   /// 图片背景上覆盖的黑色遮罩强度，值域 [0, 1]。
@@ -160,7 +154,6 @@ final class AppPreferences {
     GridLineMode? gridLineMode,
     List<int>? highlightPalette,
     Keybindings? keybindings,
-    AppBackgroundMode? backgroundMode,
     List<String>? backgroundImagePaths,
     String? backgroundImagePath,
     bool clearBackgroundImagePath = false,
@@ -185,7 +178,6 @@ final class AppPreferences {
       gridLineMode: gridLineMode ?? this.gridLineMode,
       highlightPalette: highlightPalette ?? this.highlightPalette,
       keybindings: keybindings ?? this.keybindings,
-      backgroundMode: backgroundMode ?? this.backgroundMode,
       backgroundImagePaths: backgroundImagePaths ?? this.backgroundImagePaths,
       backgroundImagePath: clearBackgroundImagePath
           ? null

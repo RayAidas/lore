@@ -46,8 +46,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('主题'), findsOneWidget);
-      expect(find.text('背景'), findsOneWidget);
-      expect(find.text('背景图库'), findsOneWidget);
+      expect(find.text('背景图片'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('add-background-images')),
         findsOneWidget,
@@ -227,6 +226,62 @@ void main() {
       Tristate.isTrue,
     );
   });
+
+  testWidgets(
+    'tapping the selected background thumbnail clears the selection',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'lore.app.preferences': jsonEncode({
+          'schemaVersion': 10,
+          'themeMode': 'light',
+          'defaultChapterFormat': 'text',
+          'editorLineHeight': 1.45,
+          'editorFontSize': 18,
+          'editorContentWidth': 900,
+          'dailyWordGoal': 2000,
+          'findMatchCase': false,
+          'findUseRegex': false,
+          'backgroundImagePaths': ['/managed/background-1.jpg'],
+          'backgroundImagePath': '/managed/background-1.jpg',
+          'backgroundOpacity': 0.84,
+          'backgroundImageDimness': 0.2,
+        }),
+      });
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: LoreTheme.light(),
+            home: const Scaffold(body: SettingsContent()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 启用图片背景时，两个调节滑块应可见。
+      expect(find.text('界面不透明度'), findsOneWidget);
+      expect(find.text('图片遮罩'), findsOneWidget);
+
+      final selected = find.byKey(
+        const ValueKey('background-thumbnail-/managed/background-1.jpg'),
+      );
+      expect(
+        tester.getSemantics(selected).flagsCollection.isSelected,
+        Tristate.isTrue,
+      );
+
+      // 再次点击当前选中的缩略图 → 取消选中，回到纯主题色底。
+      await tester.tap(selected);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getSemantics(selected).flagsCollection.isSelected,
+        isNot(Tristate.isTrue),
+      );
+      // 取消后图片背景关闭，两个滑块随之消失。
+      expect(find.text('界面不透明度'), findsNothing);
+      expect(find.text('图片遮罩'), findsNothing);
+    },
+  );
 
   testWidgets('tapping a theme card persists the selection', (tester) async {
     SharedPreferences.setMockInitialValues({});

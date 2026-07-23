@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_ui/lore_ui.dart';
 
 import 'app_background.dart';
@@ -26,9 +25,9 @@ class LoreApp extends ConsumerWidget {
         home: _PreferencesError(message: '$error'),
       ),
       data: (prefs) {
-        final surfaceOpacity = prefs.backgroundMode == AppBackgroundMode.theme
-            ? 1.0
-            : prefs.backgroundOpacity;
+        final surfaceOpacity = prefs.backgroundImagePath != null
+            ? prefs.backgroundOpacity
+            : 1.0;
         // system 走真·系统跟随；显式模式把 theme 与 darkTheme 都指向所选主题，
         // 让「选哪个显示哪个」（墨渊这类第二个暗色主题不会被 dark() 覆盖成夜间）。
         // 详见 [AppThemeOptions.resolveAppliedTheme]，逻辑已单测锁定。

@@ -17,12 +17,13 @@ final class AppBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imagePath = preferences.backgroundImagePath;
-    final imageMode = preferences.backgroundMode == AppBackgroundMode.image;
-    final hasImage = imageMode && imagePath != null && imagePath.isNotEmpty;
+    final hasImage = imagePath != null && imagePath.isNotEmpty;
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (imageMode)
+        // 底色铺底：仅在启用图片背景时绘制，避免图片加载/解码空窗期露出前景
+        // 内容背后的透明；无选中图时不画任何层，由 MaterialApp 的 surface 色铺底。
+        if (hasImage)
           ColoredBox(
             color: Theme.of(context).colorScheme.surface.withValues(alpha: 1),
           ),

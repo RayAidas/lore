@@ -41,12 +41,10 @@ void main() {
 
     test('background defaults are safe and copyWith can clear the image', () {
       final defaults = AppPreferences.defaults();
-      expect(defaults.backgroundMode, AppBackgroundMode.theme);
       expect(defaults.backgroundImagePath, isNull);
       expect(defaults.backgroundImagePaths, isEmpty);
 
       final image = defaults.copyWith(
-        backgroundMode: AppBackgroundMode.image,
         backgroundImagePaths: const [
           '/managed/background-1.png',
           '/managed/background-2.png',

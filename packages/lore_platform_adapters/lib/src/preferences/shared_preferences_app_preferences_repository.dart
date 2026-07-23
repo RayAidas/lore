@@ -15,16 +15,19 @@ final class SharedPreferencesAppPreferencesRepository
   SharedPreferencesAppPreferencesRepository();
 
   static const _key = 'lore.app.preferences';
-  static const _schemaVersion = 9;
+  static const _schemaVersion = 10;
 
-  /// load 时接受的历史 schema 版本：v1–v8 均就地迁移到当前 v9。
+  /// load 时接受的历史 schema 版本：v1–v9 均就地迁移到当前 v10。
   ///
   /// v1→v2 收紧行高默认（按值匹配替换，保留用户自定义）；v2→v3 仅新增网格线
   /// 字段；v3→v4 仅新增高亮调色板字段（缺失取默认）；v4→v5 段间距由绝对像素
   /// 改为字号倍数（÷字号，保留用户实际看到的比例）；v7→v8 新增快捷键映射
   /// 字段（缺失整体取默认，未知动作名前向兼容跳过）；v8→v9 修正回车键码
-  /// （0x0d → 真实 enter 0x10000000d，否则显示空白且不触发）。
-  static const _legacySchemaVersions = {1, 2, 3, 4, 5, 6, 7, 8};
+  /// （0x0d → 真实 enter 0x10000000d，否则显示空白且不触发）；v9→v10 移除
+  /// 「主题色/图片」二选一的 backgroundMode 枚举，改为以 backgroundImagePath
+  /// 是否非 null 决定图片背景——旧 theme/transparent 模式清空选中，旧 image
+  /// 模式保留选中（详见 load() 内的分支）。
+  static const _legacySchemaVersions = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   static const _pixelParagraphSpacingSchemaVersions = {1, 2, 3, 4};
 
   /// v1 行高默认值：迁移时识别「仍停留在旧默认」的行高，替换为当前默认。
@@ -47,7 +50,7 @@ final class SharedPreferencesAppPreferencesRepository
       if (value is! Map<String, Object?>) {
         return null;
       }
-      // 接受 v1–v8（旧版，就地迁移）或 v9（当前）；其它版本号视为损坏。
+      // 接受 v1–v9（旧版，就地迁移）或 v10（当前）；其它版本号视为损坏。
       final storedVersion = value['schemaVersion'];
       final migratingFromV1 = storedVersion == 1;
       final migratingFromLegacy =
@@ -113,12 +116,7 @@ final class SharedPreferencesAppPreferencesRepository
           rawPalette is List && rawPalette.every((e) => e is int)
           ? List<int>.from(rawPalette)
           : AppPreferences.defaults().highlightPalette;
-      // v7 把单图升级为图库。v6 单图自动进入列表；旧透明窗口设置已撤回，
-      // 迁移时回到主题色。
-      final backgroundMode = value['backgroundMode'] == 'transparent'
-          ? AppBackgroundMode.theme
-          : _backgroundModeFromString(value['backgroundMode']) ??
-                AppPreferences.defaults().backgroundMode;
+      // v7 把单图升级为图库。v6 单图自动进入列表。
       final backgroundImagePath = value['backgroundImagePath'] is String
           ? value['backgroundImagePath']! as String
           : null;
@@ -130,13 +128,32 @@ final class SharedPreferencesAppPreferencesRepository
           : backgroundImagePath == null
           ? <String>[]
           : <String>[backgroundImagePath];
-      final selectedBackgroundImagePath =
-          backgroundImagePath != null &&
-              backgroundImagePaths.contains(backgroundImagePath)
-          ? backgroundImagePath
-          : backgroundImagePaths.isEmpty
-          ? null
-          : backgroundImagePaths.first;
+      // v10 起 backgroundMode 枚举移除：图片背景开关 = backgroundImagePath 是否
+      // 非 null。迁移老 blob（v1–v9）时尊重旧选择——仅旧 image 模式保留图片，
+      // theme / transparent / 缺失一律视为未启用图片背景（清空选中）。新 blob
+      // 直接尊重存储的 backgroundImagePath；选中图不在图库（被删后悬空）回落
+      // null，**不再自动选首张**，以免用户取消选中后图片又自动出现。
+      // 到这里 storedVersion 已通过上方 `is! int` 守卫，类型提升为 int。
+      final isMigratingFromPreV10 = storedVersion < 10;
+      final legacyImageEnabled =
+          isMigratingFromPreV10 && value['backgroundMode'] == 'image';
+      final String? selectedBackgroundImagePath;
+      if (isMigratingFromPreV10) {
+        selectedBackgroundImagePath = legacyImageEnabled
+            ? (backgroundImagePath != null &&
+                      backgroundImagePaths.contains(backgroundImagePath)
+                  ? backgroundImagePath
+                  : (backgroundImagePaths.isEmpty
+                        ? null
+                        : backgroundImagePaths.first))
+            : null;
+      } else {
+        selectedBackgroundImagePath =
+            (backgroundImagePath != null &&
+                backgroundImagePaths.contains(backgroundImagePath))
+            ? backgroundImagePath
+            : null;
+      }
       final backgroundOpacity = value['backgroundOpacity'] is num
           ? (value['backgroundOpacity']! as num)
                 .toDouble()
@@ -189,7 +206,6 @@ final class SharedPreferencesAppPreferencesRepository
         gridLineMode: gridLineMode,
         highlightPalette: highlightPalette,
         keybindings: keybindings,
-        backgroundMode: backgroundMode,
         backgroundImagePaths: backgroundImagePaths,
         backgroundImagePath: selectedBackgroundImagePath,
         backgroundOpacity: backgroundOpacity,
@@ -229,7 +245,6 @@ final class SharedPreferencesAppPreferencesRepository
       'gridLineMode': preferences.gridLineMode.name,
       'highlightPalette': preferences.highlightPalette,
       'keybindings': _keybindingsToJson(preferences.keybindings),
-      'backgroundMode': preferences.backgroundMode.name,
       'backgroundImagePaths': preferences.backgroundImagePaths,
       'backgroundImagePath': preferences.backgroundImagePath,
       'backgroundOpacity': preferences.backgroundOpacity,
@@ -249,17 +264,6 @@ final class SharedPreferencesAppPreferencesRepository
       'frost' => AppThemeMode.frost,
       'green' => AppThemeMode.green,
       'ink' => AppThemeMode.ink,
-      _ => null,
-    };
-  }
-
-  AppBackgroundMode? _backgroundModeFromString(Object? value) {
-    if (value is! String) {
-      return null;
-    }
-    return switch (value) {
-      'theme' => AppBackgroundMode.theme,
-      'image' => AppBackgroundMode.image,
       _ => null,
     };
   }

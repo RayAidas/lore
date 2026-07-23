@@ -72,7 +72,7 @@ final class _BackgroundGallery extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('背景图库', style: theme.textTheme.bodyMedium),
+              Text('背景图片', style: theme.textTheme.bodyMedium),
               const Spacer(),
               Text(
                 '${paths.length} 张',
@@ -145,7 +145,7 @@ final class _BackgroundThumbnail extends StatelessWidget {
       key: ValueKey('background-thumbnail-$path'),
       selected: selected,
       button: true,
-      label: selected ? '当前背景图片' : '设为背景图片',
+      label: selected ? '当前背景图片，再次点击取消' : '设为背景图片',
       child: SizedBox(
         width: 116,
         height: 74,

@@ -71,19 +71,12 @@ final class PreferencesController extends AsyncNotifier<AppPreferences> {
   );
   Future<void> resetKeybindings() =>
       _update((current) => current.copyWith(keybindings: Keybindings.defaults));
-  Future<void> setBackgroundMode(AppBackgroundMode value) => _update((current) {
-    if (value == AppBackgroundMode.image &&
-        current.backgroundImagePaths.isEmpty) {
-      return current;
-    }
-    return current.copyWith(backgroundMode: value);
-  });
   Future<void> addBackgroundImages(List<String> values) => _update((current) {
     if (values.isEmpty) {
       return current;
     }
+    // 加入图库并自动选中新加入的最后一张：加图通常是想立即看到效果。
     return current.copyWith(
-      backgroundMode: AppBackgroundMode.image,
       backgroundImagePaths: [...current.backgroundImagePaths, ...values],
       backgroundImagePath: values.last,
     );
@@ -92,23 +85,22 @@ final class PreferencesController extends AsyncNotifier<AppPreferences> {
     if (!current.backgroundImagePaths.contains(value)) {
       return current;
     }
-    return current.copyWith(
-      backgroundMode: AppBackgroundMode.image,
-      backgroundImagePath: value,
-    );
+    return current.copyWith(backgroundImagePath: value);
   });
+
+  /// 取消选中当前背景图，回到纯主题色底；图片仍保留在图库，可再次点选。
+  Future<void> clearBackgroundImage() =>
+      _update((current) => current.copyWith(clearBackgroundImagePath: true));
   Future<void> removeBackgroundImage(String value) => _update((current) {
     final remaining = current.backgroundImagePaths
         .where((path) => path != value)
         .toList();
     final deletingSelected = current.backgroundImagePath == value;
+    // 删的恰好是当前选中图 → 切到剩余首张，避免背景突变为空；否则选中不变。
     final nextSelection = deletingSelected
         ? (remaining.isEmpty ? null : remaining.first)
         : current.backgroundImagePath;
     return current.copyWith(
-      backgroundMode: remaining.isEmpty
-          ? AppBackgroundMode.theme
-          : current.backgroundMode,
       backgroundImagePaths: remaining,
       backgroundImagePath: nextSelection,
       clearBackgroundImagePath: nextSelection == null,

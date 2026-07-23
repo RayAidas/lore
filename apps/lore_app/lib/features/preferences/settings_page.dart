@@ -244,35 +244,21 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
               value: prefs.themeMode,
               onChanged: guard(controller.setThemeMode),
             ),
-            _SettingRow(
-              label: '背景',
-              trailing: SegmentedButton<AppBackgroundMode>(
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(
-                    value: AppBackgroundMode.theme,
-                    icon: Icon(Icons.format_color_fill_outlined, size: 16),
-                    label: Text('主题色'),
-                  ),
-                  ButtonSegment(
-                    value: AppBackgroundMode.image,
-                    icon: Icon(Icons.image_outlined, size: 16),
-                    label: Text('图片'),
-                  ),
-                ],
-                selected: {prefs.backgroundMode},
-                onSelectionChanged: (selection) =>
-                    guard(controller.setBackgroundMode)(selection.first),
-              ),
-            ),
             _BackgroundGallery(
               paths: prefs.backgroundImagePaths,
               selectedPath: prefs.backgroundImagePath,
               onAdd: _chooseBackgroundImages,
-              onSelect: guard(controller.selectBackgroundImage),
+              onSelect: (path) {
+                // 点击未选中的图 → 设为背景；再点当前选中的图 → 取消，回到纯主题色。
+                if (path == prefs.backgroundImagePath) {
+                  guardVoid(controller.clearBackgroundImage);
+                } else {
+                  guard(controller.selectBackgroundImage)(path);
+                }
+              },
               onDelete: _removeBackgroundImage,
             ),
-            if (prefs.backgroundMode == AppBackgroundMode.image) ...[
+            if (prefs.backgroundImagePath != null) ...[
               _SettingSlider(
                 label: '界面不透明度',
                 value: prefs.backgroundOpacity,
