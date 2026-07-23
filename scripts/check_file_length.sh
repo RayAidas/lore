@@ -20,6 +20,15 @@ MAX_LINES="${MAX_LINES:-1000}"
 # 每行一个路径，必须以 apps/ 或 packages/ 开头、与 find 输出完全一致
 # （无前导 ./、非绝对路径）；含空格的路径用双引号包起来。
 WHITELIST=(
+  # 门面控制器：方法多为薄委托，且共享 _ 私有状态（目录树版本号、失败态、
+  # 展开集合），按功能区拆 part 需引入新习语且 ROI 低，经评估暂不拆分。
+  apps/lore_app/lib/features/workspace/workspace_controller.dart
+  # 库伞文件：持有 8 个 part 指令与公共仓库契约（inspect/create/rename/...），
+  # 方法本身即对外接口，拆分会破坏契约或需大规模 mixin 化，暂不拆分。
+  packages/lore_storage/lib/src/storage/storage_backed_library_repository.dart
+  # 标签/文档/保存/高亮多职责 god-class：通过大量私有可变字段紧耦合，
+  # 高内聚于「标签页生命周期」，强行拆分收益不足，暂不拆分。
+  apps/lore_app/lib/features/workspace/workspace_tabs_store.dart
 )
 
 # 该文件是否在白名单中。兼容 bash 3.2：空数组在 set -u 下须先判长度再展开。
