@@ -452,6 +452,38 @@ mixin _StorageBackedLibrarySupport {
     );
   }
 
+  /// 与 [_writeNewJson] 同语义（首次创建，目标存在则 alreadyExists），但走
+  /// 「写临时文件 + rename」使目标文件原子落地：崩溃至多留下孤儿临时文件，
+  /// 不会留下半截/空目标文件（后者会让后续读取误判为损坏）。不支持 move 的
+  /// 后端退化为直接 createFile（语义不变，仍非原子）。
+  Future<void> _writeNewJsonAtomic(
+    LibraryStorageSession storage,
+    LogicalPath path,
+    Map<String, Object?> value,
+  ) async {
+    final bytes = Uint8List.fromList(utf8.encode(_encode(value)));
+    final parent = path.parent;
+    if (!storage.capabilities.move || parent == null) {
+      await storage.createFile(path, bytes);
+      return;
+    }
+    final temp = parent.child(
+      '.lore-tmp-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    await storage.createFile(temp, bytes);
+    try {
+      await storage.move(temp, path);
+    } catch (_) {
+      // 并发抢占（alreadyExists）或 rename 失败：清理 temp，把异常交给上层重试。
+      try {
+        await storage.delete(temp, recursive: false);
+      } catch (_) {
+        // best-effort 清理；孤儿 temp 无害。
+      }
+      rethrow;
+    }
+  }
+
   Future<void> _replaceJson(
     LibraryStorageSession storage,
     LogicalPath path,

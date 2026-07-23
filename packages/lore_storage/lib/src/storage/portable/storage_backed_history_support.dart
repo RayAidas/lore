@@ -58,9 +58,28 @@ mixin _StorageBackedHistorySupport on _StorageBackedLibrarySupport {
     DocumentIdentity doc,
   ) async {
     final path = _historyManifestPath(doc);
-    if (await storage.stat(path) == null) return null;
-    return _historyManifestFromJson(await _readJson(storage, path));
+    try {
+      if (await storage.stat(path) == null) return null;
+      return _historyManifestFromJson(await _readJson(storage, path));
+    } catch (error) {
+      if (_isExpectedHistoryReadFailure(error)) {
+        // manifest 缺失/损坏/不可读（旧版残留、写入中断留下空文件、权限、瞬态
+        // IO 等）：历史是 best-effort，视为无 manifest——list 返回空，record 以
+        // replace 覆盖重建。打日志便于排查，不静默吞掉。
+        stderr.writeln('[lore-history] manifest 读取失败 $path: $error');
+        return null;
+      }
+      rethrow;
+    }
   }
+
+  /// 读取 manifest 时「预期内」的失败：解析 / IO / 路径类异常。这些降级为空态；
+  /// 其余（多为编程错误）向上抛出，避免被静默吞掉。
+  bool _isExpectedHistoryReadFailure(Object error) =>
+      error is FormatException ||
+      error is ArgumentError ||
+      error is FileSystemException ||
+      error is LibraryOperationException;
 
   Future<void> _writeHistoryManifest(
     LibraryStorageSession storage,
@@ -73,7 +92,8 @@ mixin _StorageBackedHistorySupport on _StorageBackedLibrarySupport {
     final path = _historyManifestPath(doc);
     final value = _historyManifestToJson(manifest);
     if (create) {
-      await _writeNewJson(storage, path, value);
+      // 首次写入走原子化路径，避免崩溃留下 0 字节 manifest。
+      await _writeNewJsonAtomic(storage, path, value);
     } else {
       await _replaceJson(storage, path, value);
     }
@@ -92,6 +112,18 @@ mixin _StorageBackedHistorySupport on _StorageBackedLibrarySupport {
     while (true) {
       attempt += 1;
       final storage = await storageFactory.open(access);
+      final manifestPath = _historyManifestPath(doc);
+      // 以「文件是否存在」而非「是否解析成功」决定 create/replace：manifest 损坏
+      // 时 _readHistoryManifest 返回 null 但文件仍在——此时必须 replace 覆盖，
+      // 否则 exclusive create 会反复 alreadyExists，record 永远写不进去。
+      bool fileExists;
+      try {
+        fileExists = await storage.stat(manifestPath) != null;
+      } catch (_) {
+        // stat 自身抛错（IO 等）时按「不存在」处理：走 create，由 alreadyExists
+        // 重试机制兜底，不让 record 在此处直接失败。
+        fileExists = false;
+      }
       final existing = await _readHistoryManifest(storage, doc);
       final manifest = existing ?? _HistoryManifest.empty(doc);
       if (!mutate(manifest)) return manifest;
@@ -100,7 +132,7 @@ mixin _StorageBackedHistorySupport on _StorageBackedLibrarySupport {
           storage,
           doc,
           manifest,
-          create: existing == null,
+          create: !fileExists,
         );
         return manifest;
       } on LibraryOperationException catch (error) {

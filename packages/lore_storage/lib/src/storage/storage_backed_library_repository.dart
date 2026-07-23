@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io' show gzip;
+import 'dart:io' show FileSystemException, gzip, stderr;
 import 'dart:isolate';
 import 'dart:typed_data';
 

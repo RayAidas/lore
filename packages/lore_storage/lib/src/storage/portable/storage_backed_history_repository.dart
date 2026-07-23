@@ -13,9 +13,20 @@ mixin _StorageBackedHistoryRepository
     LibraryAccess access,
     DocumentIdentity doc,
   ) async {
-    final storage = await storageFactory.open(access);
-    final manifest = await _readHistoryManifest(storage, doc);
-    return manifest?.snapshots ?? const [];
+    try {
+      final storage = await storageFactory.open(access);
+      final manifest = await _readHistoryManifest(storage, doc);
+      return manifest?.snapshots ?? const [];
+    } catch (error) {
+      if (_isExpectedHistoryReadFailure(error)) {
+        // 历史列举只服务于面板展示，且历史本身是 best-effort：预期内的读取
+        // 异常（manifest 缺失/损坏、权限、瞬态 IO 等）降级为空列表，避免把
+        // 版本面板卡在错误态。打日志便于排查，不静默。
+        stderr.writeln('[lore-history] list 失败 ${doc.relativePath}: $error');
+        return const [];
+      }
+      rethrow;
+    }
   }
 
   @override

@@ -338,6 +338,100 @@ void main() {
     expect(list, hasLength(1));
     expect(list.single.id, second.id);
   });
+
+  test('manifest 损坏（旧版残留 / 写入中断）时 list 返回空而非抛错', () async {
+    const doc = DocumentIdentity(
+      nodeId: 'chapter-corrupt',
+      relativePath: '正文/损坏.md',
+      format: DocumentFormat.markdown,
+    );
+    // 直接写入无法解析的 manifest，模拟旧版 schema 残留或崩溃中断。
+    final manifestPath = p.join(
+      root.path,
+      '.lore',
+      'history',
+      'chapter-corrupt',
+      'manifest.json',
+    );
+    await Directory(p.dirname(manifestPath)).create(recursive: true);
+    await File(manifestPath).writeAsString('{ 不是合法 json');
+    expect(await repository.list(access, doc), isEmpty);
+  });
+
+  test('manifest 为空文件（createFile 后写入前崩溃）时 list 返回空而非抛错', () async {
+    const doc = DocumentIdentity(
+      nodeId: 'chapter-empty',
+      relativePath: '正文/空.md',
+      format: DocumentFormat.markdown,
+    );
+    // 0 字节 manifest：模拟 exclusive createFile 成功、writeAsBytes 前进程被杀。
+    final manifestPath = p.join(
+      root.path,
+      '.lore',
+      'history',
+      'chapter-empty',
+      'manifest.json',
+    );
+    await Directory(p.dirname(manifestPath)).create(recursive: true);
+    await File(manifestPath).writeAsBytes(const []);
+    expect(await repository.list(access, doc), isEmpty);
+  });
+
+  test('manifest 损坏后 record 以 replace 覆盖重建，恢复列举', () async {
+    const doc = DocumentIdentity(
+      nodeId: 'chapter-corrupt',
+      relativePath: '正文/损坏.md',
+      format: DocumentFormat.markdown,
+    );
+    final manifestPath = p.join(
+      root.path,
+      '.lore',
+      'history',
+      'chapter-corrupt',
+      'manifest.json',
+    );
+    await Directory(p.dirname(manifestPath)).create(recursive: true);
+    await File(manifestPath).writeAsString('{ broken');
+    expect(await repository.list(access, doc), isEmpty);
+
+    await repository.record(
+      access,
+      doc: doc,
+      text: '修复后内容',
+      trigger: HistoryTrigger.autoCheckpoint,
+    );
+    final list = await repository.list(access, doc);
+    expect(list, hasLength(1));
+    expect(list.single.characterCount, characterCountOf('修复后内容'));
+  });
+
+  test('0 字节 manifest（用户实测场景）后 record 覆盖重建，恢复列举', () async {
+    const doc = DocumentIdentity(
+      nodeId: 'chapter-empty-repair',
+      relativePath: '正文/空修复.md',
+      format: DocumentFormat.markdown,
+    );
+    final manifestPath = p.join(
+      root.path,
+      '.lore',
+      'history',
+      'chapter-empty-repair',
+      'manifest.json',
+    );
+    await Directory(p.dirname(manifestPath)).create(recursive: true);
+    await File(manifestPath).writeAsBytes(const []);
+    expect(await repository.list(access, doc), isEmpty);
+
+    await repository.record(
+      access,
+      doc: doc,
+      text: '修复后内容',
+      trigger: HistoryTrigger.autoCheckpoint,
+    );
+    final list = await repository.list(access, doc);
+    expect(list, hasLength(1));
+    expect(list.single.characterCount, characterCountOf('修复后内容'));
+  });
 }
 
 final class _IncrementingIdGenerator implements IdGenerator {

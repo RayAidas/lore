@@ -85,6 +85,8 @@ final class _VersionPaneState extends State<VersionPane> {
       });
     } catch (error) {
       if (!mounted || gen != _reloadGen) return;
+      // list 已对预期异常（manifest 缺失/损坏、IO）降级为空态；能走到这里的多
+      // 是未预期的编程错误，保留错误态以便暴露，而非静默吞掉。
       setState(() {
         _error = error;
         _loading = false;
@@ -228,7 +230,8 @@ final class _VersionPaneState extends State<VersionPane> {
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Text(
-            '无法加载历史版本',
+            '暂时无法读取历史版本，请稍后重试',
+            textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurfaceVariant,
             ),
