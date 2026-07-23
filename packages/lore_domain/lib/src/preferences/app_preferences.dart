@@ -2,11 +2,12 @@ import '../content/content_types.dart';
 import '../highlight/highlight.dart';
 import 'keybindings.dart';
 
-/// 用户可配置的应用级外观与编辑器偏好。
+/// 应用主题模式。
 ///
-/// 这些设置跨书库生效，与具体小说无关。小说级的写作、阅读和导出设置
-/// 仍由 [NovelMetadata] 等小说级元数据承载。
-enum AppThemeMode { system, light, sepia, dark }
+/// 除 [system]（跟随系统亮度，light/dark 双方案）外，每个值都对应一个具体的
+/// 命名主题（设置页以 2 字意境名展示）。新增主题时同步：lore_ui 的工厂、
+/// app 层注册表 [AppThemeOptions]、持久化的字符串映射。
+enum AppThemeMode { system, light, sepia, dark, frost, green, ink }
 
 /// 应用背景的来源。图片背景在 macOS 与 Android 可用。
 enum AppBackgroundMode { theme, image }
@@ -24,6 +25,10 @@ enum AppFontFamily { system, wenkai, sans, serif, kai }
 /// 仅 TXT 编辑器消费。
 enum GridLineMode { none, solid, dashed }
 
+/// 用户可配置的应用级外观与编辑器偏好。
+///
+/// 这些设置跨书库生效，与具体小说无关。小说级的写作、阅读和导出设置
+/// 仍由 [NovelMetadata] 等小说级元数据承载。
 final class AppPreferences {
   const AppPreferences({
     required this.schemaVersion,

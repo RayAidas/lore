@@ -138,6 +138,59 @@ abstract final class LoreTheme {
     return _build(colorScheme);
   }
 
+  /// 霜华（冰色）：霜青冷调亮色，灵感取自冰晶 / 甘雨的清冷通透。
+  /// 同 [light] / [sepia] 一样作为亮色变体：调用方把 `theme:` 直接指向本返回值，
+  /// `themeMode` 设为 [ThemeMode.light]。
+  static ThemeData frost() {
+    final colorScheme =
+        ColorScheme.fromSeed(
+          seedColor: const Color(0xFF6FA8C9),
+          brightness: Brightness.light,
+        ).copyWith(
+          surface: const Color(0xFFEBF1F6),
+          surfaceContainerLowest: const Color(0xFFF3F7FA),
+          surfaceContainerLow: const Color(0xFFE1EAF1),
+          surfaceContainer: const Color(0xFFD7E3EC),
+          outlineVariant: const Color(0xFFC0D0DD),
+        );
+    return _build(colorScheme);
+  }
+
+  /// 翠微（豆沙绿）：经典护眼绿底，长时间阅读更柔和。
+  /// 同为亮色变体，应用方式与 [light] 一致。
+  static ThemeData green() {
+    final colorScheme =
+        ColorScheme.fromSeed(
+          seedColor: const Color(0xFF5E9F6E),
+          brightness: Brightness.light,
+        ).copyWith(
+          surface: const Color(0xFFCDE7D0),
+          surfaceContainerLowest: const Color(0xFFD7EDDA),
+          surfaceContainerLow: const Color(0xFFC0DEC4),
+          surfaceContainer: const Color(0xFFB6D4BA),
+          outlineVariant: const Color(0xFFA2C0A7),
+        );
+    return _build(colorScheme);
+  }
+
+  /// 墨渊（纯黑）：以纯黑表面为底的暗色，比 [dark] 的深灰更沉浸——OLED 屏
+  /// 直接关闭黑色像素（省电、黑得更彻底）。容器带极淡的冷调（钢蓝紫），与
+  /// [dark] 的中性灰拉开视觉距离，避免「又一个黑」。
+  static ThemeData ink() {
+    final colorScheme =
+        ColorScheme.fromSeed(
+          brightness: Brightness.dark,
+          seedColor: const Color(0xFF7B86A6),
+        ).copyWith(
+          surface: const Color(0xFF000000),
+          surfaceContainerLowest: const Color(0xFF000000),
+          surfaceContainerLow: const Color(0xFF0A0B0F),
+          surfaceContainer: const Color(0xFF121318),
+          outlineVariant: const Color(0xFF21232B),
+        );
+    return _build(colorScheme);
+  }
+
   static ThemeData _build(ColorScheme colorScheme) {
     final platform = defaultTargetPlatform;
     return ThemeData(

@@ -8,6 +8,9 @@ void main() {
     'light': LoreTheme.light(),
     'sepia': LoreTheme.sepia(),
     'dark': LoreTheme.dark(),
+    'frost': LoreTheme.frost(),
+    'green': LoreTheme.green(),
+    'ink': LoreTheme.ink(),
   };
 
   for (final entry in themes.entries) {

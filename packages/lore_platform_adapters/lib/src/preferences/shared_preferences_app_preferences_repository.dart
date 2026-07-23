@@ -246,6 +246,9 @@ final class SharedPreferencesAppPreferencesRepository
       'light' => AppThemeMode.light,
       'sepia' => AppThemeMode.sepia,
       'dark' => AppThemeMode.dark,
+      'frost' => AppThemeMode.frost,
+      'green' => AppThemeMode.green,
+      'ink' => AppThemeMode.ink,
       _ => null,
     };
   }
