@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../document_controller.dart';
 import '../large_text/lore_large_text_controller.dart';
@@ -135,9 +136,8 @@ final class _FindReplaceOverlayStatefulState
       widget.findController.addListener(_handleFindChanged);
       _patternField.value = TextEditingValue(
         text: widget.findController.pattern,
-        selection: TextSelection(
-          baseOffset: 0,
-          extentOffset: widget.findController.pattern.length,
+        selection: TextSelection.collapsed(
+          offset: widget.findController.pattern.length,
         ),
       );
       _replaceField.text = widget.findController.replacement;
@@ -167,9 +167,10 @@ final class _FindReplaceOverlayStatefulState
 
   void _focusPatternField() {
     _patternFocusNode.requestFocus();
-    _patternField.selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: _patternField.text.length,
+    // 光标置于末尾而非全选：选中文字 cmd+F 填入后，用户通常想追加/细化搜索词
+    // 而非整体覆盖，与 VSCode 一致。
+    _patternField.selection = TextSelection.collapsed(
+      offset: _patternField.text.length,
     );
   }
 
@@ -231,163 +232,221 @@ final class _FindReplaceOverlayStatefulState
     final ec = widget.editorController;
     if (ec is LoreLargeTextController) {
       ec.requestReveal(match.start);
+      // 大文本编辑器响应 reveal 会 focus 到匹配段落 block
+      // （LoreLargeTextEditor._handleControllerChanged 的 reveal 分支），抢走搜索框
+      // 焦点——这正是「cmd+F 后搜索框无光标」「上/下一个后光标丢失」的根因。
+      // [_keepPatternFocus] 连续若干帧 re-focus 覆盖整条抢焦链（含跨段远跳的多帧
+      // 重试）。小文本编辑器不抢焦。
+      _keepPatternFocus();
     }
+  }
+
+  /// 把焦点拉回查找输入框，覆盖编辑器因 reveal 抢走的焦点。
+  ///
+  /// 大文本编辑器响应 reveal 会 focus 到匹配段落 block。目标段已渲染时单帧抢焦；
+  /// 目标段未渲染（跨段远跳）时经 `_BlockGeometryRegistry.focusBlock` →
+  /// `_ensureBlockVisibleAndFocus`，最多 depth 5 跨帧重试 `focusAt` 抢焦。单次
+  /// re-focus 会被后续帧再次抢走，故连续若干帧 re-focus 覆盖整条抢焦链：每帧内
+  /// 编辑器抢焦 postFrame 先注册、re-focus 后注册，FIFO 先抢后拉。帧数对齐 depth
+  /// 上限；若编辑器重试策略变更需同步。代价：约 100ms 窗口内若用户主动点离搜索框
+  /// 会被拉回——可接受（查找刚打开，用户在看匹配）。小文本编辑器不抢焦。
+  void _keepPatternFocus() {
+    _refocusPatternFrames(6);
+  }
+
+  void _refocusPatternFrames(int remaining) {
+    if (!mounted || remaining <= 0) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _patternFocusNode.requestFocus();
+      _refocusPatternFrames(remaining - 1);
+    });
+  }
+
+  /// 浮层（含查找/替换输入框）持有焦点时，Esc 关闭浮层。
+  ///
+  /// 本节点 `canRequestFocus:false`，自身不进入 Tab 序列、不抢占输入框焦点，
+  /// 但作为输入框 FocusNode 的祖先，按键会冒泡到这里。仅响应 keydown（长按不重复
+  /// 触发 onClose）；输入框不消费 Esc，故能到达此处。
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) {
+      return KeyEventResult.ignored;
+    }
+    if (event.logicalKey != LogicalKeyboardKey.escape) {
+      return KeyEventResult.ignored;
+    }
+    final onClose = widget.onClose;
+    if (onClose == null) {
+      return KeyEventResult.ignored;
+    }
+    onClose();
+    return KeyEventResult.handled;
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final controller = widget.findController;
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, _) {
-        final colors = theme.colorScheme;
-        return Material(
-          color: colors.surfaceContainerLowest,
-          surfaceTintColor: Colors.transparent,
-          elevation: 6,
-          shadowColor: colors.shadow.withValues(
-            alpha: colors.brightness == Brightness.dark ? 0.28 : 0.14,
-          ),
-          borderRadius: BorderRadius.circular(_panelRadius),
-          clipBehavior: Clip.antiAlias,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: colors.outlineVariant.withValues(alpha: 0.84),
-              ),
-              borderRadius: BorderRadius.circular(_panelRadius),
+    return Focus(
+      canRequestFocus: false,
+      onKeyEvent: _handleKeyEvent,
+      child: ListenableBuilder(
+        listenable: controller,
+        builder: (context, _) {
+          final colors = theme.colorScheme;
+          return Material(
+            color: colors.surfaceContainerLowest,
+            surfaceTintColor: Colors.transparent,
+            elevation: 6,
+            shadowColor: colors.shadow.withValues(
+              alpha: colors.brightness == Brightness.dark ? 0.28 : 0.14,
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(5),
-              child: AnimatedSize(
-                duration: const Duration(milliseconds: 140),
-                curve: Curves.easeOutCubic,
-                alignment: Alignment.topCenter,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        _compactIconButton(
-                          tooltip: _showReplace ? '隐藏替换' : '显示替换',
-                          onPressed: () =>
-                              setState(() => _showReplace = !_showReplace),
-                          icon: _showReplace
-                              ? Icons.keyboard_arrow_down
-                              : Icons.keyboard_arrow_right,
-                        ),
-                        const SizedBox(width: _controlGap),
-                        Expanded(
-                          child: _editorField(
-                            key: const ValueKey('find-pattern-control'),
-                            controller: _patternField,
-                            focusNode: _patternFocusNode,
-                            hintText: '查找',
-                            trailingText: controller.matchCount == 0
-                                ? '无匹配'
-                                : '${controller.currentIndex + 1}/${controller.matchCount}',
-                            textInputAction: TextInputAction.search,
-                            onChanged: (value) {
-                              controller.setPattern(value);
-                              controller.setReplacement(_replaceField.text);
+            borderRadius: BorderRadius.circular(_panelRadius),
+            clipBehavior: Clip.antiAlias,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: colors.outlineVariant.withValues(alpha: 0.84),
+                ),
+                borderRadius: BorderRadius.circular(_panelRadius),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(5),
+                child: AnimatedSize(
+                  duration: const Duration(milliseconds: 140),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          _compactIconButton(
+                            tooltip: _showReplace ? '隐藏替换' : '显示替换',
+                            onPressed: () =>
+                                setState(() => _showReplace = !_showReplace),
+                            icon: _showReplace
+                                ? Icons.keyboard_arrow_down
+                                : Icons.keyboard_arrow_right,
+                          ),
+                          const SizedBox(width: _controlGap),
+                          Expanded(
+                            child: _editorField(
+                              key: const ValueKey('find-pattern-control'),
+                              controller: _patternField,
+                              focusNode: _patternFocusNode,
+                              hintText: '查找',
+                              trailingText: controller.matchCount == 0
+                                  ? '无匹配'
+                                  : '${controller.currentIndex + 1}/${controller.matchCount}',
+                              textInputAction: TextInputAction.search,
+                              onChanged: (value) {
+                                controller.setPattern(value);
+                                controller.setReplacement(_replaceField.text);
+                                _scheduleRecompute();
+                              },
+                              onSubmitted: (_) => controller.next(),
+                            ),
+                          ),
+                          const SizedBox(width: _controlGap),
+                          _compactIconButton(
+                            tooltip: '上一个',
+                            onPressed: controller.matchCount == 0
+                                ? null
+                                : controller.previous,
+                            icon: Icons.keyboard_arrow_up,
+                          ),
+                          _compactIconButton(
+                            tooltip: '下一个',
+                            onPressed: controller.matchCount == 0
+                                ? null
+                                : controller.next,
+                            icon: Icons.keyboard_arrow_down,
+                          ),
+                          _compactIconButton(
+                            tooltip: '区分大小写',
+                            active: controller.caseSensitive,
+                            onPressed: () {
+                              controller.setCaseSensitive(
+                                !controller.caseSensitive,
+                              );
                               _scheduleRecompute();
                             },
-                            onSubmitted: (_) => controller.next(),
+                            icon: Icons.text_fields,
+                          ),
+                          _compactIconButton(
+                            tooltip: '正则表达式',
+                            active: controller.useRegex,
+                            onPressed: () {
+                              controller.setUseRegex(!controller.useRegex);
+                              _scheduleRecompute();
+                            },
+                            icon: Icons.code,
+                          ),
+                          _compactIconButton(
+                            tooltip: '关闭',
+                            onPressed: widget.onClose,
+                            icon: Icons.close,
+                          ),
+                        ],
+                      ),
+                      if (_showReplace)
+                        Padding(
+                          padding: const EdgeInsets.only(
+                            left: _iconButtonSize + _controlGap,
+                            top: 5,
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: _editorField(
+                                  key: const ValueKey(
+                                    'find-replacement-control',
+                                  ),
+                                  controller: _replaceField,
+                                  hintText: '替换为',
+                                  onChanged: controller.setReplacement,
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              SizedBox(
+                                height: _actionButtonHeight,
+                                child: OutlinedButton(
+                                  style: _actionButtonStyle(outlined: true),
+                                  onPressed: controller.currentMatch == null
+                                      ? null
+                                      : _replaceCurrent,
+                                  child: const Text('替换'),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              SizedBox(
+                                height: _actionButtonHeight,
+                                child: FilledButton.tonal(
+                                  style: _actionButtonStyle(outlined: false),
+                                  onPressed: controller.matchCount == 0
+                                      ? null
+                                      : _replaceAll,
+                                  child: const Text('全部'),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: _controlGap),
-                        _compactIconButton(
-                          tooltip: '上一个',
-                          onPressed: controller.matchCount == 0
-                              ? null
-                              : controller.previous,
-                          icon: Icons.keyboard_arrow_up,
-                        ),
-                        _compactIconButton(
-                          tooltip: '下一个',
-                          onPressed: controller.matchCount == 0
-                              ? null
-                              : controller.next,
-                          icon: Icons.keyboard_arrow_down,
-                        ),
-                        _compactIconButton(
-                          tooltip: '区分大小写',
-                          active: controller.caseSensitive,
-                          onPressed: () {
-                            controller.setCaseSensitive(
-                              !controller.caseSensitive,
-                            );
-                            _scheduleRecompute();
-                          },
-                          icon: Icons.text_fields,
-                        ),
-                        _compactIconButton(
-                          tooltip: '正则表达式',
-                          active: controller.useRegex,
-                          onPressed: () {
-                            controller.setUseRegex(!controller.useRegex);
-                            _scheduleRecompute();
-                          },
-                          icon: Icons.code,
-                        ),
-                        _compactIconButton(
-                          tooltip: '关闭',
-                          onPressed: widget.onClose,
-                          icon: Icons.close,
-                        ),
-                      ],
-                    ),
-                    if (_showReplace)
-                      Padding(
-                        padding: const EdgeInsets.only(
-                          left: _iconButtonSize + _controlGap,
-                          top: 5,
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Expanded(
-                              child: _editorField(
-                                key: const ValueKey('find-replacement-control'),
-                                controller: _replaceField,
-                                hintText: '替换为',
-                                onChanged: controller.setReplacement,
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                            SizedBox(
-                              height: _actionButtonHeight,
-                              child: OutlinedButton(
-                                style: _actionButtonStyle(outlined: true),
-                                onPressed: controller.currentMatch == null
-                                    ? null
-                                    : _replaceCurrent,
-                                child: const Text('替换'),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            SizedBox(
-                              height: _actionButtonHeight,
-                              child: FilledButton.tonal(
-                                style: _actionButtonStyle(outlined: false),
-                                onPressed: controller.matchCount == 0
-                                    ? null
-                                    : _replaceAll,
-                                child: const Text('全部'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 

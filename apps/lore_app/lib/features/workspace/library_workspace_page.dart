@@ -225,9 +225,7 @@ final class _LibraryWorkspacePageState
                     showSettingsPanel(context),
                 ?keybindingActivators[ShortcutAction.openQuickOpen]:
                     _openQuickOpen,
-                if (_isFullscreen)
-                  const SingleActivator(LogicalKeyboardKey.escape):
-                      _toggleFullscreen,
+                const SingleActivator(LogicalKeyboardKey.escape): _handleEscape,
               },
               child: FocusScope(
                 node: _focusScopeNode,
@@ -794,6 +792,19 @@ final class _LibraryWorkspacePageState
       _findController?.dispose();
       _findController = null;
     });
+  }
+
+  /// Esc 的统一分发：查找替换浮层打开时优先关闭它（无论焦点在搜索框还是正文），
+  /// 否则退出全屏。放在页面层 [CallbackShortcuts]，使其覆盖整个工作区焦点
+  /// 子树——不依赖浮层自身是否持有焦点（cmd+F 后焦点常仍落在正文编辑器）。
+  void _handleEscape() {
+    if (_findController != null) {
+      _closeFindReplace();
+      return;
+    }
+    if (_isFullscreen) {
+      _toggleFullscreen();
+    }
   }
 
   /// ⌘⇧F：打开右栏「小说搜索」面板。
