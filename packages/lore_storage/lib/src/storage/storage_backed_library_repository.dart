@@ -11,6 +11,7 @@ import '../history/history_retention.dart';
 import 'storage_schema_migrator.dart';
 
 part 'portable/storage_backed_library_support.dart';
+part 'portable/storage_backed_library_recovery.dart';
 part 'portable/storage_backed_document_repository.dart';
 part 'portable/storage_backed_highlight_repository.dart';
 part 'portable/storage_backed_history_support.dart';
@@ -33,6 +34,7 @@ final _pendingOperation = LogicalPath.parse(
 final class StorageBackedLibraryRepository
     with
         _StorageBackedLibrarySupport,
+        _StorageBackedLibraryRecovery,
         _StorageBackedDocumentRepository,
         _StorageBackedHighlightRepository,
         _StorageBackedHistorySupport,
