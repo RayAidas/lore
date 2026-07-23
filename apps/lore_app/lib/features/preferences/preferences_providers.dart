@@ -58,6 +58,19 @@ final class PreferencesController extends AsyncNotifier<AppPreferences> {
       _update((current) => current.copyWith(gridLineMode: value));
   Future<void> setHighlightPalette(List<int> value) =>
       _update((current) => current.copyWith(highlightPalette: value));
+  Future<void> setKeybinding(ShortcutAction action, KeyCombination combo) =>
+      _update(
+        (current) => current.copyWith(
+          keybindings: current.keybindings.withBinding(action, combo),
+        ),
+      );
+  Future<void> clearKeybinding(ShortcutAction action) => _update(
+    (current) => current.copyWith(
+      keybindings: current.keybindings.withoutBinding(action),
+    ),
+  );
+  Future<void> resetKeybindings() =>
+      _update((current) => current.copyWith(keybindings: Keybindings.defaults));
   Future<void> setBackgroundMode(AppBackgroundMode value) => _update((current) {
     if (value == AppBackgroundMode.image &&
         current.backgroundImagePaths.isEmpty) {

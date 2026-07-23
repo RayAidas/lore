@@ -9,6 +9,7 @@ import 'package:lore_editor/lore_editor.dart';
 import 'package:lore_ui/lore_ui.dart';
 
 import '../library/library_providers.dart';
+import '../preferences/keybinding_activators.dart';
 import '../preferences/preferences_providers.dart';
 import '../preferences/settings_page.dart';
 import 'document_pane.dart';
@@ -139,6 +140,7 @@ final class _LibraryWorkspacePageState
   @override
   Widget build(BuildContext context) {
     final controller = ref.watch(workspaceControllerProvider(widget.session));
+    final keybindingActivators = ref.watch(keybindingActivatorsProvider);
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
@@ -161,26 +163,21 @@ final class _LibraryWorkspacePageState
                 permanentSidebar && _showSidebar && !_isFullscreen;
             return CallbackShortcuts(
               bindings: {
-                const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () {
+                ?keybindingActivators[ShortcutAction.save]: () {
                   unawaited(controller.saveActive());
                 },
-                const SingleActivator(LogicalKeyboardKey.keyW, meta: true): () {
+                ?keybindingActivators[ShortcutAction.closeDocument]: () {
                   final document = controller.activeDocument;
                   if (document != null) {
                     unawaited(_closeDocument(controller, document));
                   }
                 },
-                const SingleActivator(LogicalKeyboardKey.keyF, meta: true): () {
-                  _openFindReplace(controller, replace: false);
-                },
-                const SingleActivator(LogicalKeyboardKey.keyH, meta: true): () {
-                  _openFindReplace(controller, replace: true);
-                },
+                ?keybindingActivators[ShortcutAction.find]: () =>
+                    _openFindReplace(controller, replace: false),
+                ?keybindingActivators[ShortcutAction.findReplace]: () =>
+                    _openFindReplace(controller, replace: true),
                 if (desktop)
-                  const SingleActivator(
-                    LogicalKeyboardKey.backslash,
-                    meta: true,
-                  ): () {
+                  ?keybindingActivators[ShortcutAction.toggleSplit]: () {
                     final tab = controller.activeDocument;
                     if (tab != null) {
                       if (controller.isSplit) {
@@ -191,32 +188,16 @@ final class _LibraryWorkspacePageState
                     }
                   },
                 if (desktop)
-                  const SingleActivator(
-                    LogicalKeyboardKey.digit1,
-                    meta: true,
-                  ): () =>
+                  ?keybindingActivators[ShortcutAction.focusPrimary]: () =>
                       _focusGroup(controller, WorkspaceEditorGroupId.primary),
                 if (desktop && controller.isSplit)
-                  const SingleActivator(
-                    LogicalKeyboardKey.digit2,
-                    meta: true,
-                  ): () =>
+                  ?keybindingActivators[ShortcutAction.focusSecondary]: () =>
                       _focusGroup(controller, WorkspaceEditorGroupId.secondary),
-                const SingleActivator(LogicalKeyboardKey.keyG, meta: true): () {
-                  _findController?.next();
-                },
-                const SingleActivator(
-                  LogicalKeyboardKey.keyG,
-                  meta: true,
-                  shift: true,
-                ): () {
-                  _findController?.previous();
-                },
-                const SingleActivator(
-                  LogicalKeyboardKey.keyT,
-                  meta: true,
-                  shift: true,
-                ): () {
+                ?keybindingActivators[ShortcutAction.findNext]: () =>
+                    _findController?.next(),
+                ?keybindingActivators[ShortcutAction.findPrevious]: () =>
+                    _findController?.previous(),
+                ?keybindingActivators[ShortcutAction.toggleTypewriter]: () {
                   final current =
                       ref.read(appPreferencesProvider).value ??
                       AppPreferences.defaults();
@@ -224,22 +205,12 @@ final class _LibraryWorkspacePageState
                       .read(appPreferencesProvider.notifier)
                       .setTypewriterMode(!current.typewriterMode);
                 },
-                const SingleActivator(
-                  LogicalKeyboardKey.enter,
-                  meta: true,
-                  shift: true,
-                ): _toggleFullscreen,
-                const SingleActivator(
-                  LogicalKeyboardKey.keyF,
-                  meta: true,
-                  shift: true,
-                ): _openNovelSearch,
-                const SingleActivator(
-                  LogicalKeyboardKey.comma,
-                  meta: true,
-                ): () {
-                  showSettingsPanel(context);
-                },
+                ?keybindingActivators[ShortcutAction.toggleFullscreen]:
+                    _toggleFullscreen,
+                ?keybindingActivators[ShortcutAction.openNovelSearch]:
+                    _openNovelSearch,
+                ?keybindingActivators[ShortcutAction.openSettings]: () =>
+                    showSettingsPanel(context),
                 if (_isFullscreen)
                   const SingleActivator(LogicalKeyboardKey.escape):
                       _toggleFullscreen,
