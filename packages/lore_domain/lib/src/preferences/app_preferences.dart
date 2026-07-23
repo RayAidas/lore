@@ -1,5 +1,6 @@
 import '../content/content_types.dart';
 import '../highlight/highlight.dart';
+import 'keybindings.dart';
 
 /// 用户可配置的应用级外观与编辑器偏好。
 ///
@@ -41,6 +42,7 @@ final class AppPreferences {
     required this.editorFontFamily,
     required this.gridLineMode,
     required this.highlightPalette,
+    this.keybindings = Keybindings.defaults,
     this.backgroundMode = AppBackgroundMode.theme,
     this.backgroundImagePaths = const [],
     this.backgroundImagePath,
@@ -48,7 +50,7 @@ final class AppPreferences {
     this.backgroundImageDimness = 0.2,
   });
 
-  static const schemaVersionCurrent = 7;
+  static const schemaVersionCurrent = 8;
 
   /// 开箱默认：字号 18、行高 1.45、段间距 1.2（字号倍数）；标题→首段留白由
   /// EditorStyle 派生（(段间距 + 1.0) × 字号）保证始终宽于段间距。
@@ -69,6 +71,7 @@ final class AppPreferences {
     editorFontFamily: AppFontFamily.wenkai,
     gridLineMode: GridLineMode.none,
     highlightPalette: HighlightPalette.defaults,
+    keybindings: Keybindings.defaults,
     backgroundMode: AppBackgroundMode.theme,
     backgroundImagePaths: [],
     backgroundOpacity: 0.84,
@@ -77,6 +80,9 @@ final class AppPreferences {
 
   final int schemaVersion;
   final AppThemeMode themeMode;
+
+  /// 工作区全局快捷键映射。未在表中的动作在 UI 显示「未设置」，运行时不触发。
+  final Keybindings keybindings;
 
   /// 新建小说时章节的默认文件格式。
   final ChapterFormat defaultChapterFormat;
@@ -148,6 +154,7 @@ final class AppPreferences {
     AppFontFamily? editorFontFamily,
     GridLineMode? gridLineMode,
     List<int>? highlightPalette,
+    Keybindings? keybindings,
     AppBackgroundMode? backgroundMode,
     List<String>? backgroundImagePaths,
     String? backgroundImagePath,
@@ -172,6 +179,7 @@ final class AppPreferences {
       editorFontFamily: editorFontFamily ?? this.editorFontFamily,
       gridLineMode: gridLineMode ?? this.gridLineMode,
       highlightPalette: highlightPalette ?? this.highlightPalette,
+      keybindings: keybindings ?? this.keybindings,
       backgroundMode: backgroundMode ?? this.backgroundMode,
       backgroundImagePaths: backgroundImagePaths ?? this.backgroundImagePaths,
       backgroundImagePath: clearBackgroundImagePath
