@@ -1098,6 +1098,66 @@ void main() {
     },
   );
 
+  testWidgets(
+    'typewriter mode recenters after a newline splits the focused paragraph',
+    (tester) async {
+      // 回归：换行（结构变化）后新段获焦是下一帧才生效，controller notify 同帧
+      // 的 recenter 会落空（focusedCaretCenterY 命中旧段或返回 null）。修复前
+      // 视口不跟随、要等下一次按键才补居中——打字时拖沓。此处锁定换行当拍即居中。
+      final paragraphs = List.generate(40, (index) => '第$index段正文内容');
+      final controller = LoreLargeTextController(text: paragraphs.join('\n'));
+      final scrollController = ScrollController();
+      addTearDown(controller.dispose);
+      addTearDown(scrollController.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: SizedBox(
+              width: 800,
+              height: 500,
+              child: LoreLargeTextEditor(
+                controller: controller,
+                scrollController: scrollController,
+                style: const EditorStyle.defaults().copyWith(
+                  typewriterMode: true,
+                  firstLineIndent: false,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 聚焦视口中下方的段并居中（onFocused 路径）。tap 后从 controller 反查实际
+      // block index——虚拟列表里 widget 顺序与 block index 不一定相等（曾因假设
+      // at(8)==block 8 而误判）。
+      await tester.tap(find.byType(TextField).at(8));
+      await tester.pumpAndSettle();
+      final focusedBlock = controller.blockIndexForOffset(
+        controller.selection.extentOffset,
+      );
+      final offsetBefore = scrollController.offset;
+
+      // 在该段末尾拆段，模拟回车的结构变化。直接走 controller 写入——它与 IME
+      // 回车同样 notify → blocksChanged → _recenterAfterBlocksChange（即被测路径），
+      // 且不受视口滚动后 finder 索引漂移影响。
+      final blockStart = controller.blockStart(focusedBlock);
+      final blockEnd = blockStart + controller.blocks[focusedBlock].text.length;
+      controller.replaceRange(blockEnd, blockEnd, '\n');
+      await tester.pumpAndSettle();
+
+      expect(
+        controller.blockIndexForOffset(controller.selection.extentOffset),
+        focusedBlock + 1,
+      );
+      // 换行当拍即触发居中（_recenterAfterBlocksChange 在焦点就位那帧补居中），
+      // offset 随之改变，无需再按键——这正是修复前缺失、要等下一次按键的行为。
+      expect(scrollController.offset, isNot(equals(offsetBefore)));
+    },
+  );
+
   testWidgets('long-pressing arrow right crosses into the next paragraph', (
     tester,
   ) async {

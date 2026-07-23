@@ -216,9 +216,15 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
       // 打字机模式：每次编辑/选区变化后把光标行滚动到视口中央。post-frame
       // 等重排落定、光标几何有效；拖拽守卫避免与鼠标选区/手动滚动打架。
       if (widget.style.typewriterMode) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _recenterCaretIfNeeded();
-        });
+        if (blocksChanged) {
+          // 换行/拆段等结构变化：新段获焦是下一帧才生效的，同帧 recenter 会
+          // 命中旧段把视口拉回。改用重试链，等焦点段与光标所在段一致再居中。
+          _recenterAfterBlocksChange();
+        } else {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _recenterCaretIfNeeded();
+          });
+        }
       }
     }
   }
@@ -294,7 +300,7 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
                           drawTopGridLine:
                               index > 0 &&
                               widget.controller.blocks[index - 1].hasLineBreak,
-                          onFocused: () {},
+                          onFocused: _scheduleRecenterAfterFocus,
                         );
                         // 段落末块（hasLineBreak）下方加段间距（字号倍数 × 字号 =
                         // 像素）；同段跨块保持贴合。
@@ -493,9 +499,56 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
     _scrollCaretToCenter();
   }
 
+  /// 结构变化（换行/拆段）后的打字机居中：新段获焦是异步的——controller
+  /// notify 当帧 [_BlockGeometryRegistry.focusedBlockIndex] 往往仍是旧段，同帧
+  /// recenter 会把视口错误拉回旧段中心。这里跨帧重试，直到焦点段与光标所在段
+  /// 一致再居中；最多 5 帧防死循环，仍未就绪则放弃（下一次编辑会再触发）。
+  void _recenterAfterBlocksChange({int depth = 0}) {
+    if (!mounted || !widget.scrollController.hasClients) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !widget.scrollController.hasClients ||
+          widget.controller.selectionDragActive ||
+          _globalSelectionDrag) {
+        return;
+      }
+      final desired = widget.controller.blockIndexForOffset(
+        widget.controller.selection.extentOffset,
+      );
+      if (_blockRegistry.focusedBlockIndex == desired) {
+        // 焦点已就位：再等一帧让新段 layout 落定，然后居中。
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _recenterCaretIfNeeded();
+          }
+        });
+      } else if (depth < 5) {
+        _recenterAfterBlocksChange(depth: depth + 1);
+      }
+    });
+  }
+
+  /// 段落块获焦回调：点击/跨段跳转/换行后焦点落到目标段的那一帧补一次居中。
+  /// 与 [_recenterAfterBlocksChange] 互补——前者监听结构变化，此处监听焦点
+  /// 就绪，确保任意获焦路径都即时居中。幂等：守卫与死区会吞掉多余调用。
+  void _scheduleRecenterAfterFocus() {
+    if (!mounted || !widget.style.typewriterMode) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _recenterCaretIfNeeded();
+    });
+  }
+
   /// 把聚焦光标行滚动到视口垂直居中（8px 死区避免微抖）。打字机模式与跨段
   /// 兜底共用：前者由 [_recenterCaretIfNeeded] 守卫后调用，后者由
   /// [_ensureBlockVisibleAndFocus] 在目标段构建后调用。
+  ///
+  /// 小幅偏移（同段打字）用 [jumpTo] 瞬移，避免每次按键都动画显得拖沓；大幅
+  /// 位移（换行/跨段/查找跳转）用 [animateTo] 平滑滚动，更跟手。阈值取约一个
+  /// 行高（[EditorStyle.fontSize] × [EditorStyle.lineHeight]），与 8px 死区衔接。
   void _scrollCaretToCenter() {
     if (!mounted || !widget.scrollController.hasClients) {
       return;
@@ -512,12 +565,20 @@ final class _LoreLargeTextEditorState extends State<LoreLargeTextEditor> {
       return;
     }
     final position = widget.scrollController.position;
-    widget.scrollController.jumpTo(
-      (position.pixels + delta).clamp(
-        position.minScrollExtent,
-        position.maxScrollExtent,
-      ),
+    final destination = (position.pixels + delta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
     );
+    final lineH = widget.style.fontSize * widget.style.lineHeight;
+    if (delta.abs() < lineH) {
+      widget.scrollController.jumpTo(destination);
+    } else {
+      widget.scrollController.animateTo(
+        destination,
+        duration: const Duration(milliseconds: 100),
+        curve: Curves.easeOut,
+      );
+    }
   }
 
   /// 向 [targetIndex] 方向粗滚一个视口高度，强制 ListView 把目标段构建出来。
