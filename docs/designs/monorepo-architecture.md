@@ -22,6 +22,7 @@ lore/
 │   ├── lore_domain/               # Dart 领域模型与规则
 │   ├── lore_application/          # Dart 用例、端口和事务编排
 │   ├── lore_storage/              # 本地文件、元数据和 SQLite 实现
+│   ├── lore_platform_adapters/    # macOS/Android 平台桥接与本机偏好存储
 │   ├── lore_editor/               # 编辑器抽象和 Flutter 实现
 │   ├── lore_ui/                   # 主题、布局和通用组件
 │   └── lore_api_client/           # 未来由契约生成的 API 客户端
@@ -93,11 +94,19 @@ lore/
 
 Flutter package，依赖 Domain 和 Application：
 
-- macOS 本地目录存储实现。
-- Android SAF 存储实现。
+- macOS 本地目录存储会话实现（纯 Dart；Android SAF 通道由 `lore_platform_adapters` 提供）。
 - JSON 元数据、历史、回收站和恢复日志。
 - SQLite 搜索索引和本机状态。
 - 文件监听及外部变更协调。
+
+### `lore_platform_adapters`
+
+Flutter package，依赖 Application 端口，承载不可移植的平台能力：
+
+- macOS 原生文件协调、security-scoped bookmark 持久化与目录监听的 MethodChannel。
+- Android Storage Access Framework：授权持久化、DocumentFile 操作与冲突保存。
+- 设备本地偏好（SharedPreferences）等运行状态。
+- 不包含业务规则，仅把平台能力适配为 Application 定义的端口。
 
 ### `lore_editor`
 
@@ -140,6 +149,7 @@ lore_app
 ├── lore_ui
 ├── lore_editor
 ├── lore_storage
+├── lore_platform_adapters
 └── lore_application
     └── lore_domain
 ```
@@ -149,6 +159,7 @@ lore_app
 - `lore_domain` 不依赖任何仓库内 package。
 - `lore_application` 只依赖 `lore_domain`。
 - `lore_storage` 实现 Application 定义的端口。
+- `lore_platform_adapters` 实现 Application 定义的存储与平台端口。
 - `lore_editor` 和 `lore_ui` 不依赖 `lore_storage`。
 - `lore_app` 是唯一负责装配具体实现的组合根。
 - package 之间禁止循环依赖。
@@ -266,6 +277,7 @@ PostgreSQL / Object Storage / AI Provider
 - `packages/lore_domain`。
 - `packages/lore_application`。
 - `packages/lore_storage`。
+- `packages/lore_platform_adapters`。
 - `packages/lore_editor`。
 - `packages/lore_ui`。
 - `contracts` 基础目录。

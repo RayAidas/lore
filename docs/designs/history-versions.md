@@ -1,6 +1,6 @@
 # 历史版本设计
 
-> 文档状态：spec 待评审  
+> 文档状态：已实现  
 > 依赖文档：[书库存储详细设计](library-storage-design.md)、[界面与交互设计](interface-design.md)
 
 ## 设计目标
@@ -151,8 +151,8 @@ final class HistorySnapshot {
 
 | 触发器 | 时机 | 实现 |
 |---|---|---|
-| autoCheckpoint | 切换活动文档 / 关闭文档标签时 | workspace_controller 在文档失活时调用 |
-| autoThreshold | 自上次快照后净变更量 ≥ 800 字 | 编辑器持续统计，达阈值即调用 |
+| autoCheckpoint | 切换 / 关闭文档，以及编辑期间每 2 分钟定时安全网 | workspace_controller 文档失活时调用 + workspace_history_store 周期定时器 |
+| autoThreshold | 自上次快照后净变更量 ≥ 400 字 | 编辑器持续统计，达阈值即调用 |
 | manual | 用户在历史面板点「创建版本」 | 带命名 / 备注 |
 | restoreSafeguard | 恢复某版本前，为当前内容自动留底 | restore 流程内部调用 |
 

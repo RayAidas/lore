@@ -186,6 +186,8 @@ LibraryStorage
 - `AndroidSafStorage`：持久化目录授权、DocumentFile 操作和能力降级。
 - `MemoryStorage`：单元测试和业务规则验证。
 
+> 落地时按 ADR-0002 拆包：macOS 本地目录会话在 `lore_storage`（纯 Dart），Android SAF 的 MethodChannel 与 macOS 文件协调在 `lore_platform_adapters`，二者实现同一套可移植存储会话契约。
+
 Android 文档提供者的能力并不一致，移动、重命名和原子替换必须通过能力检测处理，不能假设所有 SAF Provider 行为相同。
 
 ## 数据持久化边界

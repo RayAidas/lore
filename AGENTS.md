@@ -8,6 +8,7 @@ Lore is a Dart workspace organized as a local-first Flutter monorepo.
 - `packages/lore_domain/`: dependency-free domain models and rules.
 - `packages/lore_application/`: use cases, services, and repository ports.
 - `packages/lore_storage/`: local filesystem persistence and recovery logic.
+- `packages/lore_platform_adapters/`: Flutter platform bridges (macOS file coordination, Android MethodChannel/SAF) and on-device preference storage.
 - `packages/lore_editor/`: text editing and Markdown preview components.
 - `packages/lore_ui/`: shared themes and reusable presentation styles.
 - `docs/designs/` and `docs/decisions/`: product, architecture, and decision records.
