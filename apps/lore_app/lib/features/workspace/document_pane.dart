@@ -11,6 +11,7 @@ import 'package:lore_ui/lore_ui.dart';
 import '../preferences/font_options.dart';
 import '../preferences/preferences_providers.dart';
 import '../library/library_providers.dart';
+import 'chapter_navigation_bar.dart';
 import 'chapter_title_bar.dart';
 import 'history_diff_mode.dart';
 import 'history_diff_view.dart';
@@ -573,6 +574,13 @@ final class _DocumentPaneState extends ConsumerState<DocumentPane> {
                 },
               ),
               const Spacer(),
+              if (document.chapterNumber != null) ...[
+                ChapterNavigationBar(
+                  controller: controller,
+                  document: document,
+                ),
+                const SizedBox(width: 12),
+              ],
               Icon(
                 document.saveStatusIcon,
                 size: 14,
