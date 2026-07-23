@@ -358,6 +358,192 @@ void main() {
     // 散文件右键仍同步选中（供重命名/删除使用），且其选中不会切走视图。
     expect(controller.selectedPath, '笔记.txt');
   });
+
+  testWidgets('right-click a novel entry offers plain create actions', (
+    tester,
+  ) async {
+    // 回归：小说根目录右键菜单应提供「新建子文件夹/TXT/Markdown」——这些散
+    // 文件落在 body（正文）子树之外，不参与卷/章结构扫描，安全；此前只有
+    // 普通目录（semanticKind==null）有这三项，小说目录仅有「新建卷」。
+    final repository = _PathWorkspaceRepository({
+      '': const [
+        LibraryEntry(
+          name: '我的小说',
+          relativePath: '我的小说',
+          type: LibraryEntryType.directory,
+          semanticKind: LibraryEntrySemanticKind.novel,
+          novelId: 'n1',
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: LibrarySidebar(
+              controller: controller,
+              displayPath: '/tmp/library',
+              onSelectLibrary: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('我的小说')),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    // 结构化的「新建卷」保留，同时补齐散文件新建三项。
+    expect(find.text('新建卷'), findsOneWidget);
+    expect(find.text('新建子文件夹'), findsOneWidget);
+    expect(find.text('新建 TXT'), findsOneWidget);
+    expect(find.text('新建 Markdown'), findsOneWidget);
+  });
+
+  testWidgets(
+    'toolbar new folder targets root even with a non-root selection',
+    (tester) async {
+      // 回归：顶部「新建」固定落书库根目录，不再读 selectedEntry。旧实现用
+      // selectedEntry 推断 parentPath，选中非根目录时新建会被"吸"进该目录。
+      const target = LibraryEntry(
+        name: '资料',
+        relativePath: '资料',
+        type: LibraryEntryType.directory,
+      );
+      final repository = _RecordingRepository({
+        '': const [target],
+      });
+      final controller = _controller(session, repository);
+      addTearDown(controller.dispose);
+      await controller.initialize();
+
+      await tester.pumpWidget(_sidebar(controller));
+      await tester.pump();
+      await tester.pump();
+
+      // 模拟选中非根目录——旧实现会据此把 parentPath 算成 '资料'。
+      controller.selectEntry(target);
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('新建'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('新建文件夹'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '新资料夹');
+      await tester.tap(find.text('确认'));
+      await tester.pumpAndSettle();
+
+      expect(repository.lastCreateDirectoryParent, '');
+    },
+  );
+
+  testWidgets('right-click a novel creates a sub-folder inside the novel', (
+    tester,
+  ) async {
+    // 回归：右键小说目录「新建子文件夹」应落在该小说目录内（散文件位于 body
+    // 子树之外、不污染卷/章结构），而非落书库根目录——共享的 _createDirectory
+    // 一旦固定 parentPath:''，右键入口也会被带偏，此用例锁住两条入口的区分。
+    final repository = _RecordingRepository({
+      '': const [
+        LibraryEntry(
+          name: '我的小说',
+          relativePath: '我的小说',
+          type: LibraryEntryType.directory,
+          semanticKind: LibraryEntrySemanticKind.novel,
+          novelId: 'n1',
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+
+    await tester.pumpWidget(_sidebar(controller));
+    await tester.pump();
+    await tester.pump();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('我的小说')),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('新建子文件夹'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '设定');
+    await tester.tap(find.text('确认'));
+    await tester.pumpAndSettle();
+
+    expect(repository.lastCreateDirectoryParent, '我的小说');
+  });
+
+  testWidgets('right-click body or volume offers no plain create actions', (
+    tester,
+  ) async {
+    // 回归：body 与卷目录禁止散文件新建——其下子目录会被结构扫描当成卷、
+    // 文档会被当成章节。锁住"故意不补"的契约，防止 canCreatePlainChildren
+    // 被无意放宽。
+    final repository = _RecordingRepository({
+      '': const [
+        LibraryEntry(
+          name: '正文',
+          relativePath: '某小说/正文',
+          type: LibraryEntryType.directory,
+          semanticKind: LibraryEntrySemanticKind.body,
+          semanticId: 'body1',
+          novelId: 'n1',
+        ),
+        LibraryEntry(
+          name: '第一卷',
+          relativePath: '某小说/正文/第一卷',
+          type: LibraryEntryType.directory,
+          semanticKind: LibraryEntrySemanticKind.volume,
+          semanticId: 'v1',
+          novelId: 'n1',
+        ),
+      ],
+    });
+    final controller = _controller(session, repository);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+
+    await tester.pumpWidget(_sidebar(controller));
+    await tester.pump();
+    await tester.pump();
+
+    Future<void> rightClick(String label) async {
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text(label)),
+        kind: PointerDeviceKind.mouse,
+        buttons: kSecondaryMouseButton,
+      );
+      await gesture.up();
+      await tester.pumpAndSettle();
+    }
+
+    await rightClick('正文');
+    expect(find.text('新建子文件夹'), findsNothing);
+    expect(find.text('新建 TXT'), findsNothing);
+    expect(find.text('新建 Markdown'), findsNothing);
+
+    await rightClick('第一卷');
+    expect(find.text('新建子文件夹'), findsNothing);
+    expect(find.text('新建 TXT'), findsNothing);
+    expect(find.text('新建 Markdown'), findsNothing);
+  });
 }
 
 WorkspaceController _controller(
@@ -389,6 +575,20 @@ Widget _tree(
         reloadToken: reloadToken,
         onSelected: onSelected ?? (_) {},
         onContextMenu: onContextMenu,
+      ),
+    ),
+  );
+}
+
+Widget _sidebar(WorkspaceController controller) {
+  return ProviderScope(
+    child: MaterialApp(
+      home: Scaffold(
+        body: LibrarySidebar(
+          controller: controller,
+          displayPath: '/tmp/library',
+          onSelectLibrary: () {},
+        ),
       ),
     ),
   );
@@ -454,6 +654,45 @@ final class _PathWorkspaceRepository extends _WorkspaceRepository {
     String relativePath = '',
   }) async {
     return entries[relativePath] ?? const [];
+  }
+}
+
+/// 记录新建操作的 parentPath，用于回归「顶部按钮落根 / 右键目录落当前目录」。
+final class _RecordingRepository extends _PathWorkspaceRepository {
+  _RecordingRepository(super.entries);
+
+  String? lastCreateDirectoryParent;
+  String? lastCreateDocumentParent;
+
+  @override
+  Future<LibraryEntry> createDirectory(
+    LibraryAccess access, {
+    required String parentPath,
+    required String name,
+  }) async {
+    lastCreateDirectoryParent = parentPath;
+    return LibraryEntry(
+      name: name,
+      relativePath: parentPath.isEmpty ? name : '$parentPath/$name',
+      type: LibraryEntryType.directory,
+    );
+  }
+
+  @override
+  Future<LibraryEntry> createDocument(
+    LibraryAccess access, {
+    required String parentPath,
+    required String name,
+    required DocumentFormat format,
+    String initialText = '',
+  }) async {
+    lastCreateDocumentParent = parentPath;
+    final isText = format == DocumentFormat.text;
+    return LibraryEntry(
+      name: name,
+      relativePath: parentPath.isEmpty ? name : '$parentPath/$name',
+      type: isText ? LibraryEntryType.textFile : LibraryEntryType.markdownFile,
+    );
   }
 }
 
