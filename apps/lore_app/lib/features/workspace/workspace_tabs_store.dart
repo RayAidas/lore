@@ -289,6 +289,14 @@ final class WorkspaceTabsStore {
     }
     _scheduleSessionSave();
     _notify();
+    if (tab is DeferredDocument) {
+      // 跨组移动后该 tab 成为目标组的活动标签需立即渲染。会话恢复的延迟文档
+      // 尚未读盘：仅移动结构会让 activeDocumentForGroup 返回 null，内容区停在
+      // 空态（复现：重启后不先点标签就拖到分屏）。交由 activateTab 异步读盘加载，
+      // 加载完成后再次通知以渲染正文——与 _removeTab 激活延迟邻居同一模式。
+      // 读盘失败时 _loadDeferredDocument 自身仍会通知（移除 tab + 上报 failure）。
+      unawaited(activateTab(tab));
+    }
   }
 
   void splitRight(WorkspaceTab tab) {

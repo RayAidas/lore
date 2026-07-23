@@ -1300,6 +1300,71 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets('moving a deferred tab to split loads its document', (
+    tester,
+  ) async {
+    // 回归：重启后会话恢复的标签为延迟文档（仅活动标签读盘，其余占位）。
+    // 把未活动的延迟标签拖到右侧分屏时，它成为目标组活动标签却仍延迟，
+    // activeDocumentForGroup 返回 null → 内容区显示空态（已选择一个书库项目）。
+    // 修复：跨组移动延迟标签时按 activateTab 异步读盘加载后再渲染。
+    final repository = _MemoryWorkspaceRepository();
+    final sessions = _MemorySessionRepository(
+      value: const WorkspaceSessionSnapshot(
+        documents: [
+          WorkspaceDocumentState(
+            relativePath: '一.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+          WorkspaceDocumentState(
+            relativePath: '二.txt',
+            selectionBase: 0,
+            selectionExtent: 0,
+            scrollOffset: 0,
+          ),
+        ],
+        activePath: '一.txt',
+      ),
+    );
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: sessions,
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+
+    await controller.initialize();
+    expect(controller.tabs, hasLength(2));
+    expect(controller.documents, hasLength(1)); // 仅活动「一」读盘，「二」延迟。
+    expect(repository.readPaths, ['一.txt']);
+
+    // 未活动的「二」仍是延迟文档；拖到右侧分屏（等价 moveTab(deferred, secondary)）。
+    final deferred = controller.tabs.last;
+    controller.splitRight(deferred);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 10));
+    await tester.pump(const Duration(milliseconds: 600)); // 会话保存(500ms) 定时器落地
+
+    expect(controller.isSplit, isTrue);
+    // 修复后：延迟标签跨组移动后被读盘加载，目标组活动文档可渲染（非空）。
+    expect(
+      controller.activeDocumentForGroup(WorkspaceEditorGroupId.secondary),
+      isNotNull,
+    );
+    expect(
+      controller
+          .activeDocumentForGroup(WorkspaceEditorGroupId.secondary)!
+          .relativePath,
+      '二.txt',
+    );
+    expect(repository.readPaths, ['一.txt', '二.txt']);
+  });
+
   testWidgets('restores both visible editor groups and their active tabs', (
     tester,
   ) async {
