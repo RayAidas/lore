@@ -9,7 +9,9 @@ import 'package:lore_ui/lore_ui.dart';
 
 import 'font_options.dart';
 import 'background_image_storage.dart';
+import 'keybinding_recorder.dart';
 import 'preferences_providers.dart';
+import '../workspace/workspace_platform.dart';
 
 part 'settings_controls.dart';
 
@@ -84,7 +86,8 @@ final class _SettingsError extends ConsumerWidget {
 enum _SettingsSection {
   appearance(label: '外观', icon: Icons.palette_outlined, keyName: 'appearance'),
   layout(label: '排版', icon: Icons.format_align_left, keyName: 'layout'),
-  writing(label: '写作偏好', icon: Icons.edit_note_outlined, keyName: 'writing');
+  writing(label: '写作偏好', icon: Icons.edit_note_outlined, keyName: 'writing'),
+  shortcuts(label: '快捷键', icon: Icons.keyboard_outlined, keyName: 'shortcuts');
 
   const _SettingsSection({
     required this.label,
@@ -110,8 +113,16 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   _SettingsSection _selectedSection = _SettingsSection.appearance;
   final ScrollController _desktopScrollController = ScrollController();
   final GlobalKey _desktopScrollViewKey = GlobalKey();
+
+  /// 桌面才显示「快捷键」分类——移动端无物理键盘，配了也触发不了。
+  late final List<_SettingsSection> _visibleSections = supportsDesktopSplit
+      ? _SettingsSection.values
+      : [
+          for (final section in _SettingsSection.values)
+            if (section != _SettingsSection.shortcuts) section,
+        ];
   late final Map<_SettingsSection, GlobalKey> _sectionKeys = {
-    for (final section in _SettingsSection.values) section: GlobalKey(),
+    for (final section in _visibleSections) section: GlobalKey(),
   };
   _SettingsSection? _scrollTarget;
   // 滚动代际号：丢弃过期 _scrollToSection 的尾段。快速连点不同分类时，旧动画
@@ -213,6 +224,16 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
         }
       });
     };
+    // 快捷键的清除/重置等无参写操作同样需要失败兜底。
+    void guardVoid(Future<void> Function() fn) {
+      fn().catchError((Object error, StackTrace stack) {
+        debugPrint('settings save failed: $error\n$stack');
+        if (context.mounted) {
+          LoreToast.error(context, '设置保存失败，请重试');
+        }
+      });
+    }
+
     final sections = <_SettingsSection, List<Widget>>{
       _SettingsSection.appearance: [
         _SettingsGroup(
@@ -441,6 +462,36 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
           ],
         ),
       ],
+      _SettingsSection.shortcuts: [
+        _SettingsGroup(
+          title: '快捷键',
+          children: [
+            for (final action in ShortcutAction.values)
+              _SettingRow(
+                label: shortcutActionLabel(action),
+                subtitle: shortcutActionDesktopOnly(action) ? '仅桌面' : null,
+                trailing: KeybindingField(
+                  key: ValueKey('keybinding-field-${action.name}'),
+                  action: action,
+                  combination: prefs.keybindings.bindings[action],
+                  allBindings: prefs.keybindings.bindings,
+                  onRecorded: (combo) =>
+                      guardVoid(() => controller.setKeybinding(action, combo)),
+                  onCleared: () =>
+                      guardVoid(() => controller.clearKeybinding(action)),
+                ),
+              ),
+            _SettingRow(
+              label: '恢复默认',
+              subtitle: '把所有快捷键重置为出厂设置',
+              trailing: TextButton(
+                onPressed: () => guardVoid(controller.resetKeybindings),
+                child: const Text('全部恢复'),
+              ),
+            ),
+          ],
+        ),
+      ],
     };
 
     return LayoutBuilder(
@@ -451,6 +502,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             children: [
               _SettingsNavigation(
                 selected: _selectedSection,
+                sections: _visibleSections,
                 onSelected: (section) => unawaited(_scrollToSection(section)),
               ),
               const VerticalDivider(width: 1),
@@ -466,13 +518,13 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          for (final section in _SettingsSection.values) ...[
+                          for (final section in _visibleSections) ...[
                             _SettingsSectionBlock(
                               key: _sectionKeys[section],
                               section: section,
                               children: sections[section]!,
                             ),
-                            if (section != _SettingsSection.values.last)
+                            if (section != _visibleSections.last)
                               const _SettingsSectionDivider(),
                           ],
                         ],
@@ -487,10 +539,10 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           children: [
-            for (final section in _SettingsSection.values) ...[
+            for (final section in _visibleSections) ...[
               _SettingsSectionHeader(section: section),
               ..._spacedSettingsGroups(sections[section]!),
-              if (section != _SettingsSection.values.last)
+              if (section != _visibleSections.last)
                 const _SettingsSectionDivider(),
             ],
           ],
@@ -540,7 +592,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
     if (position.extentAfter <= 2) {
       // 到底（容忍 2px 抖动）：末项可能永远到不了锚点行（内容短于视口时），
       // 用 extentAfter≈0 兜底，确保最后一个分类能被选中。
-      next = _SettingsSection.values.last;
+      next = _visibleSections.last;
     } else {
       final scrollBox = _desktopScrollViewKey.currentContext
           ?.findRenderObject();
@@ -550,7 +602,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
       // 锚点取滚动视口顶沿下方 48px：穿过该行的 section 即"当前"。
       // 48 ≈ section header 高度，让 header 完整露出后再计入切组。
       final anchorY = scrollBox.localToGlobal(Offset.zero).dy + 48;
-      for (final section in _SettingsSection.values) {
+      for (final section in _visibleSections) {
         final sectionBox = _sectionKeys[section]?.currentContext
             ?.findRenderObject();
         if (sectionBox is RenderBox &&
@@ -649,9 +701,14 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
 }
 
 final class _SettingsNavigation extends StatelessWidget {
-  const _SettingsNavigation({required this.selected, required this.onSelected});
+  const _SettingsNavigation({
+    required this.selected,
+    required this.sections,
+    required this.onSelected,
+  });
 
   final _SettingsSection selected;
+  final List<_SettingsSection> sections;
   final ValueChanged<_SettingsSection> onSelected;
 
   @override
@@ -665,7 +722,7 @@ final class _SettingsNavigation extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
           children: [
-            for (final section in _SettingsSection.values)
+            for (final section in sections)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Material(
