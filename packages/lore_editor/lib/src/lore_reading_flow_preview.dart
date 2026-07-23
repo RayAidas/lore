@@ -11,6 +11,11 @@ import 'editor_typography.dart';
 /// 行高与编辑器同口径（共用 [EditorStyle] / [EditorTypography]），保证同一章节
 /// 在编辑态与「读者视角」预览态观感一致。
 ///
+/// [scrollController] 与 [header] 供「跨视图滚动同步」使用：外部传入控制器即可
+/// 驱动 / 监听预览的滚动；[header]（如章节标题）作为滚动内容的首个子项随正文
+/// 一起滚动，与编辑器「标题作为滚动视口首个 sliver」结构对齐，使按比例同步时
+/// 标题↔标题、正文↔正文对齐。
+///
 /// 与 [LoreMarkdownPreview] 对位：后者渲染 Markdown，本组件渲染纯文本正文，
 /// 供手机预览等「读者视角」场景使用。
 final class LoreReadingFlowPreview extends StatelessWidget {
@@ -18,6 +23,8 @@ final class LoreReadingFlowPreview extends StatelessWidget {
     required this.data,
     required this.style,
     this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+    this.scrollController,
+    this.header,
     super.key,
   });
 
@@ -30,6 +37,13 @@ final class LoreReadingFlowPreview extends StatelessWidget {
   /// 内容内边距。默认横向 20、纵向 8，比编辑器的 52 更窄，适配手机等窄阅读框。
   final EdgeInsetsGeometry padding;
 
+  /// 滚动控制器。传入后由内部 [SingleChildScrollView] 使用，便于外部做滚动
+  /// 同步（如手机预览 ↔ 编辑器双向同步）。不传则用默认控制器。
+  final ScrollController? scrollController;
+
+  /// 滚动内容的首个子项（如章节标题），随正文一起滚动。可选。
+  final Widget? header;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -41,10 +55,12 @@ final class LoreReadingFlowPreview extends StatelessWidget {
     final indent = style.firstLineIndent ? _fullWidthIndent : '';
 
     return SingleChildScrollView(
+      controller: scrollController,
       padding: padding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          ?header,
           for (var i = 0; i < paragraphs.length; i++) ...[
             if (i > 0) SizedBox(height: paragraphGap),
             Text(ensureIndent(paragraphs[i], indent), style: paragraphStyle),

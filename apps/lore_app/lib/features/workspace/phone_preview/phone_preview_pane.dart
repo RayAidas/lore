@@ -8,6 +8,7 @@ import '../../preferences/preferences_providers.dart';
 import '../workspace_controller.dart';
 import 'phone_device.dart';
 import 'phone_device_frame.dart';
+import 'phone_preview_scroll_sync.dart';
 
 /// 手机预览面板：把当前 tab 的 `.txt` 小说章节以手机阅读器样式呈现。
 ///
@@ -15,6 +16,10 @@ import 'phone_device_frame.dart';
 /// 内容来源是当前活动文档（[WorkspaceController.activeDocument]）：当它是
 /// `.txt` 章节（chapterNumber 非空且非 markdown）时，在手机外框内渲染
 /// 「第N章 副标题」+ 正文阅读流；否则提示空态。编辑器正文变化时实时刷新。
+///
+/// 预览与编辑器**双向滚动同步**：两侧各自有独立滚动视图（内容高度不同），
+/// 按「滚动百分比」互相映射——滚编辑器，预览跟随；滚预览，编辑器跟随。
+/// `_syncing` 标志防止 A→B→A 回环，`hasClients` 守卫避免未挂载时访问 position。
 final class PhonePreviewPane extends ConsumerStatefulWidget {
   const PhonePreviewPane({required this.controller, super.key});
 
@@ -31,7 +36,50 @@ final class _PhonePreviewPaneState extends ConsumerState<PhonePreviewPane> {
   /// 当前选中的屏幕外形（默认灵动岛）。
   PhoneFrameStyle _frameStyle = PhoneFrameStyle.dynamicIsland;
 
+  /// 预览滚动控制器（State 拥有、跨重建复用）。
+  final ScrollController _previewScrollController = ScrollController();
+
+  /// 预览 ↔ 编辑器 双向百分比滚动同步（源控制器随活动文档切换）。
+  late final PhonePreviewScrollSync _scrollSync;
+
   WorkspaceController get controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollSync = PhonePreviewScrollSync(target: _previewScrollController);
+    // 监听控制器：切 tab / 活动文档变化时重绑同步源。
+    controller.addListener(_onWorkspaceChanged);
+    // 首帧后绑定（此时预览滚动视图已挂载）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _ensureBound();
+    });
+  }
+
+  @override
+  void dispose() {
+    controller.removeListener(_onWorkspaceChanged);
+    _scrollSync.dispose();
+    _previewScrollController.dispose();
+    super.dispose();
+  }
+
+  /// 控制器变化（切 tab → 活动文档变）→ 重新绑定同步源。
+  void _onWorkspaceChanged() {
+    if (!mounted) return;
+    _ensureBound();
+  }
+
+  /// 把同步源绑到当前活动文档的编辑器滚动控制器；仅当可预览（.txt 章节）时
+  /// 绑定，否则解绑。
+  void _ensureBound() {
+    final doc = controller.activeDocument;
+    _scrollSync.bind(
+      doc != null && doc.chapterNumber != null && !doc.isMarkdown
+          ? doc.scrollController
+          : null,
+    );
+  }
 
   /// 从应用偏好派生编辑器排版，与 `DocumentPane._resolveEditorStyle` 同口径，
   /// 保证手机预览的字号 / 行高 / 字体 / 段距与编辑态一致。
@@ -116,7 +164,11 @@ final class _PhonePreviewPaneState extends ConsumerState<PhonePreviewPane> {
           child: PhoneDeviceFrame(
             device: _device,
             frameStyle: _frameStyle,
-            child: _PhoneChapterContent(document: document, style: style),
+            child: _PhoneChapterContent(
+              document: document,
+              style: style,
+              scrollController: _previewScrollController,
+            ),
           ),
         ),
       ),
@@ -314,12 +366,20 @@ final class _PhonePreviewDropdown<T> extends StatelessWidget {
   }
 }
 
-/// 手机屏幕内的章节内容：标题（第N章 副标题）+ 正文阅读流。
+/// 手机屏幕内的章节内容：标题（第N章 副标题）+ 正文阅读流，共享一个滚动视图。
+///
+/// 标题作为滚动内容首个子项（经 `LoreReadingFlowPreview.header`）随正文滚动，
+/// 与编辑器结构对齐；`scrollController` 由面板传入，用于双向滚动同步。
 final class _PhoneChapterContent extends StatelessWidget {
-  const _PhoneChapterContent({required this.document, required this.style});
+  const _PhoneChapterContent({
+    required this.document,
+    required this.style,
+    required this.scrollController,
+  });
 
   final OpenDocument document;
   final EditorStyle style;
+  final ScrollController scrollController;
 
   @override
   Widget build(BuildContext context) {
@@ -329,20 +389,15 @@ final class _PhoneChapterContent extends StatelessWidget {
       document.chapterNumber!,
       document.chapterTitleSubtitle,
     );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: EdgeInsets.fromLTRB(20, 14, 20, style.titleBottomSpacing),
-          child: Text(title, style: titleStyle),
-        ),
-        Expanded(
-          child: LoreReadingFlowPreview(
-            data: document.editorController.text,
-            style: style,
-          ),
-        ),
-      ],
+    return LoreReadingFlowPreview(
+      scrollController: scrollController,
+      data: document.editorController.text,
+      style: style,
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+      header: Padding(
+        padding: EdgeInsets.only(bottom: style.titleBottomSpacing),
+        child: Text(title, style: titleStyle),
+      ),
     );
   }
 }
