@@ -15,6 +15,7 @@ export 'src/large_text/lore_large_text_controller.dart';
 export 'src/large_text/lore_large_text_editor.dart';
 export 'src/large_text/pasted_text_normalizer.dart';
 export 'src/lore_markdown_preview.dart';
+export 'src/lore_reading_flow_preview.dart';
 export 'src/lore_text_controller.dart';
 export 'src/lore_text_editor.dart';
 export 'src/document_controller.dart';

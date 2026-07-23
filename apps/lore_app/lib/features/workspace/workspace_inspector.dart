@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'novel_search_controller.dart';
 import 'novel_search_panel.dart';
+import 'phone_preview/phone_preview_pane.dart';
 import 'version_pane.dart';
 import 'writing_statistics_pane.dart';
 import 'workspace_controller.dart';
@@ -22,7 +23,8 @@ enum WorkspaceInspectorTab {
     keyName: 'statistics',
   ),
   version(label: '版本', icon: Icons.history_rounded, keyName: 'version'),
-  search(label: '搜索', icon: Icons.search_outlined, keyName: 'search');
+  search(label: '搜索', icon: Icons.search_outlined, keyName: 'search'),
+  preview(label: '预览', icon: Icons.smartphone_outlined, keyName: 'preview');
 
   const WorkspaceInspectorTab({
     required this.label,
@@ -65,6 +67,9 @@ final class WorkspaceInspector extends StatelessWidget {
         WorkspaceInspectorTab.search => NovelSearchPanel(
           controller: controller,
           onSelectMatch: onSelectSearchMatch ?? (_, _) {},
+        ),
+        WorkspaceInspectorTab.preview => PhonePreviewPane(
+          controller: controller,
         ),
       },
     );
