@@ -15,14 +15,15 @@ final class SharedPreferencesAppPreferencesRepository
   SharedPreferencesAppPreferencesRepository();
 
   static const _key = 'lore.app.preferences';
-  static const _schemaVersion = 7;
+  static const _schemaVersion = 8;
 
-  /// load 时接受的历史 schema 版本：v1–v6 均就地迁移到当前 v7。
+  /// load 时接受的历史 schema 版本：v1–v7 均就地迁移到当前 v8。
   ///
   /// v1→v2 收紧行高默认（按值匹配替换，保留用户自定义）；v2→v3 仅新增网格线
   /// 字段；v3→v4 仅新增高亮调色板字段（缺失取默认）；v4→v5 段间距由绝对像素
-  /// 改为字号倍数（÷字号，保留用户实际看到的比例）。
-  static const _legacySchemaVersions = {1, 2, 3, 4, 5, 6};
+  /// 改为字号倍数（÷字号，保留用户实际看到的比例）；v7→v8 新增快捷键映射
+  /// 字段（缺失整体取默认，未知动作名前向兼容跳过）。
+  static const _legacySchemaVersions = {1, 2, 3, 4, 5, 6, 7};
   static const _pixelParagraphSpacingSchemaVersions = {1, 2, 3, 4};
 
   /// v1 行高默认值：迁移时识别「仍停留在旧默认」的行高，替换为当前默认。
@@ -45,7 +46,7 @@ final class SharedPreferencesAppPreferencesRepository
       if (value is! Map<String, Object?>) {
         return null;
       }
-      // 接受 v1–v4（旧版，就地迁移）或 v5（当前）；其它版本号视为损坏。
+      // 接受 v1–v7（旧版，就地迁移）或 v8（当前）；其它版本号视为损坏。
       final storedVersion = value['schemaVersion'];
       final migratingFromV1 = storedVersion == 1;
       final migratingFromLegacy =
@@ -147,6 +148,9 @@ final class SharedPreferencesAppPreferencesRepository
                 .clamp(0.0, 0.8)
                 .toDouble()
           : AppPreferences.defaults().backgroundImageDimness;
+      // 快捷键映射是 v8 新增字段。v7 及更早的 blob 里没有——缺失整体取默认；
+      // 存在则逐条解析：未知动作名（前向兼容）与损坏组合（留作未设置）跳过。
+      final keybindings = _keybindingsFromJson(value['keybindings']);
       // v1 → v2 迁移（行高）：仅当行高仍停留在 v1 默认 1.5 时替换为当前默认
       // （视觉瘦身）；用户自定义原样保留。按值匹配使迁移对同一输入幂等，不会
       // 每次冷启动把自定义抹回默认。
@@ -178,6 +182,7 @@ final class SharedPreferencesAppPreferencesRepository
         editorFontFamily: editorFontFamily,
         gridLineMode: gridLineMode,
         highlightPalette: highlightPalette,
+        keybindings: keybindings,
         backgroundMode: backgroundMode,
         backgroundImagePaths: backgroundImagePaths,
         backgroundImagePath: selectedBackgroundImagePath,
@@ -217,6 +222,7 @@ final class SharedPreferencesAppPreferencesRepository
       'editorFontFamily': preferences.editorFontFamily.name,
       'gridLineMode': preferences.gridLineMode.name,
       'highlightPalette': preferences.highlightPalette,
+      'keybindings': _keybindingsToJson(preferences.keybindings),
       'backgroundMode': preferences.backgroundMode.name,
       'backgroundImagePaths': preferences.backgroundImagePaths,
       'backgroundImagePath': preferences.backgroundImagePath,
@@ -284,5 +290,67 @@ final class SharedPreferencesAppPreferencesRepository
       'dashed' => GridLineMode.dashed,
       _ => null,
     };
+  }
+
+  Map<String, Object?> _keybindingsToJson(Keybindings keybindings) {
+    final result = <String, Object?>{};
+    for (final entry in keybindings.bindings.entries) {
+      result[entry.key.name] = _keyCombinationToJson(entry.value);
+    }
+    return result;
+  }
+
+  Map<String, Object> _keyCombinationToJson(KeyCombination combo) => {
+    'key': combo.logicalKeyId,
+    'meta': combo.meta,
+    'control': combo.control,
+    'alt': combo.alt,
+    'shift': combo.shift,
+  };
+
+  Keybindings _keybindingsFromJson(Object? value) {
+    if (value is! Map<String, Object?>) {
+      // v7 及更早的 blob 无此字段 → 整体取默认。
+      return Keybindings.defaults;
+    }
+    final result = <ShortcutAction, KeyCombination>{};
+    value.forEach((name, raw) {
+      final action = _shortcutActionFromName(name);
+      if (action == null) {
+        return; // 未知动作名：前向兼容跳过（新版写入、旧版读取互不崩溃）。
+      }
+      final combo = _keyCombinationFromJson(raw);
+      if (combo == null) {
+        return; // 损坏的组合：留作未设置，由用户重新绑定。
+      }
+      result[action] = combo;
+    });
+    return Keybindings(result);
+  }
+
+  ShortcutAction? _shortcutActionFromName(String name) {
+    for (final action in ShortcutAction.values) {
+      if (action.name == name) {
+        return action;
+      }
+    }
+    return null;
+  }
+
+  KeyCombination? _keyCombinationFromJson(Object? value) {
+    if (value is! Map<String, Object?>) {
+      return null;
+    }
+    final key = value['key'];
+    if (key is! int) {
+      return null;
+    }
+    return KeyCombination(
+      logicalKeyId: key,
+      meta: value['meta'] is bool ? value['meta']! as bool : false,
+      control: value['control'] is bool ? value['control']! as bool : false,
+      alt: value['alt'] is bool ? value['alt']! as bool : false,
+      shift: value['shift'] is bool ? value['shift']! as bool : false,
+    );
   }
 }

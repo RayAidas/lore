@@ -329,7 +329,7 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 7);
+      expect(loaded!.schemaVersion, 8);
       expect(loaded.gridLineMode, GridLineMode.none);
       expect(loaded.editorLineHeight, 1.8);
       expect(loaded.paragraphSpacing, 1.25);
@@ -363,7 +363,7 @@ void main() {
       });
       final loaded = await repository.load();
       expect(loaded, isNotNull);
-      expect(loaded!.schemaVersion, 7);
+      expect(loaded!.schemaVersion, 8);
       expect(loaded.highlightPalette, HighlightPalette.defaults);
       expect(loaded.gridLineMode, GridLineMode.dashed);
     },
@@ -401,7 +401,7 @@ void main() {
       await repository.save(first);
       final reloaded = await repository.load();
       expect(reloaded, isNotNull);
-      expect(reloaded!.schemaVersion, 7);
+      expect(reloaded!.schemaVersion, 8);
       // 仍是 0.8，没有被二次除以字号。
       expect(reloaded.paragraphSpacing, 0.8);
     },
@@ -426,7 +426,7 @@ void main() {
     final loaded = await repository.load();
 
     expect(loaded, isNotNull);
-    expect(loaded!.schemaVersion, 7);
+    expect(loaded!.schemaVersion, 8);
     expect(loaded.paragraphSpacing, 1.2);
     expect(loaded.backgroundMode, AppBackgroundMode.theme);
     expect(loaded.backgroundImagePath, isNull);
@@ -453,7 +453,7 @@ void main() {
     final loaded = await repository.load();
 
     expect(loaded, isNotNull);
-    expect(loaded!.schemaVersion, 7);
+    expect(loaded!.schemaVersion, 8);
     expect(loaded.backgroundMode, AppBackgroundMode.image);
     expect(loaded.backgroundImagePaths, ['/managed/legacy.jpg']);
     expect(loaded.backgroundImagePath, '/managed/legacy.jpg');
@@ -538,6 +538,108 @@ void main() {
       final loaded = await repository.load();
       expect(loaded, isNotNull);
       expect(loaded!.highlightPalette, HighlightPalette.defaults);
+    },
+  );
+
+  test('round-trips custom keybindings through save and load', () async {
+    final original = AppPreferences.defaults().copyWith(
+      keybindings: Keybindings.defaults.withBinding(
+        ShortcutAction.save,
+        const KeyCombination(logicalKeyId: 0x51, meta: true), // keyQ
+      ),
+    );
+    await repository.save(original);
+    final loaded = await repository.load();
+    expect(loaded, isNotNull);
+    expect(
+      loaded!.keybindings.bindings[ShortcutAction.save],
+      const KeyCombination(logicalKeyId: 0x51, meta: true),
+    );
+    // 未改动的动作保持默认。
+    expect(
+      loaded.keybindings.bindings[ShortcutAction.find],
+      Keybindings.defaults.bindings[ShortcutAction.find],
+    );
+  });
+
+  test('round-trips an unbound action as unset', () async {
+    final original = AppPreferences.defaults().copyWith(
+      keybindings: Keybindings.defaults.withoutBinding(ShortcutAction.save),
+    );
+    await repository.save(original);
+    final loaded = await repository.load();
+    expect(loaded, isNotNull);
+    expect(
+      loaded!.keybindings.bindings.containsKey(ShortcutAction.save),
+      isFalse,
+    );
+  });
+
+  test(
+    'loads v7 blob missing keybindings as defaults and migrates to current schema',
+    () async {
+      // v7 blob（升级前）没有 keybindings 字段：迁移到当前版本，快捷键整体回落
+      // 默认（与改造前硬编码一致），其余偏好原样保留。
+      SharedPreferences.setMockInitialValues({
+        'lore.app.preferences': jsonEncode({
+          'schemaVersion': 7,
+          'themeMode': 'sepia',
+          'defaultChapterFormat': 'text',
+          'editorLineHeight': 1.8,
+          'editorFontSize': 16,
+          'editorContentWidth': 900,
+          'dailyWordGoal': 1000,
+          'findMatchCase': false,
+          'findUseRegex': false,
+          'paragraphSpacing': 1.2,
+          'editorFontFamily': 'serif',
+          'gridLineMode': 'dashed',
+          'highlightPalette': HighlightPalette.defaults,
+          'backgroundMode': 'theme',
+        }),
+      });
+      final loaded = await repository.load();
+      expect(loaded, isNotNull);
+      expect(loaded!.schemaVersion, 8);
+      expect(loaded.keybindings.bindings, Keybindings.defaults.bindings);
+      expect(loaded.editorFontFamily, AppFontFamily.serif);
+    },
+  );
+
+  test(
+    'keybindings tolerate unknown action names and malformed combos',
+    () async {
+      // 前向兼容：未知动作名 'exportPdf' 跳过；find 组合缺 key 视为损坏 → 留作
+      // 未设置；save 组合合法 → 保留。结果只含合法且已知的那一条。
+      SharedPreferences.setMockInitialValues({
+        'lore.app.preferences': jsonEncode({
+          'schemaVersion': 8,
+          'themeMode': 'system',
+          'defaultChapterFormat': 'text',
+          'editorLineHeight': 1.45,
+          'editorFontSize': 18,
+          'editorContentWidth': 900,
+          'dailyWordGoal': 2000,
+          'findMatchCase': false,
+          'findUseRegex': false,
+          'keybindings': {
+            'save': {'key': 0x51, 'meta': true},
+            'find': {'meta': true}, // 缺 key → 损坏
+            'exportPdf': {'key': 0x50, 'meta': true}, // 未知动作
+          },
+        }),
+      });
+      final loaded = await repository.load();
+      expect(loaded, isNotNull);
+      expect(
+        loaded!.keybindings.bindings[ShortcutAction.save],
+        const KeyCombination(logicalKeyId: 0x51, meta: true),
+      );
+      expect(
+        loaded.keybindings.bindings.containsKey(ShortcutAction.find),
+        isFalse,
+      );
+      expect(loaded.keybindings.bindings, hasLength(1));
     },
   );
 }
