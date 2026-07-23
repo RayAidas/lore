@@ -61,7 +61,13 @@ final class WorkspaceHistoryStore {
   final String? Function(String) _chapterNodeIdForPath;
 
   /// 历史快照变更量阈值（自上次快照后的近似净变更字符数）。
-  static const int historyChangeThreshold = 800;
+  static const int historyChangeThreshold = 400;
+
+  /// 定时 autoCheckpoint 安全网快照的间隔（编辑活动期间每此时长留一条）。
+  ///
+  /// 取 2 分钟：对齐 Obsidian File Recovery 插件默认快照间隔，在「回溯粒度」与
+  /// 「版本面板信噪比 / 落盘开销」间取的折中，可按写作反馈再调。
+  static const Duration _autoCheckpointInterval = Duration(minutes: 2);
 
   /// 当前 diff 对比目标（点版本列表项时设置，退出 diff 时清空）。
   HistoryDiffTarget? _diffTarget;
@@ -125,6 +131,37 @@ final class WorkspaceHistoryStore {
       unawaited(history.prune(session.access, identity));
     } catch (_) {
       // 历史记录是 best-effort，失败不影响主流程。
+    }
+  }
+
+  /// 编辑活动期间每 [_autoCheckpointInterval] 留一条 [HistoryTrigger.autoCheckpoint]
+  /// 安全网快照，补时间维度的回溯覆盖（与变更量阈值正交）。
+  ///
+  /// 幂等启动 periodic 定时器：首次编辑活动时启动，之后不重复；内容无变化时由
+  /// [_recordHistory] 的哈希去重自动跳过（零垃圾）。定时器挂在文档上，随
+  /// [OpenDocument.dispose] 取消，不泄漏。持续写作时保证定期落点；停笔后定时器
+  /// 仍在，但去重会让无变化的落盘变 no-op。
+  ///
+  /// 已知限制：切换走（非关闭）的后台文档定时器仍继续跑，靠去重兜底；编辑过的
+  /// 后台文档较多时会有累积的 manifest 读 + hash 开销，留待「失活暂停」优化。
+  void scheduleAutoCheckpoint(OpenDocument document) {
+    if (historyService == null) return;
+    document.historyCheckpointTimer ??= Timer.periodic(
+      _autoCheckpointInterval,
+      (_) => unawaited(_checkpoint(document)),
+    );
+  }
+
+  /// 定时落点：取与 [onDocumentSaved]/[onDocumentClosing] 同源的
+  /// `document.snapshot.text`（磁盘全文，章节文档含标题行），保证三类自动快照
+  /// 哈希去重基线一致、不产生冗余。包 try/catch 与 [_recordHistory] 的 best-effort
+  /// 风格对齐：定时器回调可能跨 [OpenDocument.dispose] 执行，避免任何异常外溢。
+  Future<void> _checkpoint(OpenDocument document) async {
+    try {
+      final text = document.snapshot.text;
+      await _recordHistory(document, text, HistoryTrigger.autoCheckpoint);
+    } catch (_) {
+      // best-effort：定时安全网快照失败不影响主流程。
     }
   }
 

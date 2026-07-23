@@ -40,6 +40,7 @@ final class WorkspaceTabsStore {
     this.onChapterSaved,
     this.onDocumentSaved,
     this.onDocumentClosing,
+    this.onDocumentActivity,
   }) : _notify = notify,
        _novelIdForPath = novelIdForPath,
        _bumpTreeRevision = bumpTreeRevision,
@@ -67,6 +68,9 @@ final class WorkspaceTabsStore {
 
   /// 文档关闭前回调控制器，为当前内容留一个 checkpoint 快照。
   final Future<void> Function(OpenDocument document)? onDocumentClosing;
+
+  /// 文档发生编辑活动时回调控制器，调度定时 autoCheckpoint 安全网快照。
+  final void Function(OpenDocument document)? onDocumentActivity;
 
   final void Function() _notify;
   final NovelId? Function(String) _novelIdForPath;
@@ -785,6 +789,7 @@ final class WorkspaceTabsStore {
       if (controller.editVersion != observedVersion) {
         observedVersion = controller.editVersion;
         _scheduleStatisticsUpdate(document);
+        onDocumentActivity?.call(document);
         if (document.saveStatus != DocumentSaveStatus.conflict) {
           document.failure = null;
           document.saveStatus = controller.hasUnsavedChanges

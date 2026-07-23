@@ -58,6 +58,7 @@ final class WorkspaceController extends ChangeNotifier {
         unawaited(_refreshChapterCharacterCount(path, count)),
     onDocumentSaved: _historyStore.onDocumentSaved,
     onDocumentClosing: _historyStore.onDocumentClosing,
+    onDocumentActivity: _historyStore.scheduleAutoCheckpoint,
   );
 
   late final WorkspaceHistoryStore _historyStore = WorkspaceHistoryStore(

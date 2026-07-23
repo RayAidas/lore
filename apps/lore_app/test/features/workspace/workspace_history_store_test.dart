@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_app/features/workspace/workspace_document.dart';
@@ -35,10 +36,11 @@ HistorySnapshot _snapshot(String id) => HistorySnapshot(
 /// controller 随 teardown 释放。
 OpenDocument _document({
   required String text,
+  String? editorText,
   String? lastHistorySnapshotText,
   String path = '散文件.txt',
 }) {
-  final editor = LoreTextController(text: text);
+  final editor = LoreTextController(text: editorText ?? text);
   final scroll = ScrollController();
   addTearDown(editor.dispose);
   addTearDown(scroll.dispose);
@@ -94,7 +96,7 @@ void main() {
     () async {
       final fake = _FakeHistoryService();
       final store = _store(fake);
-      // historyChangeMagnitude：公共前缀 50、尾部仅 +1 → magnitude = 1 < 800。
+      // historyChangeMagnitude：公共前缀 50、尾部仅 +1 → magnitude = 1 < 400。
       final doc = _document(
         text: 'a' * 50 + 'b',
         lastHistorySnapshotText: 'a' * 50,
@@ -112,7 +114,7 @@ void main() {
     () async {
       final fake = _FakeHistoryService();
       final store = _store(fake);
-      // historyChangeMagnitude：prefix=1、suffix=0 → magnitude = 0 + 900 = 900 ≥ 800。
+      // historyChangeMagnitude：prefix=1、suffix=0 → magnitude = 0 + 900 = 900 ≥ 400。
       final newText = 'a${'b' * 900}';
       final doc = _document(text: newText, lastHistorySnapshotText: 'a');
 
@@ -125,6 +127,21 @@ void main() {
       expect(doc.lastHistorySnapshotText, newText);
     },
   );
+
+  // 阈值边界守卫：若有人把阈值改大，下面的「恰好达到阈值(400)」会失败。
+  test('onDocumentSaved 在变更量恰好达到阈值(400)时记录', () async {
+    final fake = _FakeHistoryService();
+    final store = _store(fake);
+    // prefix=1('a')、suffix=0 → magnitude = 0 + 400 = 400，恰达阈值。
+    final newText = 'a${'b' * 400}';
+    final doc = _document(text: newText, lastHistorySnapshotText: 'a');
+
+    store.onDocumentSaved(doc);
+    await _flush();
+
+    expect(fake.recordAutoCalls, hasLength(1));
+    expect(fake.recordAutoCalls.single.trigger, HistoryTrigger.autoThreshold);
+  });
 
   // --- onDocumentClosing checkpoint ---
 
@@ -150,6 +167,85 @@ void main() {
 
     expect(fake.recordAutoCalls, hasLength(1));
     expect(fake.recordAutoCalls.single.trigger, HistoryTrigger.autoCheckpoint);
+  });
+
+  // --- scheduleAutoCheckpoint 定时安全网 ---
+
+  test('scheduleAutoCheckpoint 每 2 分钟留一条 autoCheckpoint（取磁盘快照文本）', () {
+    final fake = _FakeHistoryService();
+    final store = _store(fake);
+    // editor 持正文、snapshot 持磁盘全文（模拟章节文档：编辑器去标题行、磁盘含
+    // 标题行）。_checkpoint 应取 snapshot.text，与 onDocumentSaved 同源，保证
+    // 哈希去重基线一致、不产生冗余快照。
+    final doc = _document(text: '第1章 标题\n正文', editorText: '正文');
+    FakeAsync().run((async) {
+      store.scheduleAutoCheckpoint(doc);
+      // 启动后不立即记录。
+      expect(fake.recordAutoCalls, isEmpty);
+
+      async.elapse(Duration(minutes: 2));
+      expect(fake.recordAutoCalls, hasLength(1));
+      expect(
+        fake.recordAutoCalls.single.trigger,
+        HistoryTrigger.autoCheckpoint,
+      );
+      // 取的是磁盘全文（snapshot.text），不是编辑器正文。
+      expect(fake.recordAutoCalls.single.text, '第1章 标题\n正文');
+
+      // 持续写作：再过 2 分钟又一条。
+      async.elapse(Duration(minutes: 2));
+      expect(fake.recordAutoCalls, hasLength(2));
+    });
+  });
+
+  test('scheduleAutoCheckpoint 幂等：重复调用不重启定时器', () {
+    final fake = _FakeHistoryService();
+    final store = _store(fake);
+    final doc = _document(text: '内容');
+    FakeAsync().run((async) {
+      store.scheduleAutoCheckpoint(doc);
+      store.scheduleAutoCheckpoint(doc);
+      store.scheduleAutoCheckpoint(doc);
+
+      async.elapse(Duration(minutes: 2));
+      // 重复调用不产生多个并发定时器，2 分钟只触发一次。
+      expect(fake.recordAutoCalls, hasLength(1));
+    });
+  });
+
+  test('scheduleAutoCheckpoint 无 historyService 时不启动定时器', () {
+    final store = WorkspaceHistoryStore(
+      session: _session,
+      historyService: null,
+      notify: () {},
+      isOpenDocument: (_) => true,
+      openDocumentByPath: (_) => null,
+      reloadDocumentFromDisk: (_) async {},
+      chapterNodeIdForPath: (_) => null,
+    );
+    final doc = _document(text: '内容');
+    FakeAsync().run((async) {
+      store.scheduleAutoCheckpoint(doc);
+      expect(doc.historyCheckpointTimer, isNull);
+      async.elapse(Duration(minutes: 5));
+    });
+  });
+
+  test('定时器取消后不再触发（模拟文档 dispose 清理）', () {
+    final fake = _FakeHistoryService();
+    final store = _store(fake);
+    final doc = _document(text: '内容');
+    FakeAsync().run((async) {
+      store.scheduleAutoCheckpoint(doc);
+      async.elapse(Duration(minutes: 2));
+      expect(fake.recordAutoCalls, hasLength(1));
+
+      // dispose 会 cancel historyCheckpointTimer；这里直接 cancel 模拟，避免与
+      // teardown 的 controller dispose 冲突。
+      doc.historyCheckpointTimer?.cancel();
+      async.elapse(Duration(minutes: 10));
+      expect(fake.recordAutoCalls, hasLength(1));
+    });
   });
 
   // --- showHistoryDiff 并发序号丢弃 ---
