@@ -3,6 +3,7 @@ import 'dart:ui' show PointerDeviceKind;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart' show kSecondaryMouseButton;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_application/lore_application.dart';
@@ -135,6 +136,72 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     controller.dispose();
   });
+
+  testWidgets(
+    'Cmd+Shift+Enter toggles fullscreen via the configured shortcut',
+    (tester) async {
+      // 守护「领域默认键码 → activatorFor → SingleActivator → 真实按键事件」整条
+      // 链路：曾因 enter 默认写成 0x0d（≠ 真实 0x10000000d）导致此快捷键静默失效。
+      const access = LibraryAccess(
+        token: '/tmp/library',
+        displayPath: '/tmp/library',
+        isPending: false,
+      );
+      final metadata = LibraryMetadata(
+        schemaVersion: 1,
+        id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+        createdAt: DateTime.utc(2026, 7, 17),
+        updatedAt: DateTime.utc(2026, 7, 17),
+      );
+      final session = LibrarySession(access: access, metadata: metadata);
+      final repository = _FakeWorkspaceRepository();
+      final controller = WorkspaceController(
+        session: session,
+        service: LibraryWorkspaceService(
+          treeRepository: repository,
+          documentRepository: repository,
+          sessionRepository: _MemoryWorkspaceSessionRepository(),
+        ),
+      );
+      await controller.initialize();
+      await controller.openPath('第一章.md');
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            workspaceControllerProvider(
+              session,
+            ).overrideWith((ref) => controller),
+          ],
+          child: MaterialApp(
+            home: LibraryWorkspacePage(
+              session: session,
+              onSelectLibrary: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Cmd+Shift+Enter → 进入全屏（AppBar 消失、出现「退出全屏」入口）。
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.byTooltip('退出全屏 (Esc)'), findsOneWidget);
+
+      // 释放修饰键后，裸 Esc → 退出全屏（硬编码的 Esc 绑定）。
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(find.byTooltip('全屏 (Cmd+Shift+Enter)'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
 
   testWidgets('fullscreen toggle preserves scroll position', (tester) async {
     // 构造可滚动的长文档：DocumentPane 全屏切换不应让编辑器重挂载、滚动归零。
