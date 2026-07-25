@@ -1054,6 +1054,60 @@ void main() {
     expect(treeRepo.lastCharacterCounts![ContentId('chapter-1')], isNotNull);
   });
 
+  testWidgets('clearing all highlights removes the persisted record', (
+    tester,
+  ) async {
+    // 回归:右键菜单点"无颜色"取消全部高亮后,磁盘记录必须被清除;否则重启后
+    // _loadHighlightsIntoDocument 会从 highlights.json 读回旧高亮,颜色"复活"。
+    final snapshot = _chapterNovelSnapshot();
+    final novelRepo = _FakeNovelRepository(snapshot);
+    final treeRepo = _FakeContentTreeRepository(snapshot);
+    final repository = _MemoryWorkspaceRepository()..diskText = '第1章\n正文段';
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+        highlightRepository: repository,
+      ),
+      novelStructureService: NovelStructureService(
+        novelRepository: novelRepo,
+        contentTreeRepository: treeRepo,
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.openPath('我的小说/正文/第1章.txt');
+    final document = controller.activeDocument!;
+    final largeController =
+        document.editorController as LoreLargeTextController;
+    final bodyLength = largeController.text.length;
+
+    // 上色并保存:磁盘落一条高亮记录。
+    largeController.addHighlight(0, bodyLength, 0xFFFFD54F);
+    expect(await controller.saveDocument(document), isTrue);
+    expect(
+      repository.highlightsByDocument['我的小说/正文/第1章.txt']?.highlights,
+      hasLength(1),
+    );
+
+    // 取消全部(等价右键菜单点"无颜色"色块)并保存。
+    largeController.removeHighlightsIntersecting(0, bodyLength);
+    expect(largeController.highlights, isEmpty);
+    expect(await controller.saveDocument(document), isTrue);
+
+    // 修复后:该文档的磁盘高亮记录被清除,不再残留可"复活"的旧高亮。
+    expect(
+      repository.highlightsByDocument.containsKey('我的小说/正文/第1章.txt'),
+      isFalse,
+    );
+    // 让自动保存链路安排的 session/statistics 定时器自然落地,避免遗留 pending timer。
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pump();
+  });
+
   // ---- Tab 批量关闭（右键菜单「关闭其他/关闭右侧/关闭全部」的底层支持）----
 
   testWidgets('closeOthers closes every tab except the kept one', (
@@ -1487,7 +1541,7 @@ void main() {
 }
 
 final class _MemoryWorkspaceRepository
-    implements LibraryTreeRepository, DocumentRepository {
+    implements LibraryTreeRepository, DocumentRepository, HighlightRepository {
   _MemoryWorkspaceRepository({this.emitAtomicReplacementEventsOnSave = false});
 
   final bool emitAtomicReplacementEventsOnSave;
@@ -1499,11 +1553,59 @@ final class _MemoryWorkspaceRepository
   int revision = 1;
   bool sourceMissing = false;
 
+  /// 内存高亮存储：documentId → 集合。模拟 `<novel>/.lore/highlights.json` 按
+  /// 文档索引的落盘语义（deleteHighlights 移除整个 documentId 条目）。
+  final Map<String, HighlightCollection> highlightsByDocument = {};
+
   /// 若非 null，下一次 [saveDocument] 会等待此 Completer 完成后再继续，
   /// 便于测试在保存进行中插入编辑（复现副标题保存竞态）。仅消费一次。
   Completer<void>? saveGate;
 
   Future<void> dispose() => changes.close();
+
+  // ---- HighlightRepository（内存实现，测试用） ----
+
+  @override
+  Future<HighlightCollection?> loadHighlights(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required String documentId,
+  }) async {
+    return highlightsByDocument[documentId];
+  }
+
+  @override
+  Future<void> saveHighlights(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required String documentId,
+    required HighlightCollection collection,
+  }) async {
+    highlightsByDocument[documentId] = collection;
+  }
+
+  @override
+  Future<void> deleteHighlights(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required String documentId,
+  }) async {
+    highlightsByDocument.remove(documentId);
+  }
+
+  @override
+  Future<void> moveHighlights(
+    LibraryAccess access, {
+    required NovelId novelId,
+    required String oldDocumentId,
+    required String newDocumentId,
+  }) async {
+    if (oldDocumentId == newDocumentId) return;
+    final existing = highlightsByDocument.remove(oldDocumentId);
+    if (existing != null) {
+      highlightsByDocument[newDocumentId] = existing;
+    }
+  }
 
   @override
   Future<LibraryEntry> createDirectory(

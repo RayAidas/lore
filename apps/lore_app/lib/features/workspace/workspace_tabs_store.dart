@@ -858,7 +858,22 @@ final class WorkspaceTabsStore {
     final novelId = _novelIdForPath(document.relativePath);
     if (novelId == null) return;
     final highlights = controller.highlights;
-    if (highlights.isEmpty) return;
+    if (highlights.isEmpty) {
+      // 取消全部高亮后必须清掉磁盘记录:否则 highlights.json 里仍留旧高亮,
+      // 重启后 _loadHighlightsIntoDocument 会原样读回,被取消的颜色"复活"。
+      // deleteHighlights 在文档无记录或文件不存在时是空操作,安全。与下方
+      // saveHighlights 同步上报失败,不阻塞正文保存结果。
+      try {
+        await service.deleteHighlights(
+          session,
+          novelId: novelId,
+          documentId: document.relativePath,
+        );
+      } on LibraryOperationException catch (error) {
+        _reportFailure(error.failure);
+      }
+      return;
+    }
     final text = controller.text;
     final length = text.length;
     final refreshed = [
