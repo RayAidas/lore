@@ -1108,6 +1108,64 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('reconcile losing all highlights clears the stale record', (
+    tester,
+  ) async {
+    // 文档被外部修改后,若 reconcile 把全部旧高亮判为 lost,磁盘仍留旧记录;
+    // 修复前 _loadHighlightsIntoDocument 的 isNotEmpty 守卫阻止清理,下次打开
+    // 还会反复 reconcile 同一批陈旧高亮(内存与磁盘间"复活")。修复后无条件
+    // _persistHighlights:located 为空 → deleteHighlights 清盘。
+    final snapshot = _chapterNovelSnapshot();
+    final novelRepo = _FakeNovelRepository(snapshot);
+    final treeRepo = _FakeContentTreeRepository(snapshot);
+    final repository = _MemoryWorkspaceRepository();
+    // 新磁盘内容与旧高亮锚点毫无关联 → reconcile 必然全部 lost。
+    repository.diskText = '全新的正文内容';
+    repository.revision = 2;
+    // 预置旧高亮记录:基于旧 revision、旧段落指纹;锚点 '旧段' 在新文本中不存在。
+    repository.highlightsByDocument['我的小说/正文/第1章.txt'] = HighlightCollection(
+      documentRevision: 'revision-1',
+      paragraphDigests: computeParagraphProfile('旧段落正文').digests,
+      highlights: const [
+        Highlight(
+          id: 'h0',
+          start: 0,
+          end: 2,
+          colorArgb: 0xFFFFD54F,
+          anchorText: '旧段',
+        ),
+      ],
+    );
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+        highlightRepository: repository,
+      ),
+      novelStructureService: NovelStructureService(
+        novelRepository: novelRepo,
+        contentTreeRepository: treeRepo,
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.openPath('我的小说/正文/第1章.txt');
+
+    // reconcile 全部 lost → 内存高亮为空,磁盘陈旧记录被清除。
+    final largeController =
+        controller.activeDocument!.editorController as LoreLargeTextController;
+    expect(largeController.highlights, isEmpty);
+    expect(
+      repository.highlightsByDocument.containsKey('我的小说/正文/第1章.txt'),
+      isFalse,
+    );
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pump();
+  });
+
   // ---- Tab 批量关闭（右键菜单「关闭其他/关闭右侧/关闭全部」的底层支持）----
 
   testWidgets('closeOthers closes every tab except the kept one', (

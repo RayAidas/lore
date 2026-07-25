@@ -843,10 +843,10 @@ final class WorkspaceTabsStore {
     );
     controller.setHighlights(result.located, markChanged: false);
     document.notifyChanged();
-    // 自愈:把复原后(已重定位)的高亮按新 revision + 新段落指纹写回。
-    if (result.located.isNotEmpty) {
-      await _persistHighlights(document);
-    }
+    // 自愈:把复原结果按新 revision + 新段落指纹写回。located 为空(全部 lost)
+    // 时,_persistHighlights 会清掉磁盘陈旧记录,避免下次打开反复 reconcile 同
+    // 一批失效高亮(在内存与磁盘间反复"复活")。
+    await _persistHighlights(document);
   }
 
   /// 把当前高亮落盘:刷新 anchorText 为最新文本、用最新文档 revision 与段落
