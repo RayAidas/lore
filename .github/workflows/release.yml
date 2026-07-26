@@ -34,6 +34,7 @@ jobs:
         run: bash ./scripts/test.sh
 
       - name: 构建 macOS（release，未签名 / ad-hoc）
+        working-directory: apps/lore_app
         run: flutter build macos --release
 
       - name: 打包 .app 为 zip（保留 bundle 结构）
