@@ -1,0 +1,90 @@
+name: release
+
+# 触发方式：
+# 1) 推送 v* 形式的 tag —— 自动构建并发布 GitHub Release（正式发版用）
+# 2) workflow_dispatch —— 手动触发，只构建并上传 artifact，不发布 Release（用于测试流水线）
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# softprops/action-gh-release 创建 Release 需要 contents: write
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.6"
+          cache: true
+
+      - name: Flutter 版本
+        run: flutter --version
+
+      - name: 拉取依赖
+        run: flutter pub get
+
+      - name: analyze + 测试（发版前质量门）
+        run: bash ./scripts/test.sh
+
+      - name: 构建 macOS（release，未签名 / ad-hoc）
+        run: flutter build macos --release
+
+      - name: 打包 .app 为 zip（保留 bundle 结构）
+        run: |
+          set -euo pipefail
+          PROD_DIR="apps/lore_app/build/macos/Build/Products/Release"
+          APP=$(find "$PROD_DIR" -maxdepth 1 -name "*.app" | head -1)
+          if [ -z "$APP" ]; then echo "未找到 .app 产物"; exit 1; fi
+          echo "Found: $APP"
+          VERSION="${GITHUB_REF_NAME#v}"   # v0.1.0 -> 0.1.0；手动触发时为 main
+          OUT="Lore-${VERSION}-macos-unsigned.zip"
+          ditto -c -k --keepParent "$APP" "$PROD_DIR/$OUT"
+          echo "OUTPUT_PATH=$PROD_DIR/$OUT" >> "$GITHUB_ENV"
+          echo "OUTPUT_NAME=$OUT" >> "$GITHUB_ENV"
+
+      - name: 上传构建产物（手动触发时也能从这里下载）
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OUTPUT_NAME }}
+          path: ${{ env.OUTPUT_PATH }}
+
+      - name: 创建 GitHub Release（仅 tag 推送时）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.OUTPUT_PATH }}
+          name: ${{ github.ref_name }}
+          prerelease: true                  # 未签名版本默认标记为预发布，正式版可改 false
+          generate_release_notes: true      # 自动追加 GitHub 生成的提交/PR 摘要
+          body: |
+            ## macOS 版本（未签名）
+
+            > 此版本未做 Apple 代码签名与公证（暂未购买 Apple Developer 账号）。双击打开会提示「已损坏」或「无法验证开发者身份」——这是 Gatekeeper 的默认拦截，**App 本身完好**。
+
+            ### 解决办法（任选其一）
+
+            **命令行（推荐，一劳永逸）：**
+            ```bash
+            xattr -cr /Applications/lore_app.app
+            # 把路径换成你实际放置 App 的位置
+            ```
+
+            **右键打开（每次确认）：**
+            在 Finder 里右键 `lore_app.app` →「打开」→「仍要打开」。
+
+            ### 安装步骤
+
+            1. 下载下方 `Lore-*-macos-unsigned.zip`
+            2. 解压，把 `lore_app.app` 拖进「应用程序」
+            3. 执行上面的 `xattr -cr /Applications/lore_app.app`
+
+            ---
+
+            ### 本次更新
