@@ -31,8 +31,8 @@ git push && git push --tags
 1. `macos-latest` runner 上 checkout + 装 Flutter 3.44.6
 2. 跑 `./scripts/test.sh`（analyze + 全部测试）作为质量门
 3. `flutter build macos --release` 构建（ad-hoc 签名，无需 Apple 账号）
-4. 用 `ditto` 把 `.app` 打成 `Lore-<版本>-macos-unsigned.zip`
-5. 用 `softprops/action-gh-release` 创建 Release 并挂上 zip + 自动生成更新摘要
+4. 用 `hdiutil` 把 `.app` 打成 `Lore-<版本>-macos-unsigned.dmg`（内含 `.app` + `/Applications` 软链，用户挂载后拖拽安装）
+5. 用 `softprops/action-gh-release` 创建 Release 并挂上 dmg + 自动生成更新摘要
 
 完成后，Release 出现在 <https://github.com/lovezhangchuangxin/lore/releases>。
 
@@ -48,7 +48,7 @@ Actions 页 → 选 `release` workflow → Run workflow（默认分支）。这�
 
 - 用户双击会看到「已损坏」或「无法验证开发者身份」
 - 这只是 Gatekeeper 拦截，App 本身完好
-- 解决：`xattr -cr /path/to/lore_app.app`（Release 正文里已写明）
+- 解决：`xattr -cr /path/to/Lore.app`（Release 正文里已写明）
 
 工程里 `macos/Runner.xcodeproj` 的 `CODE_SIGN_IDENTITY = "-"` 就是 ad-hoc 签名设置，CI 因此无需 Apple 凭证即可构建成功。
 
@@ -56,7 +56,7 @@ Actions 页 → 选 `release` workflow → Run workflow（默认分支）。这�
 
 | 阶段 | 增量 |
 |---|---|
-| 现在 | macOS 未签名 zip，用户 `xattr -cr` 解锁 |
+| 现在 | macOS 未签名 dmg（含 Applications 软链），用户拖拽安装后 `xattr -cr` 解锁 |
 | 加 Android | workflow 里加 `flutter build apk --release`，挂 debug 签名 APK（可直接安装） |
 | Android 正式 | 生成 release keystore → 存 GitHub Secrets → CI 注入 `key.properties` 出签名包；可上 Google Play |
 | macOS 正式 | 申请 Apple Developer 账号 → 配 Developer ID 签名 + `notarytool` 公证（Apple ID 凭证存 Secrets）；可上 Mac App Store |

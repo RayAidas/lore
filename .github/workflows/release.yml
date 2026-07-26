@@ -37,16 +37,33 @@ jobs:
         working-directory: apps/lore_app
         run: flutter build macos --release
 
-      - name: 打包 .app 为 zip（保留 bundle 结构）
+      - name: 打包 .dmg（含 Applications 拖拽安装）
         run: |
           set -euo pipefail
           PROD_DIR="apps/lore_app/build/macos/Build/Products/Release"
           APP=$(find "$PROD_DIR" -maxdepth 1 -name "*.app" | head -1)
           if [ -z "$APP" ]; then echo "未找到 .app 产物"; exit 1; fi
           echo "Found: $APP"
+          APP_BASENAME=$(basename "$APP")
           VERSION="${GITHUB_REF_NAME#v}"   # v0.1.0 -> 0.1.0；手动触发时为 main
-          OUT="Lore-${VERSION}-macos-unsigned.zip"
-          ditto -c -k --keepParent "$APP" "$PROD_DIR/$OUT"
+          OUT="Lore-${VERSION}-macos-unsigned.dmg"
+
+          # 组装 dmg 内容：.app + 指向 /Applications 的软链 → 用户挂载后拖拽安装
+          STAGING="$RUNNER_TEMP/dmg-staging"
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING"
+          cp -R "$APP" "$STAGING/$APP_BASENAME"
+          ln -s /Applications "$STAGING/Applications"
+
+          # UDZO = 压缩只读，macOS 标准分发格式
+          hdiutil create \
+            -volname "Lore" \
+            -fs HFS+ \
+            -srcfolder "$STAGING" \
+            -ov \
+            -format UDZO \
+            "$PROD_DIR/$OUT"
+
           echo "OUTPUT_PATH=$PROD_DIR/$OUT" >> "$GITHUB_ENV"
           echo "OUTPUT_NAME=$OUT" >> "$GITHUB_ENV"
 
@@ -67,24 +84,17 @@ jobs:
           body: |
             ## macOS 版本（未签名）
 
-            > 此版本未做 Apple 代码签名与公证（暂未购买 Apple Developer 账号）。双击打开会提示「已损坏」或「无法验证开发者身份」——这是 Gatekeeper 的默认拦截，**App 本身完好**。
-
-            ### 解决办法（任选其一）
-
-            **命令行（推荐，一劳永逸）：**
-            ```bash
-            xattr -cr /Applications/lore_app.app
-            # 把路径换成你实际放置 App 的位置
-            ```
-
-            **右键打开（每次确认）：**
-            在 Finder 里右键 `lore_app.app` →「打开」→「仍要打开」。
+            > 此版本未做 Apple 代码签名与公证（暂未购买 Apple Developer 账号）。首次打开会提示「已损坏」或「无法验证开发者身份」——这是 Gatekeeper 的默认拦截，**App 本身完好**。
 
             ### 安装步骤
 
-            1. 下载下方 `Lore-*-macos-unsigned.zip`
-            2. 解压，把 `lore_app.app` 拖进「应用程序」
-            3. 执行上面的 `xattr -cr /Applications/lore_app.app`
+            1. 下载下方 `Lore-*-macos-unsigned.dmg`
+            2. 双击挂载，把 `Lore.app` 拖到旁边的 **Applications** 文件夹
+            3. 首次打开若被拦截，在「终端」执行（一劳永逸）：
+               ```bash
+               xattr -cr /Applications/Lore.app
+               ```
+               或在 Finder 里右键 `Lore.app` →「打开」→「仍要打开」。
 
             ---
 
