@@ -14,3 +14,14 @@
 # IDE
 .idea/
 *.iml
+.vscode/
+
+# Android signing — never commit keystores or credentials
+**/android/key.properties
+**/android/**/*.keystore
+**/android/**/*.jks
+
+# Platform config that may carry secrets
+**/google-services.json
+**/GoogleService-Info.plist
+**/AndroidManifest.google.xml
