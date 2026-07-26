@@ -107,6 +107,17 @@ flutter pub get
 
 > 若 shell 设置了 `http_proxy` / `https_proxy`（如 Clash 的 `127.0.0.1:7890`），手动跑 `flutter test` 前请设 `NO_PROXY=127.0.0.1,localhost`（`./scripts/test.sh` 已内置），否则 `flutter_tester` 回环连接会报 `HttpException`。
 
+**发布 Release**（macOS，未签名 dmg）
+
+推送 `v*` tag 即触发 [`.github/workflows/release.yml`](.github/workflows/release.yml) 自动构建 macOS dmg（含拖拽安装）并发布 GitHub Release：
+
+```bash
+git tag v0.1.0
+git push --tags
+```
+
+当前为未签名版本（ad-hoc），用户首次打开需按 Release 正文执行 `xattr -cr` 解除 Gatekeeper 拦截。完整发版流程与后续签名路线见 [docs/releases.md](docs/releases.md)。
+
 更多设计文档见 [docs/designs/](docs/designs/)，构建与提交规范见 [AGENTS.md](AGENTS.md)。提交遵循 Conventional Commits（`feat:` / `fix:` / `docs:` / `chore:`）。
 
 ## License
