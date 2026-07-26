@@ -23,9 +23,9 @@ void main() {
       expect(parsed.titleSuggestion, '我的小说');
       expect(_flat(parsed), hasLength(2));
       expect(_flat(parsed)[0].subtitle, '起点');
-      expect(_flat(parsed)[0].body, '起点正文。\n第二段。');
+      expect(_flat(parsed)[0].body, '　　起点正文。\n　　第二段。');
       expect(_flat(parsed)[1].subtitle, '远行');
-      expect(_flat(parsed)[1].body, '远行正文。');
+      expect(_flat(parsed)[1].body, '　　远行正文。');
     });
 
     test('recognizes chinese-numbered headings', () {
@@ -69,7 +69,7 @@ void main() {
       expect(vol.name, '破茧成蝶');
       expect(vol.chapters, hasLength(2));
       expect(vol.chapters[0].subtitle, '水府四殿');
-      expect(vol.chapters[0].body, '水府正文');
+      expect(vol.chapters[0].body, '　　水府正文');
       expect(vol.chapters[1].subtitle, '珍宝');
     });
 
@@ -144,7 +144,7 @@ void main() {
       final parsed = TxtNovelParser.parse(text: '  整段没有标题的文字。  \n第二行。');
       expect(_flat(parsed), hasLength(1));
       expect(_flat(parsed).single.subtitle, isEmpty);
-      expect(_flat(parsed).single.body, '整段没有标题的文字。\n第二行。');
+      expect(_flat(parsed).single.body, '　　整段没有标题的文字。\n　　第二行。');
     });
 
     test('skips headings but yields no chapters for whitespace-only text', () {
@@ -172,8 +172,8 @@ void main() {
     test('normalizes CRLF and CR line endings before splitting', () {
       final parsed = TxtNovelParser.parse(text: '第1章 A\r\n正文A\r第2章 B\n正文B');
       expect(_flat(parsed), hasLength(2));
-      expect(_flat(parsed)[0].body, '正文A');
-      expect(_flat(parsed)[1].body, '正文B');
+      expect(_flat(parsed)[0].body, '　　正文A');
+      expect(_flat(parsed)[1].body, '　　正文B');
     });
 
     test(
@@ -197,12 +197,28 @@ void main() {
       expect(_flat(parsed)[0].body, '　　半角四空格首段\n　　全角缩进第二段');
     });
 
-    test('normalizes tab and mixed leading whitespace by half-width sum', () {
-      // 累计半角宽度：tab=4、全角空格=2、半角空格=1。≥4 归一化 `　　`，<4 删除。
+    test(
+      'normalizes every paragraph to two-char indent regardless of source',
+      () {
+        // 每个非空正文段都归一化为两字全角缩进：tab、全角空格、半角空格、顶格
+        // 一视同仁，避免半角/顶格来源导入后段首参差不齐。
+        final parsed = TxtNovelParser.parse(
+          text: '第1章 起\n\t制表符段\n　　全角段\n   三半角段\n  两半角段',
+        );
+        expect(_flat(parsed)[0].body, '　　制表符段\n　　全角段\n　　三半角段\n　　两半角段');
+      },
+    );
+
+    test('indents flush paragraphs (top-of-column网络小说来源)', () {
+      // 回归：抓取的网络小说常每段顶格（行首无任何空白）。除首段会被编辑器
+      // 补缩进外，其余段也须在导入时补齐两字缩进，否则只有首段缩进、其余顶格。
       final parsed = TxtNovelParser.parse(
-        text: '第1章 起\n\t制表符段\n　　全角段\n   三半角段\n  两半角段',
+        text: '第1章 师傅\n李火旺举起捣药杆砸在捣药罐里。\n洞内不止他一个人。\n他继续干自己的活。',
       );
-      expect(_flat(parsed)[0].body, '　　制表符段\n　　全角段\n三半角段\n两半角段');
+      expect(
+        _flat(parsed)[0].body,
+        '　　李火旺举起捣药杆砸在捣药罐里。\n　　洞内不止他一个人。\n　　他继续干自己的活。',
+      );
     });
 
     test('sanitizes file name into title suggestion', () {

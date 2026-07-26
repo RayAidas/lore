@@ -286,10 +286,10 @@ abstract final class TxtNovelParser {
   /// 段首缩进，引用 [paragraphIndent] 单一真值（与编辑器一致）。
   static const String _bodyIndent = paragraphIndent;
 
-  /// 清洗正文行：逐行 `trimRight`，去掉首尾空行，再把每行行首缩进归一化为
-  /// 两字全角缩进。仅消除行尾杂散空格与正文上下界空行；行首缩进统一为全角，
-  /// 避免原文用半角空格/制表符作缩进时与编辑器全角缩进混排、各段段首不对齐。
-  /// 纯字符串操作、无正则。
+  /// 清洗正文行：逐行 `trimRight`，去掉首尾空行，再把每个非空行行首缩进
+  /// 归一化为两字全角缩进 [_bodyIndent]。仅消除行尾杂散空格与正文上下界空行；
+  /// 行首无论顶格、半角空格、全角空格还是制表符，一律统一为 `　　`，与编辑器
+  /// 「每段首行缩进两字」的不变量保持一致。纯字符串操作、无正则。
   static String _cleanBody(Iterable<String> rawLines) {
     final lines = [for (final line in rawLines) line.trimRight()];
     var start = 0;
@@ -308,34 +308,17 @@ abstract final class TxtNovelParser {
     ].join('\n');
   }
 
-  /// 把行首连续空白归一化：累计半角宽度（半角空格=1、全角空格=2、tab=4），
-  /// 达到两字（≥4）视为段首缩进，替换为 `　　`；不足两字视为杂散噪音删掉。
-  /// 行首无空白则原样。既统一缩进字符使各段段首对齐，又不把零星空格误当缩进。
+  /// 把每个非空行行首连续空白（半角空格 / 全角空格 / 制表符等）剥除后，统一
+  /// 前置两字全角缩进 [_bodyIndent]；空行原样返回以保留段间空行。
   ///
-  /// 有损取舍：< 4（1–3 个半角、单个全角等）的行首空白一律按杂散删掉。小说
-  /// 正文通常 2 字缩进（4 半角 / 2 全角），不受影响；但原文若有 1 字宽的诗歌/
-  /// 对白缩进会被一并去除——本编辑器只认两字缩进，此处不做更细的层级保留。
+  /// 无论原文顶格（常见于抓取的网络小说）还是用半角空格 / 制表符 / 不足两字宽
+  /// 的空白作缩进，都视作「该行是正文段落」并补齐两字缩进——否则导入后会出现
+  /// 除首段外全部顶格（编辑器仅会为首段补缩进）的错位。本编辑器只认两字缩进，
+  /// 故此处不保留更细的层级（诗歌 / 对白的单字缩进也会被拉齐到两字）。与
+  /// [_cleanBody] 的 `trimRight` 配对：行尾去杂散空白、行首统一为全角缩进。
   static String _normalizeIndent(String line) {
-    var i = 0;
-    var halfWidths = 0;
-    while (i < line.length) {
-      final c = line.codeUnitAt(i);
-      if (c == 0x20) {
-        halfWidths += 1;
-      } else if (c == 0x3000) {
-        halfWidths += 2;
-      } else if (c == 0x09) {
-        halfWidths += 4;
-      } else {
-        break;
-      }
-      i += 1;
-    }
-    if (i == 0) {
-      return line;
-    }
-    final rest = line.substring(i);
-    return halfWidths >= 4 ? '$_bodyIndent$rest' : rest;
+    final core = line.trimLeft();
+    return core.isEmpty ? '' : '$_bodyIndent$core';
   }
 
   /// 取文件名 stem（去目录、去扩展名）并净化为安全书名片段。
