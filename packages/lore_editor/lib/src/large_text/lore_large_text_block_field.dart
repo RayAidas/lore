@@ -159,8 +159,7 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
       return _handleTab(controller);
     }
     if (isBackspace || isDelete) {
-      if (_textController.value.composing.isValid &&
-          !_textController.value.composing.isCollapsed) {
+      if (_isComposing) {
         return KeyEventResult.ignored;
       }
       if (!selection.isCollapsed) {
@@ -188,6 +187,15 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
     final isRight = event.logicalKey == LogicalKeyboardKey.arrowRight;
     final isUp = event.logicalKey == LogicalKeyboardKey.arrowUp;
     final isDown = event.logicalKey == LogicalKeyboardKey.arrowDown;
+    if (isLeft || isRight || isUp || isDown) {
+      // IME 组字进行中（如拼音候选词面板）：方向键用于在候选词间导航，必须
+      // 交还 TextField/IME。否则光标处在段首/段末视觉行时，方向键会被跨段逻辑
+      // 吞掉（返回 handled），IME 收不到 → 表现为「输入位置下方有段时，方向键
+      // 不选字反而直接跳到下一段」。与上方 Tab/Backspace 的组字守卫同理。
+      if (_isComposing) {
+        return KeyEventResult.ignored;
+      }
+    }
     if (isUp || isDown) {
       return _handleVerticalKey(controller, isUp, shift);
     }
@@ -230,8 +238,7 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
   /// 处理 Tab 键：IME 组字进行中放行（交还默认，避免与候选词冲突）；否则在
   /// 光标处插入一字缩进（全角空格 [_tabIndent]），选区非空时替换选区。
   KeyEventResult _handleTab(LoreLargeTextController controller) {
-    final composing = _textController.value.composing;
-    if (composing.isValid && !composing.isCollapsed) {
+    if (_isComposing) {
       return KeyEventResult.ignored;
     }
     final selection = controller.selection;
@@ -365,8 +372,7 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
     if (_updating) {
       return;
     }
-    final composing = _textController.value.composing;
-    if (composing.isValid && !composing.isCollapsed) {
+    if (_isComposing) {
       return;
     }
     final nextText = _textController.text;
@@ -438,6 +444,19 @@ final class _LargeTextBlockFieldState extends State<_LargeTextBlockField> {
     _updating = true;
     _textController.selection = nextSelection;
     _updating = false;
+  }
+
+  /// IME 组字是否进行中（如拼音候选词面板展开）。组字区有效且非 collapsed
+  /// 即视为组字中——此时方向键/Tab/Backspace 等需交还 IME 的键，以及文本
+  /// 同步路径，都用此判定让位，避免 app 抢先破坏 IME 的候选词导航与组字区。
+  ///
+  /// 按键路径的组字判定集中于此（曾因散落多处而漏掉方向键）。注意：渲染层
+  /// [_FindHighlightTextEditingController.buildTextSpan] 与
+  /// [_AutoIndentFormatter] 因操作传入 value、属不同类，各自保留同类组字判定、
+  /// 未走此 getter——组字规则若变需同步这三处。
+  bool get _isComposing {
+    final composing = _textController.value.composing;
+    return composing.isValid && !composing.isCollapsed;
   }
 
   bool get hasFocus => _focusNode.hasFocus;

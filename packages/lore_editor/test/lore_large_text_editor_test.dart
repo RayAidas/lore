@@ -833,6 +833,306 @@ void main() {
     expect(controller.selection, const TextSelection.collapsed(offset: 0));
   });
 
+  testWidgets(
+    'arrow keys defer to the IME while composing across paragraphs',
+    (tester) async {
+      // 回归：IME 组字进行中（拼音候选词面板），方向键应交还 IME 在候选词间导航，
+      // 不被跨段逻辑吞掉。修复前光标在段末视觉行时按 ↓ 会直接跨入下一段，导致
+      // 候选词无法用方向键选择（用户报告：输入位置下方有其他段时复现）。
+      final controller = LoreLargeTextController(text: '第一段\n第二段');
+      final scrollController = ScrollController();
+      addTearDown(controller.dispose);
+      addTearDown(scrollController.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: SizedBox(
+              width: 800,
+              height: 500,
+              child: LoreLargeTextEditor(
+                controller: controller,
+                scrollController: scrollController,
+                autofocus: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // 光标置于首段段末（末视觉行）：非组字态按 ↓ 会跨入第二段（见上方用例）。
+      controller.selection = const TextSelection.collapsed(offset: 3);
+      await tester.pump();
+
+      // 通过 IME 通道注入组字态：整段 '第一段' 处于 composing，模拟候选词面板展开。
+      // 组字守卫使该值不会写回 document（controller.text 仍为 '第一段\n第二段'）。
+      await tester.showKeyboard(find.byType(TextField).first);
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: '第一段',
+          selection: TextSelection.collapsed(offset: 3),
+          composing: TextRange(start: 0, end: 3),
+        ),
+      );
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+
+      // 组字中：方向键交还 IME，光标留在首段（不跨段），由 IME 在候选词面板内导航。
+      expect(
+        controller.blockIndexForOffset(controller.selection.extentOffset),
+        0,
+      );
+      expect(controller.selection, const TextSelection.collapsed(offset: 3));
+
+      // 对照：组字结束后，同一 ↓ 恢复跨段语义。前置条件独立重置——不依赖
+      // 上一臂的遗留状态，避免上一臂守卫若回归（光标已跨段）时本臂误判。
+      await tester.tap(find.byType(TextField).first);
+      controller.selection = const TextSelection.collapsed(offset: 3);
+      await tester.pump();
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: '第一段',
+          selection: TextSelection.collapsed(offset: 3),
+        ),
+      );
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(
+        controller.blockIndexForOffset(controller.selection.extentOffset),
+        1,
+      );
+    },
+  );
+
+  testWidgets('arrow up defers to the IME while composing at paragraph start', (
+    tester,
+  ) async {
+    // 回归：组字中按 ↑ 在段首视觉行应交还 IME，不跨回上一段（↓ 的对称路径），
+    // 锁定 _handleVerticalKey upward 分支也被组字守卫覆盖。
+    final controller = LoreLargeTextController(text: '第一段\n第二段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).at(1));
+    controller.selection = const TextSelection.collapsed(offset: 4);
+    await tester.pump();
+    await tester.showKeyboard(find.byType(TextField).at(1));
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '第二段',
+        selection: TextSelection.collapsed(offset: 0),
+        composing: TextRange(start: 0, end: 3),
+      ),
+    );
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pump();
+    // 组字中：↑ 交还 IME，光标留在第二段（不跨回第一段）。
+    expect(
+      controller.blockIndexForOffset(controller.selection.extentOffset),
+      1,
+    );
+  });
+
+  testWidgets('arrow right defers to the IME while composing at paragraph end', (
+    tester,
+  ) async {
+    // 回归：组字中按 → 在段末边界应交还 IME，不跨入下一段（横向 atBoundary 路径，
+    // 与 ↑/↓ 的竖直跨段走不同分支）。
+    final controller = LoreLargeTextController(text: '第一段\n第二段');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = const TextSelection.collapsed(offset: 3);
+    await tester.pump();
+    await tester.showKeyboard(find.byType(TextField).first);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '第一段',
+        selection: TextSelection.collapsed(offset: 3),
+        composing: TextRange(start: 0, end: 3),
+      ),
+    );
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    // 组字中：→ 交还 IME，光标留在首段段末（不跨入第二段）。
+    expect(
+      controller.blockIndexForOffset(controller.selection.extentOffset),
+      0,
+    );
+  });
+
+  testWidgets('long-pressing arrow down defers to the IME while composing', (
+    tester,
+  ) async {
+    // 回归：组字中长按 ↓（down + 多次 repeat）应全部交还 IME，不跨段——
+    // handleBoundaryKey 接纳 KeyRepeatEvent，repeat 路径同样要走组字守卫。
+    final controller = LoreLargeTextController(text: '一\n二\n三');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = const TextSelection.collapsed(offset: 0);
+    await tester.pump();
+    await tester.showKeyboard(find.byType(TextField).first);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '一',
+        selection: TextSelection.collapsed(offset: 0),
+        composing: TextRange(start: 0, end: 1),
+      ),
+    );
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    // down + 2× repeat 全部被组字守卫放行，光标仍停在第 1 段。
+    expect(
+      controller.blockIndexForOffset(controller.selection.extentOffset),
+      0,
+    );
+  });
+
+  testWidgets('tab defers to the IME while composing', (tester) async {
+    // 回归：组字中按 Tab 应交还 IME，不在光标处插全角空格——与方向键/Backspace
+    // 守卫对称，锁定 _handleTab 的组字守卫（L241）。
+    final controller = LoreLargeTextController(text: '甲乙');
+    final scrollController = ScrollController();
+    addTearDown(controller.dispose);
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 800,
+            height: 500,
+            child: LoreLargeTextEditor(
+              controller: controller,
+              scrollController: scrollController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(TextField).first);
+    controller.selection = const TextSelection.collapsed(offset: 1);
+    await tester.pump();
+    await tester.showKeyboard(find.byType(TextField).first);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '甲乙',
+        selection: TextSelection.collapsed(offset: 1),
+        composing: TextRange(start: 0, end: 2),
+      ),
+    );
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    // 组字中：Tab 交还 IME，不插全角空格（非组字态见 'tab inserts a full-width
+    // space' 用例，会在光标处插 '　'）。
+    expect(controller.text, '甲乙');
+  });
+
+  testWidgets(
+    'backspace defers to the IME while composing at paragraph start',
+    (tester) async {
+      // 回归：组字中在段首按 Backspace 应交还 IME，不触发 app 的跨段删换行
+      // （把 '\n' 删掉、两段合并），锁定 L162 Backspace 守卫。用 blocks.length
+      // 区分——无论 EditableText 本地如何处理组字区，只要 app 守卫生效就不会
+      // 跨段合并；守卫失效则会合并成 1 段。
+      final controller = LoreLargeTextController(text: '甲\n乙');
+      final scrollController = ScrollController();
+      addTearDown(controller.dispose);
+      addTearDown(scrollController.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: SizedBox(
+              width: 800,
+              height: 500,
+              child: LoreLargeTextEditor(
+                controller: controller,
+                scrollController: scrollController,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byType(TextField).at(1));
+      controller.selection = const TextSelection.collapsed(offset: 2);
+      await tester.pump();
+      await tester.showKeyboard(find.byType(TextField).at(1));
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: '乙',
+          selection: TextSelection.collapsed(offset: 0),
+          composing: TextRange(start: 0, end: 1),
+        ),
+      );
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await tester.pump();
+      // 组字中：Backspace 交还 IME，不跨段合并（仍为 2 段）。
+      expect(controller.blocks.length, 2);
+    },
+  );
+
   testWidgets('arrow down inside a wrapped line does not cross paragraphs', (
     tester,
   ) async {
