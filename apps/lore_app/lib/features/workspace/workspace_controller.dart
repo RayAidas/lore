@@ -558,6 +558,71 @@ final class WorkspaceController extends ChangeNotifier {
     return entry;
   }
 
+  /// 新建大纲：在小说根目录下（`正文` 的兄弟目录）创建 `大纲/` 文件夹，并在其中
+  /// 新建固定 Markdown 大纲文件 `大纲.md`；已存在则依次 `大纲2.md`、`大纲3.md`…
+  /// 每次调用都新建一份并打开。大纲目录在 `正文` 之外，不参与内容树，
+  /// 复用 `LibraryWorkspaceService` 原语，不经 `ContentTreeRepository`/content.json。
+  Future<LibraryEntry> createOutline(NovelId novelId) async {
+    const outlineDirName = '大纲';
+    const seedText = '# 大纲\n';
+
+    final novel = _novelStore.novelById(novelId);
+    if (novel == null) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.notFound,
+          message: '小说不存在或尚未加载。',
+        ),
+      );
+    }
+    final outlineDirPath = p.join(novel.rootPath, outlineDirName);
+
+    // 1. 确保 `大纲/` 目录存在（`正文` 的兄弟目录）。
+    final rootChildren = await service.listChildren(
+      session,
+      relativePath: novel.rootPath,
+    );
+    if (!rootChildren.any(
+      (entry) => entry.isDirectory && entry.name == outlineDirName,
+    )) {
+      await service.createDirectory(
+        session,
+        parentPath: novel.rootPath,
+        name: outlineDirName,
+      );
+    }
+
+    // 2. 枚举 `大纲/` 下既有大纲文件，取第一个空闲名：大纲.md、大纲2.md、…
+    final outlineChildren = await service.listChildren(
+      session,
+      relativePath: outlineDirPath,
+    );
+    final existingNames = outlineChildren
+        .where((entry) => entry.type == LibraryEntryType.markdownFile)
+        .map((entry) => entry.name)
+        .toSet();
+    var number = 1;
+    String stem;
+    do {
+      stem = number == 1 ? outlineDirName : '$outlineDirName$number';
+      number += 1;
+    } while (existingNames.contains('$stem.md'));
+
+    // 3. 创建文件；选中 + 刷树版本 + 打开 + notify（与 createDocument 包装器同型）。
+    final entry = await service.createDocument(
+      session,
+      parentPath: outlineDirPath,
+      name: stem, // storage 层补 .md 后缀
+      format: DocumentFormat.markdown,
+      initialText: seedText,
+    );
+    _tabsStore.selectEntry(entry);
+    _treeRevision += 1;
+    await openPath(entry.relativePath);
+    _notify();
+    return entry;
+  }
+
   Future<LibraryEntry> renameSelected(String newName) async {
     final sourcePath = _tabsStore.selectedPath;
     if (sourcePath == null || sourcePath.isEmpty) {

@@ -96,6 +96,16 @@ final class NovelStructurePane extends StatelessWidget {
                   ),
                   icon: const Icon(Icons.dashboard_outlined),
                 ),
+                FilledButton.tonalIcon(
+                  style: const ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: () => _run(
+                    () => controller.createOutline(snapshot.metadata.id),
+                  ),
+                  icon: const Icon(Icons.account_tree_outlined),
+                  label: const Text('新建大纲'),
+                ),
                 if (!isVolume)
                   FilledButton.tonalIcon(
                     style: const ButtonStyle(

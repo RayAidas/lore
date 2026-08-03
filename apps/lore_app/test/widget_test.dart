@@ -1215,6 +1215,132 @@ void main() {
     expect(find.text('长夜行'), findsOneWidget);
   });
 
+  testWidgets('creates an outline from the structure pane', (tester) async {
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final workspaceRepository = _FakeWorkspaceRepository(trackMutations: true);
+    final novelRepository = _FakeNovelRepository();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          libraryAccessGatewayProvider.overrideWithValue(
+            _FakeAccessGateway(restoreAccess: access),
+          ),
+          libraryRepositoryProvider.overrideWithValue(
+            _FakeLibraryRepository(inspection: LibraryInspectionReady(metadata)),
+          ),
+          libraryTreeRepositoryProvider.overrideWithValue(workspaceRepository),
+          documentRepositoryProvider.overrideWithValue(workspaceRepository),
+          novelRepositoryProvider.overrideWithValue(novelRepository),
+          contentTreeRepositoryProvider.overrideWithValue(novelRepository),
+          workspaceSessionRepositoryProvider.overrideWithValue(
+            _MemoryWorkspaceSessionRepository(),
+          ),
+        ],
+        child: const LoreApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 经 UI 新建小说（复用「creates a novel」流程）。
+    await tester.tap(find.byTooltip('新建'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新建小说'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '长夜行');
+    await tester.tap(find.text('确认'));
+    await tester.pumpAndSettle();
+
+    // 选中小说 → 结构面板出现，「新建大纲」按钮可见。
+    expect(find.text('新建大纲'), findsOneWidget);
+
+    await tester.tap(find.text('新建大纲'));
+    await tester.pumpAndSettle();
+
+    expect(
+      workspaceRepository.createdDirectories,
+      contains((parentPath: '长夜行', name: '大纲')),
+    );
+    expect(
+      workspaceRepository.createdDocuments,
+      contains((
+        parentPath: '长夜行/大纲',
+        name: '大纲',
+        format: DocumentFormat.markdown,
+        initialText: '# 大纲\n',
+      )),
+    );
+    // 大纲文件以 .md 后缀在标签页打开（_tabDisplayName 只剥 .txt）。
+    expect(find.text('大纲.md'), findsOneWidget);
+  });
+
+  test('createOutline numbers 大纲.md/大纲2.md/大纲3.md and creates the folder once',
+      () async {
+    const access = LibraryAccess(
+      token: '/tmp/library',
+      displayPath: '/tmp/library',
+      isPending: false,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final workspaceRepository = _FakeWorkspaceRepository(trackMutations: true);
+    final novelRepository = _FakeNovelRepository();
+    final controller = WorkspaceController(
+      session: LibrarySession(access: access, metadata: metadata),
+      service: LibraryWorkspaceService(
+        treeRepository: workspaceRepository,
+        documentRepository: workspaceRepository,
+        sessionRepository: _MemoryWorkspaceSessionRepository(),
+      ),
+      novelStructureService: NovelStructureService(
+        novelRepository: novelRepository,
+        contentTreeRepository: novelRepository,
+      ),
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.createNovel('长夜行');
+
+    const novelId = NovelId('22222222-2222-4222-8222-222222222222');
+
+    final first = await controller.createOutline(novelId);
+    expect(first.relativePath, '长夜行/大纲/大纲.md');
+    expect(controller.selectedPath, '长夜行/大纲/大纲.md');
+    expect(
+      controller.tabs.map((t) => t.relativePath),
+      contains('长夜行/大纲/大纲.md'),
+    );
+
+    final second = await controller.createOutline(novelId);
+    expect(second.relativePath, '长夜行/大纲/大纲2.md');
+
+    final third = await controller.createOutline(novelId);
+    expect(third.relativePath, '长夜行/大纲/大纲3.md');
+
+    // 目录只创建一次（第二次起复用已有 大纲 目录）。
+    expect(
+      workspaceRepository.createdDirectories.where((d) => d.name == '大纲'),
+      hasLength(1),
+    );
+    expect(
+      workspaceRepository.createdDocuments.map((d) => d.name),
+      ['大纲', '大纲2', '大纲3'],
+    );
+  });
+
   testWidgets('confirms before initializing an ordinary directory', (
     tester,
   ) async {
@@ -1324,7 +1450,11 @@ final class _FakeLibraryRepository implements LibraryRepository {
 
 final class _FakeWorkspaceRepository
     implements LibraryTreeRepository, DocumentRepository {
-  _FakeWorkspaceRepository({this.entries = const [], this.documentText});
+  _FakeWorkspaceRepository({
+    this.entries = const [],
+    this.documentText,
+    this.trackMutations = false,
+  });
 
   final List<LibraryEntry> entries;
 
@@ -1332,17 +1462,40 @@ final class _FakeWorkspaceRepository
   /// 否则返回默认短文本 '# 第一章'。
   final String? documentText;
 
+  /// 测试观察/驱动：为 true 时记录创建操作，并把创建出的条目按父路径并入
+  /// [listChildren]，使「第二次新建得到 大纲2.md」等可测。默认 false 时行为
+  /// 与旧实现完全一致，不产生副作用。
+  final bool trackMutations;
+  final List<LibraryEntry> _createdEntries = [];
+  final createdDirectories = <({String parentPath, String name})>[];
+  final createdDocuments = <({
+    String parentPath,
+    String name,
+    DocumentFormat format,
+    String initialText,
+  })>[];
+
   @override
   Future<LibraryEntry> createDirectory(
     LibraryAccess access, {
     required String parentPath,
     required String name,
   }) async {
-    return LibraryEntry(
+    if (!trackMutations) {
+      return LibraryEntry(
+        name: name,
+        relativePath: name,
+        type: LibraryEntryType.directory,
+      );
+    }
+    final entry = LibraryEntry(
       name: name,
-      relativePath: name,
+      relativePath: parentPath.isEmpty ? name : '$parentPath/$name',
       type: LibraryEntryType.directory,
     );
+    createdDirectories.add((parentPath: parentPath, name: name));
+    _createdEntries.add(entry);
+    return entry;
   }
 
   @override
@@ -1354,13 +1507,33 @@ final class _FakeWorkspaceRepository
     String initialText = '',
   }) async {
     final extension = format == DocumentFormat.text ? '.txt' : '.md';
-    return LibraryEntry(
-      name: '$name$extension',
-      relativePath: '$name$extension',
+    final fileName = name.toLowerCase().endsWith(extension)
+        ? name
+        : '$name$extension';
+    if (!trackMutations) {
+      return LibraryEntry(
+        name: fileName,
+        relativePath: fileName,
+        type: format == DocumentFormat.text
+            ? LibraryEntryType.textFile
+            : LibraryEntryType.markdownFile,
+      );
+    }
+    final entry = LibraryEntry(
+      name: fileName,
+      relativePath: parentPath.isEmpty ? fileName : '$parentPath/$fileName',
       type: format == DocumentFormat.text
           ? LibraryEntryType.textFile
           : LibraryEntryType.markdownFile,
     );
+    createdDocuments.add((
+      parentPath: parentPath,
+      name: name,
+      format: format,
+      initialText: initialText,
+    ));
+    _createdEntries.add(entry);
+    return entry;
   }
 
   @override
@@ -1368,7 +1541,19 @@ final class _FakeWorkspaceRepository
     LibraryAccess access, {
     String relativePath = '',
   }) async {
-    return entries;
+    if (!trackMutations) {
+      return entries;
+    }
+    bool isDirectChild(String path) {
+      if (relativePath.isEmpty) return !path.contains('/');
+      return path.startsWith('$relativePath/') &&
+          !path.substring(relativePath.length + 1).contains('/');
+    }
+
+    return [
+      ...entries.where((e) => isDirectChild(e.relativePath)),
+      ..._createdEntries.where((e) => isDirectChild(e.relativePath)),
+    ];
   }
 
   @override
