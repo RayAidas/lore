@@ -130,6 +130,8 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
             onClear: () => setState(() {
               _result = null;
               _error = null;
+              // 一并清空自定义指令输入框，避免残留指令影响下一次请求。
+              _promptController.clear();
             }),
           ),
         ],
