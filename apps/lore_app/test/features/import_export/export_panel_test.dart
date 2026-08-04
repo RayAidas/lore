@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lore_app/features/import_export/export_panel.dart';
@@ -100,6 +101,53 @@ void main() {
     // 成功提示出现。
     expect(find.textContaining('已导出'), findsOneWidget);
   });
+
+  testWidgets(
+    'macOS export calls saveFile without bytes (avoids the bytes crash)',
+    (tester) async {
+      // macOS 的 saveFile 不支持 bytes——传 bytes 会直接抛
+      // 'Bytes are not supported on macOS'。桌面分支必须拿到路径后自行写文件，
+      // 故 saveFile 只传路径、bytes 为 null。文件写入本身是标准 dart:io 调用，
+      // 这里只断言不传 bytes（崩溃的根因），真实落盘由手动验证覆盖。
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      // 用 try/finally 内联复位（不依赖 addTearDown 时序），确保 invariant 检查
+      // 前 debug 变量已复位。
+      try {
+        final snapshot = buildSnapshot();
+        final texts = await chapterTexts(snapshot);
+        final harness = await ImportExportTestHarness.withNovel(
+          snapshot,
+          chapterTexts: texts,
+        );
+        addTearDown(harness.dispose);
+        final fake = FakeFilePickerPlatform()..saveFilePath = '/tmp/out.txt';
+        installFakeFilePicker(fake);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ExportPanel(
+                controller: harness.controller,
+                snapshot: snapshot,
+                restrictVolumeId: null,
+                revealInFinder: (_) async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('导出'));
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(fake.saveFileCalls, 1);
+        expect(fake.lastSaveBytes, isNull);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
 
   testWidgets(
     'export with only empty-body chapters reports unsupportedFormat',

@@ -10,6 +10,7 @@ import 'package:lore_ui/lore_ui.dart';
 
 import '../workspace/library_failure_snackbar.dart';
 import '../workspace/workspace_controller.dart';
+import '../workspace/workspace_platform.dart';
 import 'workspace_export_access.dart';
 
 /// 导出面板入口：加载小说快照后弹出选择面板。
@@ -275,11 +276,26 @@ class _ExportPanelState extends State<ExportPanel> {
 
       final String? path;
       try {
-        path = await FilePicker.platform.saveFile(
-          dialogTitle: '导出 TXT',
-          fileName: fileName,
-          bytes: utf8.encode(composed.text),
-        );
+        if (supportsDesktopSplit) {
+          // 桌面端（macOS/Windows/Linux）saveFile 不支持 bytes——macOS 直接抛
+          // 'Bytes are not supported on macOS'。先取路径，再用 dart:io 写入。
+          path = await FilePicker.platform.saveFile(
+            dialogTitle: '导出 TXT',
+            fileName: fileName,
+          );
+          if (path == null || path.isEmpty) {
+            return; // 用户取消
+          }
+          await File(path).writeAsString(composed.text, encoding: utf8);
+        } else {
+          // 移动端：saveFile 返回系统托管 URI（content:// 等），dart:io 写不
+          // 进去，只能由插件内部写入 bytes（bytes 须在弹框前备好）。
+          path = await FilePicker.platform.saveFile(
+            dialogTitle: '导出 TXT',
+            fileName: fileName,
+            bytes: utf8.encode(composed.text),
+          );
+        }
       } on PlatformException {
         // file_picker 缺 entitlement / 底层异常时抛此；作用域仅限 saveFile。
         if (mounted) {
