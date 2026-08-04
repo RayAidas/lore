@@ -3,6 +3,8 @@ import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_platform_adapters/lore_platform_adapters.dart';
 
+import '../library/library_providers.dart';
+
 final agentConfigRepositoryProvider = Provider<AgentConfigRepository>((ref) {
   return SharedPreferencesAgentConfigRepository();
 });
@@ -25,6 +27,11 @@ final linkedOutlinesServiceProvider = Provider<LinkedOutlinesService>((ref) {
 
 final aiChatClientProvider = Provider<AiChatClient>((ref) {
   return HttpAiChatClient();
+});
+
+/// AI 请求缓存服务：经原始存储会话读写小说目录下的 `.cache` 文件。
+final aiCacheServiceProvider = Provider<AiCacheService>((ref) {
+  return AiCacheService(storageFactory: ref.watch(libraryStorageFactoryProvider));
 });
 
 final writingAgentServiceProvider = Provider<WritingAgentService>((ref) {

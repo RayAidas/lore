@@ -66,6 +66,12 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
   WritingAgentAction? _lastAction;
   String? _lastCustom;
 
+  /// 当前小说已加载的 AI 请求缓存（null = 未加载）。
+  AiCache? _cache;
+
+  /// 已加载缓存对应的小说 id；build 里变化时重载。
+  String? _cacheNovelId;
+
   @override
   void dispose() {
     _promptController.dispose();
@@ -75,6 +81,36 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
   WorkspaceController get controller => widget.controller;
 
   OpenDocument? get _activeDocument => controller.activeDocument;
+
+  Future<void> _loadCache(NovelSnapshot novel) async {
+    try {
+      final cache = await ref.read(aiCacheServiceProvider).load(
+        controller.session,
+        novelRootPath: novel.rootPath,
+      );
+      if (mounted && novel.metadata.id.value == _cacheNovelId) {
+        setState(() => _cache = cache);
+      }
+    } catch (error, stackTrace) {
+      debugPrint('ai cache load failed: $error\n$stackTrace');
+    }
+  }
+
+  Future<void> _saveCache(NovelSnapshot novel) async {
+    final cache = _cache;
+    if (cache == null) {
+      return;
+    }
+    try {
+      await ref.read(aiCacheServiceProvider).save(
+        controller.session,
+        novelRootPath: novel.rootPath,
+        cache: cache,
+      );
+    } catch (error, stackTrace) {
+      debugPrint('ai cache save failed: $error\n$stackTrace');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -94,6 +130,15 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
     }
     final doc = _activeDocument;
     final novel = controller.activeNovel;
+    // 小说变化时重载该小说的 .cache 历史（同一小说不重复加载）。
+    final novelId = novel?.metadata.id.value;
+    if (novelId != _cacheNovelId) {
+      _cacheNovelId = novelId;
+      _cache = null;
+      if (novel != null) {
+        unawaited(_loadCache(novel));
+      }
+    }
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -136,7 +181,7 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
             hasSelection: _hasNonCollapsedSelection(doc),
             documentOpen: doc != null,
             busy: _busy,
-            onApply: (target) => _apply(doc!, target),
+            onApply: (target) => _apply(doc!, target, _result!),
             onCopy: _copyResult,
             onClear: () => setState(() {
               _result = null;
@@ -146,8 +191,59 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
             }),
           ),
         ],
+        const SizedBox(height: 18),
+        _CacheSection(
+          loaded: _cache != null,
+          entries: _cache?.entries ?? const [],
+          documentOpen: doc != null,
+          onUseInstruction: _useCachedInstruction,
+          onRerun: _rerunCached,
+          onApply: (text) => _apply(doc!, AgentApplyTarget.replaceSelection, text),
+          onDeleteEntry: (index) {
+            if (novel != null) {
+              unawaited(_deleteCacheEntry(novel, index));
+            }
+          },
+          onClear: () {
+            if (novel != null) {
+              unawaited(_clearCache(novel));
+            }
+          },
+        ),
       ],
     );
+  }
+
+  void _useCachedInstruction(String instruction) {
+    _promptController.text = instruction;
+    setState(() {});
+  }
+
+  void _rerunCached(AiCacheEntry entry) {
+    if (entry.kind == AiCacheEntryKind.action) {
+      final action = _actionFromName(entry.prompt);
+      if (action != null) {
+        _execute(action: action);
+        return;
+      }
+    }
+    _useCachedInstruction(entry.prompt);
+  }
+
+  Future<void> _deleteCacheEntry(NovelSnapshot novel, int index) async {
+    final cache = _cache;
+    if (cache == null) {
+      return;
+    }
+    _cache = cache.removeAt(index);
+    setState(() {});
+    await _saveCache(novel);
+  }
+
+  Future<void> _clearCache(NovelSnapshot novel) async {
+    _cache = const AiCache.empty();
+    setState(() {});
+    await _saveCache(novel);
   }
 
   bool _hasNonCollapsedSelection(OpenDocument? doc) {
@@ -304,6 +400,7 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
         _result = text;
         _busy = false;
       });
+      await _recordCacheEntry(action: action, custom: custom, output: text);
     } on AiRequestException catch (error) {
       if (!mounted) {
         return;
@@ -326,9 +423,36 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
     }
   }
 
-  void _apply(OpenDocument doc, AgentApplyTarget target) {
-    final text = _result;
-    if (text == null || text.isEmpty) {
+  /// 记录本次成功请求到当前小说的 .cache 历史（精简元信息 + 输出）。
+  Future<void> _recordCacheEntry({
+    WritingAgentAction? action,
+    String? custom,
+    required String output,
+  }) async {
+    final novel = controller.activeNovel;
+    if (novel == null) {
+      return;
+    }
+    final contextInfo = _currentContext();
+    final links = ref.read(linkedOutlinesProvider).value;
+    final outlineCount =
+        links?.forNovel(novel.metadata.id.value).length ?? 0;
+    final main = contextInfo.fromSelection
+        ? '选中文字 · ${contextInfo.count} 字'
+        : '当前章节正文 · ${contextInfo.count} 字';
+    final entry = AiCacheEntry(
+      timestampMillis: DateTime.now().millisecondsSinceEpoch,
+      kind: action != null ? AiCacheEntryKind.action : AiCacheEntryKind.custom,
+      prompt: action != null ? action.name : (custom ?? ''),
+      contextSummary: outlineCount > 0 ? '$main + 大纲 $outlineCount 个' : main,
+      output: output,
+    );
+    _cache = (_cache ?? const AiCache.empty()).append(entry);
+    await _saveCache(novel);
+  }
+
+  void _apply(OpenDocument doc, AgentApplyTarget target, String text) {
+    if (text.isEmpty) {
       return;
     }
     final editor = doc.editorController;
@@ -1128,6 +1252,281 @@ final class _NotConfiguredView extends StatelessWidget {
               icon: const Icon(Icons.settings_outlined, size: 16),
               label: const Text('去设置'),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 预置动作的中文显示名。
+String _actionLabel(WritingAgentAction action) => switch (action) {
+  WritingAgentAction.proofread => '校对',
+  WritingAgentAction.polish => '润色',
+  WritingAgentAction.summarize => '总结',
+  WritingAgentAction.continueWriting => '续写',
+};
+
+WritingAgentAction? _actionFromName(String name) {
+  for (final action in WritingAgentAction.values) {
+    if (action.name == name) {
+      return action;
+    }
+  }
+  return null;
+}
+
+/// 缓存条目在历史列表里的显示标题（动作名或截断的自定义指令）。
+String _cacheEntryLabel(AiCacheEntry entry) {
+  if (entry.kind == AiCacheEntryKind.action) {
+    final action = _actionFromName(entry.prompt);
+    if (action != null) {
+      return _actionLabel(action);
+    }
+  }
+  final text = entry.prompt.trim();
+  return text.length <= 16 ? text : '${text.substring(0, 16)}…';
+}
+
+String _cacheEntryTime(int timestampMillis) {
+  final time = DateTime.fromMillisecondsSinceEpoch(timestampMillis);
+  final now = DateTime.now();
+  final local = time.toLocal();
+  final sameDay = now.year == local.year &&
+      now.month == local.month &&
+      now.day == local.day;
+  String two(int n) => n.toString().padLeft(2, '0');
+  final hm = '${two(local.hour)}:${two(local.minute)}';
+  if (sameDay) {
+    return hm;
+  }
+  return '${local.month}/${local.day} $hm';
+}
+
+/// AI 请求历史记录区块：查看、重跑/用指令、应用结果、删除与清空。
+///
+/// 数据由面板状态持有并落盘到小说目录 `.cache`；本组件纯展示 + 回调，内部
+/// 只维护「哪条展开」的局部状态。
+final class _CacheSection extends ConsumerStatefulWidget {
+  const _CacheSection({
+    required this.loaded,
+    required this.entries,
+    required this.documentOpen,
+    required this.onUseInstruction,
+    required this.onRerun,
+    required this.onApply,
+    required this.onDeleteEntry,
+    required this.onClear,
+  });
+
+  final bool loaded;
+  final List<AiCacheEntry> entries;
+  final bool documentOpen;
+  final void Function(String instruction) onUseInstruction;
+  final void Function(AiCacheEntry entry) onRerun;
+  final void Function(String output) onApply;
+  final void Function(int index) onDeleteEntry;
+  final VoidCallback onClear;
+
+  @override
+  ConsumerState<_CacheSection> createState() => _CacheSectionState();
+}
+
+final class _CacheSectionState extends ConsumerState<_CacheSection> {
+  final Set<int> _expanded = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final entries = widget.entries;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text('历史记录', style: theme.textTheme.labelMedium),
+            const SizedBox(width: 6),
+            if (entries.isNotEmpty)
+              Text(
+                '${entries.length}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            const Spacer(),
+            if (entries.isNotEmpty)
+              TextButton(
+                onPressed: widget.onClear,
+                child: const Text('清空缓存'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        if (!widget.loaded)
+          Text('加载中…', style: muted)
+        else if (entries.isEmpty)
+          Text('暂无记录（每次请求自动保存到作品目录 .cache）', style: muted)
+        else
+          for (var i = entries.length - 1; i >= 0; i--)
+            _CacheEntryCard(
+              entry: entries[i],
+              expanded: _expanded.contains(i),
+              documentOpen: widget.documentOpen,
+              onToggle: () => setState(() {
+                if (!_expanded.add(i)) {
+                  _expanded.remove(i);
+                }
+              }),
+              onUseInstruction: widget.onUseInstruction,
+              onRerun: () => widget.onRerun(entries[i]),
+              onApply: () => widget.onApply(entries[i].output),
+              onDelete: () => widget.onDeleteEntry(i),
+            ),
+      ],
+    );
+  }
+}
+
+final class _CacheEntryCard extends StatelessWidget {
+  const _CacheEntryCard({
+    required this.entry,
+    required this.expanded,
+    required this.documentOpen,
+    required this.onToggle,
+    required this.onUseInstruction,
+    required this.onRerun,
+    required this.onApply,
+    required this.onDelete,
+  });
+
+  final AiCacheEntry entry;
+  final bool expanded;
+  final bool documentOpen;
+  final VoidCallback onToggle;
+  final void Function(String instruction) onUseInstruction;
+  final VoidCallback onRerun;
+  final VoidCallback onApply;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(8),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            InkWell(
+              onTap: onToggle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      entry.kind == AiCacheEntryKind.action
+                          ? Icons.auto_awesome_outlined
+                          : Icons.chat_outlined,
+                      size: 15,
+                      color: colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _cacheEntryLabel(entry),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      _cacheEntryTime(entry.timestampMillis),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      expanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      size: 16,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (expanded) ...[
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '上下文：${entry.contextSummary}',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: SelectableText(
+                        entry.output,
+                        style: theme.textTheme.bodySmall?.copyWith(height: 1.6),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        if (entry.kind == AiCacheEntryKind.action)
+                          TextButton(
+                            onPressed: onRerun,
+                            child: const Text('重跑'),
+                          )
+                        else
+                          TextButton(
+                            onPressed: () =>
+                                onUseInstruction(entry.prompt),
+                            child: const Text('用此指令'),
+                          ),
+                        if (documentOpen)
+                          TextButton(
+                            onPressed: onApply,
+                            child: const Text('应用结果'),
+                          ),
+                        TextButton(
+                          onPressed: onDelete,
+                          child: const Text('删除'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),

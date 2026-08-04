@@ -1,4 +1,5 @@
 export 'src/agent/agent_chat_message.dart';
+export 'src/agent/ai_cache.dart';
 export 'src/agent/novel_outline_links.dart';
 export 'src/agent/writing_agent_action.dart';
 export 'src/agent/writing_agent_config.dart';

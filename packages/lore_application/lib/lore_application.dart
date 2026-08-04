@@ -1,4 +1,5 @@
 export 'src/agent/agent_config_service.dart';
+export 'src/agent/ai_cache_service.dart';
 export 'src/agent/linked_outlines_service.dart';
 export 'src/agent/writing_agent_service.dart';
 export 'src/highlight/paragraph_digest.dart';
