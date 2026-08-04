@@ -12,15 +12,22 @@ final class WritingAgentService {
   final AiChatClient client;
 
   /// 对上下文执行预置动作，返回结果文本。
+  ///
+  /// [referenceText] 为可选参考材料（如关联的大纲），前置在用户消息里并明确
+  /// 标注「仅作参考、不要改写」，让模型据此把握设定与风格，而不把它当作业目标。
   Future<String> runAction({
     required WritingAgentAction action,
     required String contextText,
+    String? referenceText,
     required WritingAgentConfig config,
     required String apiKey,
     Duration timeout = const Duration(seconds: 60),
   }) {
     return _complete(
-      messages: _messagesForAction(action, contextText),
+      messages: _messagesForAction(
+        action,
+        _composeUserContent(contextText, referenceText: referenceText),
+      ),
       config: config,
       apiKey: apiKey,
       timeout: timeout,
@@ -31,13 +38,15 @@ final class WritingAgentService {
   Future<String> runCustom({
     required String instruction,
     required String contextText,
+    String? referenceText,
     required WritingAgentConfig config,
     required String apiKey,
     Duration timeout = const Duration(seconds: 60),
   }) {
+    final reference = _referenceBlock(referenceText);
     final content = contextText.trim().isEmpty
-        ? instruction
-        : '$instruction\n\n以下是参考上下文（仅作依据，不要求保留原文）：\n\n$contextText';
+        ? '$reference$instruction'
+        : '$reference$instruction\n\n以下是参考上下文（仅作依据，不要求保留原文）：\n\n$contextText';
     return _complete(
       messages: [
         const AiChatMessage(role: AiChatRole.system, content: _customSystemPrompt),
@@ -47,6 +56,23 @@ final class WritingAgentService {
       apiKey: apiKey,
       timeout: timeout,
     );
+  }
+
+  /// 把可选的参考材料（如大纲）拼进用户消息正文。无参考时原样返回正文。
+  String _composeUserContent(String body, {String? referenceText}) {
+    final reference = _referenceBlock(referenceText);
+    if (reference.isEmpty) {
+      return body;
+    }
+    return '$reference需要处理的文字：\n$body';
+  }
+
+  String _referenceBlock(String? referenceText) {
+    final text = referenceText?.trim();
+    if (text == null || text.isEmpty) {
+      return '';
+    }
+    return '参考大纲（仅作设定与风格参考，不要改写或输出它）：\n$text\n\n';
   }
 
   Future<String> _complete({

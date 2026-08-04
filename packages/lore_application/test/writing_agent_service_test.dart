@@ -80,6 +80,63 @@ void main() {
     }
   });
 
+  test('runAction prepends a labeled outline reference block', () async {
+    await service.runAction(
+      action: WritingAgentAction.continueWriting,
+      contextText: '正文',
+      referenceText: '【大纲.md】\n主角设定：林晚。',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    final user = client.lastMessages![1].content;
+    expect(user, contains('参考大纲'));
+    expect(user, contains('主角设定：林晚。'));
+    expect(user, contains('需要处理的文字：'));
+    expect(user, contains('正文'));
+    // 参考块在正文之前。
+    expect(user.indexOf('参考大纲'), lessThan(user.indexOf('需要处理的文字')));
+  });
+
+  test('runAction without reference text has no outline block', () async {
+    await service.runAction(
+      action: WritingAgentAction.polish,
+      contextText: '正文',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    expect(client.lastMessages![1].content, '正文');
+  });
+
+  test('runCustom prepends the outline reference before the instruction',
+      () async {
+    await service.runCustom(
+      instruction: '改成更口语',
+      contextText: '上下文文字',
+      referenceText: '大纲内容',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    final user = client.lastMessages![1].content;
+    expect(user.indexOf('大纲内容'), lessThan(user.indexOf('改成更口语')));
+    expect(user, contains('上下文文字'));
+  });
+
+  test('runCustom without reference text keeps the plain structure', () async {
+    await service.runCustom(
+      instruction: '改成更口语',
+      contextText: '上下文文字',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    final user = client.lastMessages![1].content;
+    expect(user, startsWith('改成更口语'));
+    expect(user, contains('上下文文字'));
+  });
+
   test('runCustom embeds context with the instruction', () async {
     await service.runCustom(
       instruction: '改成更口语',

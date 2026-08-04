@@ -7,6 +7,7 @@ import 'package:lore_application/lore_application.dart';
 import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_editor/lore_editor.dart';
 import 'package:lore_ui/lore_ui.dart';
+import 'package:path/path.dart' as p;
 
 import '../preferences/settings_page.dart';
 import '../workspace/workspace_controller.dart';
@@ -92,6 +93,7 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
       return _NotConfiguredView(onOpenSettings: _openSettings);
     }
     final doc = _activeDocument;
+    final novel = controller.activeNovel;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -103,6 +105,15 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
             if (doc != null) doc.editorController,
           ]),
           onModeChanged: (mode) => setState(() => _contextMode = mode),
+        ),
+        const SizedBox(height: 14),
+        // 按小说 id 作 key：切换小说时重载大纲列表与关联状态。
+        _OutlineSection(
+          key: novel == null
+              ? null
+              : ValueKey('outline-section-${novel.metadata.id.value}'),
+          controller: controller,
+          novel: novel,
         ),
         const SizedBox(height: 14),
         _ActionSection(
@@ -185,6 +196,38 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
     );
   }
 
+  /// 读取当前小说已关联大纲的内容，合并成参考文本（每个文件带文件名头）。
+  ///
+  /// 文件缺失/读取失败时跳过，不阻断主请求；无关联时返回空串。
+  Future<String> _linkedOutlineContext() async {
+    final novel = controller.activeNovel;
+    if (novel == null) {
+      return '';
+    }
+    final links = ref.read(linkedOutlinesProvider).value;
+    final paths =
+        links?.forNovel(novel.metadata.id.value) ?? const <String>[];
+    if (paths.isEmpty) {
+      return '';
+    }
+    final parts = <String>[];
+    for (final path in paths) {
+      try {
+        final doc = await controller.service.readDocument(
+          controller.session,
+          DocumentRef(relativePath: path, format: DocumentFormat.markdown),
+        );
+        final text = doc.text.trim();
+        if (text.isNotEmpty) {
+          parts.add('【${p.basename(path)}】\n$text');
+        }
+      } catch (_) {
+        // 大纲被删或读取失败：跳过。
+      }
+    }
+    return parts.join('\n\n');
+  }
+
   Future<void> _runAction(WritingAgentAction action) {
     return _execute(action: action);
   }
@@ -214,9 +257,11 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
       return;
     }
     final contextInfo = _currentContext();
-    if (contextInfo.text.trim().isEmpty) {
+    final referenceText = await _linkedOutlineContext();
+    // 主上下文与大纲参考都为空才拦截；仅关联了大纲时也允许执行（如按大纲规划）。
+    if (contextInfo.text.trim().isEmpty && referenceText.trim().isEmpty) {
       setState(() {
-        _error = '没有可用的上下文：请先选中文字或打开一个文档';
+        _error = '没有可用的上下文：请先选中文字、打开文档或关联大纲';
         _result = null;
       });
       return;
@@ -237,6 +282,7 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
         text = await service.runAction(
           action: action,
           contextText: contextInfo.text,
+          referenceText: referenceText,
           config: configState.config,
           apiKey: configState.config.apiKey,
         );
@@ -244,6 +290,7 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
         text = await service.runCustom(
           instruction: custom,
           contextText: contextInfo.text,
+          referenceText: referenceText,
           config: configState.config,
           apiKey: configState.config.apiKey,
         );
@@ -445,6 +492,176 @@ final class _ContextChip extends StatelessWidget {
                   : colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
               fontWeight: effectiveSelected ? FontWeight.w600 : FontWeight.w500,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 关联大纲区块：列出当前小说 `大纲/` 下的 Markdown 文件，可多选；关联选择
+/// 按小说持久化。生成请求时会把这些大纲内容作为参考上下文发给模型。
+final class _OutlineSection extends ConsumerStatefulWidget {
+  const _OutlineSection({
+    required this.controller,
+    required this.novel,
+    super.key,
+  });
+
+  final WorkspaceController controller;
+
+  /// 当前小说；null 表示没有可关联的小说。
+  final NovelSnapshot? novel;
+
+  @override
+  ConsumerState<_OutlineSection> createState() => _OutlineSectionState();
+}
+
+final class _OutlineSectionState extends ConsumerState<_OutlineSection> {
+  late final Future<List<LibraryEntry>> _outlineFuture = _loadOutlines();
+
+  Future<List<LibraryEntry>> _loadOutlines() async {
+    final novel = widget.novel;
+    if (novel == null) {
+      return const <LibraryEntry>[];
+    }
+    final dirPath = p.join(novel.rootPath, outlineDirectoryName);
+    final entries = await widget.controller.listChildren(relativePath: dirPath);
+    return entries
+        .where((entry) => entry.type == LibraryEntryType.markdownFile)
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final novel = widget.novel;
+    if (novel == null) {
+      return Text('未打开小说，无法关联大纲', style: muted);
+    }
+    final novelId = novel.metadata.id.value;
+    final linked =
+        ref.watch(linkedOutlinesProvider).value?.forNovel(novelId) ??
+        const <String>[];
+    final linkedSet = linked.toSet();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('关联大纲', style: theme.textTheme.labelMedium),
+        const SizedBox(height: 8),
+        FutureBuilder<List<LibraryEntry>>(
+          future: _outlineFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return Text('加载中…', style: muted);
+            }
+            if (snapshot.hasError) {
+              return Text('大纲列表加载失败', style: muted);
+            }
+            final entries = snapshot.data ?? const <LibraryEntry>[];
+            if (entries.isEmpty) {
+              return Text(
+                '当前小说暂无大纲文件（可在结构面板「新建大纲」创建）',
+                style: muted,
+              );
+            }
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final entry in entries)
+                  _OutlineChip(
+                    name: entry.name,
+                    selected: linkedSet.contains(entry.relativePath),
+                    onTap: () => _toggle(entry.relativePath),
+                  ),
+              ],
+            );
+          },
+        ),
+        if (linked.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            '将发送大纲：${linked.map((path) => p.basename(path)).join('、')}',
+            style: muted,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _toggle(String path) async {
+    final novel = widget.novel;
+    if (novel == null) {
+      return;
+    }
+    final controller = ref.read(linkedOutlinesProvider.notifier);
+    final currentlyLinked =
+        (ref.read(linkedOutlinesProvider).value
+                ?.forNovel(novel.metadata.id.value) ??
+            const <String>[]).contains(path);
+    try {
+      if (currentlyLinked) {
+        await controller.unlink(novel.metadata.id.value, path);
+      } else {
+        await controller.link(novel.metadata.id.value, path);
+      }
+    } catch (_) {
+      if (mounted) {
+        LoreToast.error(context, '关联保存失败，请重试');
+      }
+    }
+  }
+}
+
+final class _OutlineChip extends StatelessWidget {
+  const _OutlineChip({
+    required this.name,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String name;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Material(
+      color: selected
+          ? colorScheme.primaryContainer
+          : colorScheme.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (selected) ...[
+                Icon(
+                  Icons.check_rounded,
+                  size: 14,
+                  color: colorScheme.onPrimaryContainer,
+                ),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                name,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: selected
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.onSurface,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
       ),

@@ -13,6 +13,16 @@ final agentConfigServiceProvider = Provider<AgentConfigService>((ref) {
   );
 });
 
+final linkedOutlinesRepositoryProvider = Provider<LinkedOutlinesRepository>(
+  (ref) => const SharedPreferencesLinkedOutlinesRepository(),
+);
+
+final linkedOutlinesServiceProvider = Provider<LinkedOutlinesService>((ref) {
+  return LinkedOutlinesService(
+    repository: ref.watch(linkedOutlinesRepositoryProvider),
+  );
+});
+
 final aiChatClientProvider = Provider<AiChatClient>((ref) {
   return HttpAiChatClient();
 });
@@ -64,5 +74,34 @@ final class AgentConfigController extends AsyncNotifier<AgentConfigState> {
     final next = apply(current);
     await service.saveConfig(next);
     state = AsyncData(AgentConfigState(config: next));
+  }
+}
+
+/// 每部小说已关联大纲的唯一可观察来源（SharedPreferences 落库，按小说持久化）。
+final linkedOutlinesProvider =
+    AsyncNotifierProvider<LinkedOutlinesController, NovelOutlineLinks>(
+      LinkedOutlinesController.new,
+    );
+
+final class LinkedOutlinesController extends AsyncNotifier<NovelOutlineLinks> {
+  @override
+  Future<NovelOutlineLinks> build() async {
+    return ref.read(linkedOutlinesServiceProvider).loadOrDefault();
+  }
+
+  Future<void> link(String novelId, String outlinePath) =>
+      _update((links) => links.withLink(novelId, outlinePath));
+
+  Future<void> unlink(String novelId, String outlinePath) =>
+      _update((links) => links.withoutLink(novelId, outlinePath));
+
+  Future<void> _update(
+    NovelOutlineLinks Function(NovelOutlineLinks) apply,
+  ) async {
+    final service = ref.read(linkedOutlinesServiceProvider);
+    final current = state.value ?? const NovelOutlineLinks.empty();
+    final next = apply(current);
+    await service.save(next);
+    state = AsyncData(next);
   }
 }

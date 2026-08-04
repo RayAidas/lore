@@ -9,6 +9,10 @@ import 'library_bootstrap.dart';
 import 'library_mutation_coordinator.dart';
 import 'workspace_session.dart';
 
+/// 小说根目录下「大纲」目录名（`正文` 的兄弟目录）。大纲不参与内容树，
+/// 只是普通 Markdown 文件。创建与 AI 关联大纲共用此常量，避免两处漂移。
+const String outlineDirectoryName = '大纲';
+
 final class LibraryWorkspaceService {
   const LibraryWorkspaceService({
     required this.treeRepository,

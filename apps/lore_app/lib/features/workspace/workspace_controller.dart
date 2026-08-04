@@ -563,7 +563,6 @@ final class WorkspaceController extends ChangeNotifier {
   /// 每次调用都新建一份并打开。大纲目录在 `正文` 之外，不参与内容树，
   /// 复用 `LibraryWorkspaceService` 原语，不经 `ContentTreeRepository`/content.json。
   Future<LibraryEntry> createOutline(NovelId novelId) async {
-    const outlineDirName = '大纲';
     const seedText = '# 大纲\n';
 
     final novel = _novelStore.novelById(novelId);
@@ -575,7 +574,7 @@ final class WorkspaceController extends ChangeNotifier {
         ),
       );
     }
-    final outlineDirPath = p.join(novel.rootPath, outlineDirName);
+    final outlineDirPath = p.join(novel.rootPath, outlineDirectoryName);
 
     // 1. 确保 `大纲/` 目录存在（`正文` 的兄弟目录）。
     final rootChildren = await service.listChildren(
@@ -583,12 +582,12 @@ final class WorkspaceController extends ChangeNotifier {
       relativePath: novel.rootPath,
     );
     if (!rootChildren.any(
-      (entry) => entry.isDirectory && entry.name == outlineDirName,
+      (entry) => entry.isDirectory && entry.name == outlineDirectoryName,
     )) {
       await service.createDirectory(
         session,
         parentPath: novel.rootPath,
-        name: outlineDirName,
+        name: outlineDirectoryName,
       );
     }
 
@@ -604,7 +603,7 @@ final class WorkspaceController extends ChangeNotifier {
     var number = 1;
     String stem;
     do {
-      stem = number == 1 ? outlineDirName : '$outlineDirName$number';
+      stem = number == 1 ? outlineDirectoryName : '$outlineDirectoryName$number';
       number += 1;
     } while (existingNames.contains('$stem.md'));
 

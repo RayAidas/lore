@@ -1,4 +1,5 @@
 export 'src/agent/agent_config_service.dart';
+export 'src/agent/linked_outlines_service.dart';
 export 'src/agent/writing_agent_service.dart';
 export 'src/highlight/paragraph_digest.dart';
 export 'src/history/history_service.dart';
@@ -16,6 +17,7 @@ export 'src/library/semantic_library_entries.dart';
 export 'src/library/workspace_session.dart';
 export 'src/ports/agent_config_repository.dart';
 export 'src/ports/ai_chat_client.dart';
+export 'src/ports/linked_outlines_repository.dart';
 export 'src/ports/app_preferences_repository.dart';
 export 'src/ports/clock.dart';
 export 'src/ports/content_tree_repository.dart';
