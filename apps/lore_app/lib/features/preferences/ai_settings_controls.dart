@@ -104,7 +104,8 @@ final class _AiSettingsContent extends ConsumerWidget {
       title: '模型接口地址',
       label: 'Base URL',
       initialValue: current,
-      helperText: 'OpenAI 风格 Chat Completions 地址，如 https://api.openai.com/v1',
+      helperText: '只需填到域名或 /v1，不要包含 /chat/completions；'
+          '如 https://api.deepseek.com 或 https://api.openai.com/v1',
       confirmLabel: '保存',
     );
     if (value == null) return;

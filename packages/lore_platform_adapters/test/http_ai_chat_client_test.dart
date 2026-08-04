@@ -65,6 +65,51 @@ void main() {
     expect(sent[0]['content'], '你是助手');
   });
 
+  /// 返回合法成功体的 MockClient，仅用于校验请求 URL。
+  MockClient okResponder() {
+    return clientWith(
+      () => http.Response(
+        jsonEncode({
+          'choices': [
+            {'message': {'role': 'assistant', 'content': 'ok'}},
+          ],
+        }),
+        200,
+      ),
+    );
+  }
+
+  test('accepts a bare domain base url (deepseek style)', () async {
+    final client = HttpAiChatClient(client: okResponder());
+    await client.completeChat(
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'sk',
+      model: 'm1',
+      messages: messages,
+    );
+    expect(lastUri.toString(), 'https://api.deepseek.com/chat/completions');
+  });
+
+  test('normalizes a base url that already ends with /chat/completions', () async {
+    final client = HttpAiChatClient(client: okResponder());
+    // 用户误把完整 endpoint 填进接口地址：不应拼成重复段。
+    await client.completeChat(
+      baseUrl: 'https://api.deepseek.com/v1/chat/completions',
+      apiKey: 'sk',
+      model: 'm1',
+      messages: messages,
+    );
+    expect(lastUri.toString(), 'https://api.deepseek.com/v1/chat/completions');
+
+    await client.completeChat(
+      baseUrl: 'https://api.deepseek.com/chat/completions',
+      apiKey: 'sk',
+      model: 'm1',
+      messages: messages,
+    );
+    expect(lastUri.toString(), 'https://api.deepseek.com/chat/completions');
+  });
+
   test('throws readable error on non-2xx status', () async {
     final client = HttpAiChatClient(
       client: clientWith(
@@ -85,6 +130,30 @@ void main() {
           'message',
           contains('401'),
         ),
+      ),
+    );
+  });
+
+  test('404 error hints that the base url may include the endpoint', () async {
+    final client = HttpAiChatClient(
+      client: clientWith(
+        () => http.Response('not found', 404),
+      ),
+    );
+
+    await expectLater(
+      client.completeChat(
+        baseUrl: 'https://api.deepseek.com',
+        apiKey: 'sk',
+        model: 'm1',
+        messages: messages,
+      ),
+      throwsA(
+        isA<AiRequestException>().having(
+          (e) => e.message,
+          'message',
+          contains('404'),
+        ).having((e) => e.message, 'hint', contains('/chat/completions')),
       ),
     );
   });

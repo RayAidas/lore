@@ -23,7 +23,7 @@ final class HttpAiChatClient implements AiChatClient {
     required List<AiChatMessage> messages,
     Duration timeout = const Duration(seconds: 60),
   }) async {
-    final url = Uri.parse('${_trimTrailingSlash(baseUrl)}/chat/completions');
+    final url = Uri.parse(_resolveEndpoint(baseUrl));
     final body = jsonEncode({
       'model': model,
       'messages': [
@@ -52,8 +52,13 @@ final class HttpAiChatClient implements AiChatClient {
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      // 404 常见于把完整 endpoint 填进了接口地址（如带 /chat/completions），
+      // 归一化已尽量兜底，这里再给用户一个可操作的提示。
+      final hint = response.statusCode == 404
+          ? '，接口地址只需填到域名或 /v1，不要包含 /chat/completions'
+          : '';
       throw AiRequestException(
-        '模型服务返回 ${response.statusCode}：${_responseSnippet(response.body)}',
+        '模型服务返回 ${response.statusCode}$hint：${_responseSnippet(response.body)}',
       );
     }
 
@@ -69,8 +74,19 @@ final class HttpAiChatClient implements AiChatClient {
     return content;
   }
 
-  String _trimTrailingSlash(String url) {
-    return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+  /// 把接口地址解析为 `{base}/chat/completions`。
+  ///
+  /// 归一化两点：去掉末尾斜杠；若用户误把完整 endpoint（含 `/chat/completions`）
+  /// 填进了接口地址，去掉重复段，避免拼出 `.../chat/completions/chat/completions`
+  /// 导致 404。
+  String _resolveEndpoint(String baseUrl) {
+    var url = baseUrl.trim();
+    url = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+    const suffix = '/chat/completions';
+    if (url.endsWith(suffix)) {
+      url = url.substring(0, url.length - suffix.length);
+    }
+    return '$url$suffix';
   }
 
   String _responseSnippet(String body) {
