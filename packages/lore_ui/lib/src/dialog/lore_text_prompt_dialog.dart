@@ -10,6 +10,7 @@ final class LoreTextPromptDialog extends StatefulWidget {
     this.suffixText,
     this.helperText,
     this.keyboardType,
+    this.obscureText = false,
     this.cancelLabel = '取消',
     this.confirmLabel = '确认',
     this.autofocus = true,
@@ -22,6 +23,10 @@ final class LoreTextPromptDialog extends StatefulWidget {
   final String? suffixText;
   final String? helperText;
   final TextInputType? keyboardType;
+
+  /// 是否遮蔽输入（API Key 等敏感字段）。
+  final bool obscureText;
+
   final String cancelLabel;
   final String confirmLabel;
   final bool autofocus;
@@ -55,6 +60,7 @@ final class _LoreTextPromptDialogState extends State<LoreTextPromptDialog> {
         controller: _controller,
         autofocus: widget.autofocus,
         keyboardType: widget.keyboardType,
+        obscureText: widget.obscureText,
         textInputAction: TextInputAction.done,
         decoration: InputDecoration(
           labelText: widget.label,
@@ -91,6 +97,7 @@ Future<String?> showLoreTextPromptDialog({
   String? suffixText,
   String? helperText,
   TextInputType? keyboardType,
+  bool obscureText = false,
   String cancelLabel = '取消',
   String confirmLabel = '确认',
   bool autofocus = true,
@@ -104,6 +111,7 @@ Future<String?> showLoreTextPromptDialog({
       suffixText: suffixText,
       helperText: helperText,
       keyboardType: keyboardType,
+      obscureText: obscureText,
       cancelLabel: cancelLabel,
       confirmLabel: confirmLabel,
       autofocus: autofocus,

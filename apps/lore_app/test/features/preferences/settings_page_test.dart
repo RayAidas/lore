@@ -54,18 +54,18 @@ void main() {
       expect(find.text('透明窗口'), findsNothing);
       // 默认章节格式已取消（固定 TXT），设置面板不再出现该行。
       expect(find.text('默认章节格式'), findsNothing);
-      // 编辑器显示已并入排版；三大类之间各一条分隔线（3 段 → 2 条）。
+      // 编辑器显示已并入排版；5 个大类之间各一条分隔线（5 段 → 4 条）。
       expect(find.text('字体'), findsOneWidget);
       expect(
         find.byWidgetPredicate(
           (widget) =>
               widget.runtimeType.toString() == '_SettingsSectionDivider',
         ),
-        findsNWidgets(3),
+        findsNWidgets(4),
       );
-      // 组内不再有分割线：全面板 Divider 仅剩三大类分割线（VerticalDivider 是
+      // 组内不再有分割线：全面板 Divider 仅剩大类分隔线（VerticalDivider 是
       // 不同类型，不被 byType<Divider> 匹配）。
-      expect(find.byType(Divider), findsNWidgets(3));
+      expect(find.byType(Divider), findsNWidgets(4));
       expect(find.text('打字机模式'), findsOneWidget);
       expect(find.text('主题与编辑器显示'), findsNothing);
       expect(find.text('文档格式与段落样式'), findsNothing);
@@ -333,7 +333,7 @@ void main() {
       // 向上拖（指针 dy 负 → 内容下滚）到底。
       await tester.drag(
         find.byKey(const ValueKey('settings-content-scroll')),
-        const Offset(0, -2000),
+        const Offset(0, -5000),
       );
       await tester.pumpAndSettle();
       expect(

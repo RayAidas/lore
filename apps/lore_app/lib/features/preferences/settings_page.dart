@@ -12,27 +12,33 @@ import 'background_image_storage.dart';
 import 'keybinding_recorder.dart';
 import 'preferences_providers.dart';
 import 'theme_options.dart';
+import '../ai/ai_providers.dart';
 import '../workspace/workspace_platform.dart';
 
 part 'settings_controls.dart';
+part 'ai_settings_controls.dart';
 
 /// 以辅助面板形态打开设置（标题/副标题/图标/宽度集中在此，供工作区、侧栏、
-/// 启动页复用）。
-Future<void> showSettingsPanel(BuildContext context) {
+/// 启动页复用）。[initialSection] 用 [_SettingsSection.keyName] 指定打开后定位到
+/// 的分类（如 AI 写作助手未配置时「去设置」跳转）。
+Future<void> showSettingsPanel(BuildContext context, {String? initialSection}) {
   return showLorePanelSheet<void>(
     context: context,
     title: '设置',
     icon: Icons.settings_outlined,
     maxWidth: 760,
     desktopMaxHeightFactor: 0.72,
-    child: const SettingsContent(),
+    child: SettingsContent(initialSection: initialSection),
   );
 }
 
 /// 设置面板内容（无 Scaffold 包装）：桌面使用左侧分类导航，窄屏依次展示全部
 /// 分组。加载失败时可重试。
 final class SettingsContent extends ConsumerWidget {
-  const SettingsContent({super.key});
+  const SettingsContent({this.initialSection, super.key});
+
+  /// 打开后定位到的分类 keyName（见 [_SettingsSection.keyName]）。
+  final String? initialSection;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -40,7 +46,7 @@ final class SettingsContent extends ConsumerWidget {
     return prefsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, stack) => _SettingsError(error: error),
-      data: (prefs) => _SettingsBody(prefs: prefs),
+      data: (prefs) => _SettingsBody(prefs: prefs, initialSection: initialSection),
     );
   }
 }
@@ -88,6 +94,7 @@ enum _SettingsSection {
   appearance(label: '外观', icon: Icons.palette_outlined, keyName: 'appearance'),
   layout(label: '排版', icon: Icons.format_align_left, keyName: 'layout'),
   writing(label: '写作偏好', icon: Icons.edit_note_outlined, keyName: 'writing'),
+  ai(label: 'AI 写作助手', icon: Icons.auto_awesome_outlined, keyName: 'ai'),
   shortcuts(label: '快捷键', icon: Icons.keyboard_outlined, keyName: 'shortcuts');
 
   const _SettingsSection({
@@ -102,18 +109,35 @@ enum _SettingsSection {
 }
 
 class _SettingsBody extends ConsumerStatefulWidget {
-  const _SettingsBody({required this.prefs});
+  const _SettingsBody({required this.prefs, this.initialSection});
 
   final AppPreferences prefs;
+
+  /// 打开后定位到的分类 keyName（如 `ai`）；null 表示默认「外观」。
+  final String? initialSection;
 
   @override
   ConsumerState<_SettingsBody> createState() => _SettingsBodyState();
 }
 
 class _SettingsBodyState extends ConsumerState<_SettingsBody> {
-  _SettingsSection _selectedSection = _SettingsSection.appearance;
+  late _SettingsSection _selectedSection = _resolveInitialSection();
   final ScrollController _desktopScrollController = ScrollController();
   final GlobalKey _desktopScrollViewKey = GlobalKey();
+
+  /// 把传入的 keyName 映射到分类；未知/缺失回落到「外观」。
+  _SettingsSection _resolveInitialSection() {
+    final keyName = widget.initialSection;
+    if (keyName == null) {
+      return _SettingsSection.appearance;
+    }
+    for (final section in _SettingsSection.values) {
+      if (section.keyName == keyName) {
+        return section;
+      }
+    }
+    return _SettingsSection.appearance;
+  }
 
   /// 桌面才显示「快捷键」分类——移动端无物理键盘，配了也触发不了。
   late final List<_SettingsSection> _visibleSections = supportsDesktopSplit
@@ -206,6 +230,18 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    // 定位到指定分类（如 AI 助手未配置时「去设置」跳转）：首帧构建完成后滚动。
+    if (widget.initialSection != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_scrollToSection(_selectedSection));
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _desktopScrollController.dispose();
     super.dispose();
@@ -214,6 +250,8 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   @override
   Widget build(BuildContext context) {
     final controller = ref.read(appPreferencesProvider.notifier);
+    // AI 写作助手的配置/Key 状态（单独 provider，异步加载）。
+    final agentAsync = ref.watch(agentConfigProvider);
     // 设置 setter 返回 Future<void>；包成同步回调并捕获异步失败，避免 Future 被
     // 静默丢弃（磁盘写入失败时弹 toast，而非无反馈地停在旧值）。
     ValueChanged<T> guard<T>(Future<void> Function(T) fn) => (T value) {
@@ -435,6 +473,27 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
               trailing: _CompactSwitch(
                 value: prefs.findUseRegex,
                 onChanged: guard(controller.setFindUseRegex),
+              ),
+            ),
+          ],
+        ),
+      ],
+      _SettingsSection.ai: [
+        _SettingsGroup(
+          title: 'AI 写作助手',
+          children: [
+            agentAsync.when(
+              data: (state) => _AiSettingsContent(configState: state),
+              loading: () => const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(child: Text('加载中…')),
+              ),
+              error: (error, stack) => _SettingRow(
+                label: 'AI 配置加载失败',
+                trailing: TextButton(
+                  onPressed: () => ref.invalidate(agentConfigProvider),
+                  child: const Text('重试'),
+                ),
               ),
             ),
           ],

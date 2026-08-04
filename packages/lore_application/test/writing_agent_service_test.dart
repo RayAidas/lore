@@ -1,0 +1,138 @@
+import 'package:lore_application/lore_application.dart';
+import 'package:lore_domain/lore_domain.dart';
+import 'package:test/test.dart';
+
+/// 记录调用参数并可配置结果的假客户端。
+final class _FakeAiChatClient implements AiChatClient {
+  List<AiChatMessage>? lastMessages;
+  String? lastBaseUrl;
+  String? lastApiKey;
+  String? lastModel;
+  Object? nextError;
+  String nextText = '生成结果';
+
+  @override
+  Future<String> completeChat({
+    required String baseUrl,
+    required String apiKey,
+    required String model,
+    required List<AiChatMessage> messages,
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
+    lastBaseUrl = baseUrl;
+    lastApiKey = apiKey;
+    lastModel = model;
+    lastMessages = messages;
+    final error = nextError;
+    if (error != null) {
+      throw error;
+    }
+    return nextText;
+  }
+}
+
+void main() {
+  const config = WritingAgentConfig(
+    schemaVersion: WritingAgentConfig.schemaVersionCurrent,
+    baseUrl: 'https://example.com/v1',
+    model: 'test-model',
+    enabled: true,
+  );
+  const apiKey = 'sk-test';
+
+  late _FakeAiChatClient client;
+  late WritingAgentService service;
+
+  setUp(() {
+    client = _FakeAiChatClient();
+    service = WritingAgentService(client: client);
+  });
+
+  test('runAction sends system + user messages and returns text', () async {
+    final result = await service.runAction(
+      action: WritingAgentAction.polish,
+      contextText: '这是一段需要润色的文字。',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    expect(result, '生成结果');
+    expect(client.lastBaseUrl, config.baseUrl);
+    expect(client.lastApiKey, apiKey);
+    expect(client.lastModel, config.model);
+    expect(client.lastMessages, hasLength(2));
+    expect(client.lastMessages![0].role, AiChatRole.system);
+    expect(client.lastMessages![0].content, isNotEmpty);
+    expect(client.lastMessages![1].role, AiChatRole.user);
+    expect(client.lastMessages![1].content, '这是一段需要润色的文字。');
+  });
+
+  test('each action gets its own non-empty system prompt', () async {
+    for (final action in WritingAgentAction.values) {
+      await service.runAction(
+        action: action,
+        contextText: '正文',
+        config: config,
+        apiKey: apiKey,
+      );
+      final system = client.lastMessages![0].content;
+      expect(system, isNotEmpty, reason: 'action $action should have a prompt');
+    }
+  });
+
+  test('runCustom embeds context with the instruction', () async {
+    await service.runCustom(
+      instruction: '改成更口语',
+      contextText: '上下文文字',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    final user = client.lastMessages![1].content;
+    expect(user, contains('改成更口语'));
+    expect(user, contains('上下文文字'));
+  });
+
+  test('runCustom without context sends the instruction alone', () async {
+    await service.runCustom(
+      instruction: '总结一下',
+      contextText: '   ',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    expect(client.lastMessages![1].content, '总结一下');
+  });
+
+  test('propagates AiRequestException as-is', () async {
+    client.nextError = const AiRequestException('模型服务返回 429');
+
+    await expectLater(
+      service.runAction(
+        action: WritingAgentAction.summarize,
+        contextText: '正文',
+        config: config,
+        apiKey: apiKey,
+      ),
+      throwsA(isA<AiRequestException>().having(
+        (e) => e.message,
+        'message',
+        '模型服务返回 429',
+      )),
+    );
+  });
+
+  test('wraps unexpected errors into AiRequestException', () async {
+    client.nextError = StateError('boom');
+
+    await expectLater(
+      service.runCustom(
+        instruction: 'x',
+        contextText: 'y',
+        config: config,
+        apiKey: apiKey,
+      ),
+      throwsA(isA<AiRequestException>()),
+    );
+  });
+}

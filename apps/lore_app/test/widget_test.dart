@@ -12,6 +12,7 @@ import 'package:lore_platform_adapters/lore_platform_adapters.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:lore_app/app/lore_app.dart';
+import 'package:lore_app/features/ai/ai_providers.dart';
 import 'package:lore_app/features/library/library_providers.dart';
 import 'package:lore_app/features/workspace/document_pane.dart';
 import 'package:lore_app/features/workspace/document_tabs.dart';
@@ -819,6 +820,14 @@ void main() {
           workspaceSessionRepositoryProvider.overrideWithValue(
             _MemoryWorkspaceSessionRepository(),
           ),
+          // 写作 Agent 用真实安全存储会在测试环境挂起（平台通道无宿主），
+          // override 为确定状态：未启用 → 面板显示引导视图。
+          agentConfigRepositoryProvider.overrideWithValue(
+            _FakeAgentConfigRepository(),
+          ),
+          agentApiKeyStorageProvider.overrideWithValue(
+            _FakeAgentApiKeyStorage(),
+          ),
         ],
         child: const LoreApp(),
       ),
@@ -896,7 +905,8 @@ void main() {
       find.byKey(const ValueKey('workspace-inspector-content')),
       findsOneWidget,
     );
-    expect(find.text('AI 写作助手'), findsOneWidget);
+    // 测试 override 了 AI 配置为未启用 → 面板显示未配置引导视图。
+    expect(find.text('写作助手未启用'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey('workspace-inspector-tab-assistant')),
@@ -1608,6 +1618,33 @@ final class _FakeWorkspaceRepository
   }) {
     throw UnimplementedError();
   }
+}
+
+final class _FakeAgentConfigRepository implements AgentConfigRepository {
+  _FakeAgentConfigRepository({
+    WritingAgentConfig? config,
+  }) : config = config ?? WritingAgentConfig.defaults();
+
+  WritingAgentConfig config;
+
+  @override
+  Future<WritingAgentConfig?> load() async => config;
+
+  @override
+  Future<void> save(WritingAgentConfig value) async => config = value;
+
+  @override
+  Stream<WritingAgentConfig> watch() => const Stream.empty();
+}
+
+final class _FakeAgentApiKeyStorage implements AgentApiKeyStorage {
+  String? apiKey;
+
+  @override
+  Future<String?> read() async => apiKey;
+
+  @override
+  Future<void> write(String? value) async => apiKey = value;
 }
 
 final class _MemoryWorkspaceSessionRepository

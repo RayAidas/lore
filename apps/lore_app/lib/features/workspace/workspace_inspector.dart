@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ai/assistant_panel.dart';
 import 'novel_search_controller.dart';
 import 'novel_search_panel.dart';
 import 'phone_preview/phone_preview_pane.dart';
@@ -59,7 +60,7 @@ final class WorkspaceInspector extends StatelessWidget {
     return Material(
       color: colorScheme.surfaceContainerLowest,
       child: switch (tab) {
-        WorkspaceInspectorTab.assistant => const _AssistantPanel(),
+        WorkspaceInspectorTab.assistant => AiAssistantPanel(controller: controller),
         WorkspaceInspectorTab.statistics => WritingStatisticsPane(
           controller: controller,
         ),
@@ -187,92 +188,3 @@ final class _InspectorRailTab extends StatelessWidget {
   }
 }
 
-final class _AssistantPanel extends StatelessWidget {
-  const _AssistantPanel();
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return ListView(
-      padding: const EdgeInsets.all(18),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                colorScheme.primaryContainer.withValues(alpha: 0.7),
-                colorScheme.tertiaryContainer.withValues(alpha: 0.45),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.auto_awesome, color: colorScheme.primary),
-              const SizedBox(height: 14),
-              Text(
-                'AI 写作助手',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '错别字检查、人物一致性与 Agent 对话将在后续版本启用。',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  height: 1.5,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        Text('计划能力', style: Theme.of(context).textTheme.labelLarge),
-        const SizedBox(height: 8),
-        const _PlannedToolTile(
-          icon: Icons.spellcheck_outlined,
-          title: '校对与润色',
-          subtitle: '检查错别字、病句和标点',
-        ),
-        const _PlannedToolTile(
-          icon: Icons.groups_outlined,
-          title: '设定一致性',
-          subtitle: '结合书库资料检查人物与世界观',
-        ),
-        const _PlannedToolTile(
-          icon: Icons.account_tree_outlined,
-          title: 'Agent 工作流',
-          subtitle: '读取并操作授权范围内的书库内容',
-        ),
-      ],
-    );
-  }
-}
-
-final class _PlannedToolTile extends StatelessWidget {
-  const _PlannedToolTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, size: 20),
-      title: Text(title),
-      subtitle: Text(subtitle),
-      trailing: const Icon(Icons.lock_clock_outlined, size: 16),
-    );
-  }
-}

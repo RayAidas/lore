@@ -10,6 +10,8 @@ resolution: workspace
 dependencies:
   flutter:
     sdk: flutter
+  flutter_secure_storage: ^9.2.4
+  http: ^1.6.0
   lore_application:
     path: ../lore_application
   lore_domain:
@@ -17,6 +19,7 @@ dependencies:
   shared_preferences: ^2.5.3
 
 dev_dependencies:
+  flutter_secure_storage_platform_interface: ^1.1.2
   flutter_test:
     sdk: flutter
 

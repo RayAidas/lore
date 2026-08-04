@@ -1,3 +1,6 @@
+export 'src/agent/agent_chat_message.dart';
+export 'src/agent/writing_agent_action.dart';
+export 'src/agent/writing_agent_config.dart';
 export 'src/content/chapter_title.dart';
 export 'src/content/character_count.dart';
 export 'src/content/content_id.dart';
