@@ -1,5 +1,4 @@
 export 'src/ai/http_ai_chat_client.dart';
-export 'src/ai/secure_agent_api_key_storage.dart';
 export 'src/ai/shared_preferences_agent_config_repository.dart';
 export 'src/android/android_saf_library_access_gateway.dart';
 export 'src/android/android_saf_storage.dart';

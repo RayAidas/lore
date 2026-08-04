@@ -1,10 +1,9 @@
 import 'package:lore_domain/lore_domain.dart';
 
-/// 写作 Agent 配置（非敏感部分）的持久化端口。
+/// 写作 Agent 配置的持久化端口。
 ///
-/// 实现负责把 [WritingAgentConfig] 写入可重建的本地存储（如 SharedPreferences），
-/// 并通过 [watch] 暴露变更流。API Key 不经过本端口，由 [AgentApiKeyStorage]
-/// 单独走设备安全存储。
+/// 实现负责把 [WritingAgentConfig]（含明文 API Key）写入可重建的本地存储（如
+/// SharedPreferences），并通过 [watch] 暴露变更流。
 abstract interface class AgentConfigRepository {
   Future<WritingAgentConfig?> load();
 

@@ -1,14 +1,16 @@
 /// 写作 Agent 的模型服务配置。
 ///
-/// 只承载非敏感信息：接口地址、模型名、启用开关。API Key 单独走设备安全存储
-/// （macOS Keychain / Android Keystore，见 `AgentApiKeyStorage` 端口），不进入
-/// 本配置，避免与普通配置一同明文落盘。
+/// 承载接口地址、模型名、启用开关与 API Key。Key 与普通配置一并**明文**存储在
+/// 应用内（SharedPreferences），这是有意为之的取舍：为了跨平台简单与离线可用，
+/// 牺牲了系统安全存储（Keychain/Keystore）的加密隔离。使用方应了解明文存储的
+/// 风险，不要在共享/备份环境中存放高价值 Key。
 final class WritingAgentConfig {
   const WritingAgentConfig({
     required this.schemaVersion,
     required this.baseUrl,
     required this.model,
     required this.enabled,
+    this.apiKey = '',
   });
 
   static const schemaVersionCurrent = 1;
@@ -34,16 +36,21 @@ final class WritingAgentConfig {
   /// 总开关：为 false 时面板提示未启用，不发起请求。
   final bool enabled;
 
+  /// 第三方模型服务的 API Key，明文存于应用内配置（非系统安全存储）。
+  final String apiKey;
+
   WritingAgentConfig copyWith({
     String? baseUrl,
     String? model,
     bool? enabled,
+    String? apiKey,
   }) {
     return WritingAgentConfig(
       schemaVersion: schemaVersion,
       baseUrl: baseUrl ?? this.baseUrl,
       model: model ?? this.model,
       enabled: enabled ?? this.enabled,
+      apiKey: apiKey ?? this.apiKey,
     );
   }
 }

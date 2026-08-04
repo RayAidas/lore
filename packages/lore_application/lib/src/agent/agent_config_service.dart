@@ -1,18 +1,15 @@
 import 'package:lore_domain/lore_domain.dart';
 
-import '../ports/agent_api_key_storage.dart';
 import '../ports/agent_config_repository.dart';
 
-/// 写作 Agent 配置的组合用例：把非敏感配置与安全存储的 API Key 两个端口
-/// 拼成一个可供 UI 直接调用的服务。
+/// 写作 Agent 配置的组合用例。
+///
+/// 配置与 API Key 均明文存于 [AgentConfigRepository]（应用内 SharedPreferences），
+/// 不再走系统安全存储。UI 直接读写 [WritingAgentConfig.apiKey] 即可。
 final class AgentConfigService {
-  const AgentConfigService({
-    required this.configRepository,
-    required this.apiKeyStorage,
-  });
+  const AgentConfigService({required this.configRepository});
 
   final AgentConfigRepository configRepository;
-  final AgentApiKeyStorage apiKeyStorage;
 
   Future<WritingAgentConfig> loadConfigOrDefault() async {
     final loaded = await configRepository.load();
@@ -23,19 +20,13 @@ final class AgentConfigService {
     return configRepository.save(config);
   }
 
-  Future<String?> readApiKey() => apiKeyStorage.read();
-
-  Future<void> saveApiKey(String? apiKey) => apiKeyStorage.write(apiKey);
-
   /// 是否已具备发起请求的全部条件：显式启用且 Key/地址/模型齐全。
   Future<bool> isReady() async {
     final config = await loadConfigOrDefault();
     if (!config.enabled) {
       return false;
     }
-    final apiKey = await readApiKey();
-    return apiKey != null &&
-        apiKey.isNotEmpty &&
+    return config.apiKey.isNotEmpty &&
         config.baseUrl.isNotEmpty &&
         config.model.isNotEmpty;
   }

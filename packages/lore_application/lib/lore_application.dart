@@ -14,7 +14,6 @@ export 'src/library/novel_overview.dart';
 export 'src/library/novel_structure.dart';
 export 'src/library/semantic_library_entries.dart';
 export 'src/library/workspace_session.dart';
-export 'src/ports/agent_api_key_storage.dart';
 export 'src/ports/agent_config_repository.dart';
 export 'src/ports/ai_chat_client.dart';
 export 'src/ports/app_preferences_repository.dart';

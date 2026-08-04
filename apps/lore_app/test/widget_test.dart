@@ -825,9 +825,6 @@ void main() {
           agentConfigRepositoryProvider.overrideWithValue(
             _FakeAgentConfigRepository(),
           ),
-          agentApiKeyStorageProvider.overrideWithValue(
-            _FakeAgentApiKeyStorage(),
-          ),
         ],
         child: const LoreApp(),
       ),
@@ -1635,16 +1632,6 @@ final class _FakeAgentConfigRepository implements AgentConfigRepository {
 
   @override
   Stream<WritingAgentConfig> watch() => const Stream.empty();
-}
-
-final class _FakeAgentApiKeyStorage implements AgentApiKeyStorage {
-  String? apiKey;
-
-  @override
-  Future<String?> read() async => apiKey;
-
-  @override
-  Future<void> write(String? value) async => apiKey = value;
 }
 
 final class _MemoryWorkspaceSessionRepository

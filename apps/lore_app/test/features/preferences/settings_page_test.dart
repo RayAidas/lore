@@ -120,7 +120,8 @@ void main() {
         find.byWidgetPredicate(
           (widget) => widget.runtimeType.toString() == '_CompactSwitch',
         ),
-        findsNWidgets(5),
+        // 写作分组 5 个 + AI 分组「启用」开关 1 个。
+        findsNWidgets(6),
       );
 
       await tester.drag(

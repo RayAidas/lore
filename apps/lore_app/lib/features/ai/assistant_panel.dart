@@ -236,14 +236,14 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
           action: action,
           contextText: contextInfo.text,
           config: configState.config,
-          apiKey: await _requireApiKey(configState),
+          apiKey: configState.config.apiKey,
         );
       } else if (custom != null) {
         text = await service.runCustom(
           instruction: custom,
           contextText: contextInfo.text,
           config: configState.config,
-          apiKey: await _requireApiKey(configState),
+          apiKey: configState.config.apiKey,
         );
       } else {
         return;
@@ -264,15 +264,6 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
         _busy = false;
       });
     }
-  }
-
-  /// 从安全存储读取 API Key（配置状态里只保存了「是否已设置」标记）。
-  Future<String> _requireApiKey(AgentConfigState configState) async {
-    final apiKey = await ref.read(agentConfigServiceProvider).readApiKey();
-    if (apiKey == null || apiKey.isEmpty) {
-      throw const AiRequestException('API Key 为空，请到设置中重新配置');
-    }
-    return apiKey;
   }
 
   Future<void> _copyResult() async {

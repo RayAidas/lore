@@ -19,11 +19,12 @@ void main() {
     expect(await repository.load(), isNull);
   });
 
-  test('round-trips config through save and load', () async {
+  test('round-trips config including plaintext api key', () async {
     final original = WritingAgentConfig.defaults().copyWith(
       baseUrl: 'https://example.com/v1',
       model: 'deepseek-chat',
       enabled: true,
+      apiKey: 'sk-plaintext',
     );
 
     await repository.save(original);
@@ -33,7 +34,22 @@ void main() {
     expect(loaded!.baseUrl, 'https://example.com/v1');
     expect(loaded.model, 'deepseek-chat');
     expect(loaded.enabled, isTrue);
+    expect(loaded.apiKey, 'sk-plaintext');
     expect(loaded.schemaVersion, WritingAgentConfig.schemaVersionCurrent);
+  });
+
+  test('tolerates a legacy blob without the apiKey field', () async {
+    SharedPreferences.setMockInitialValues({
+      'lore.agent.config': jsonEncode({
+        'schemaVersion': WritingAgentConfig.schemaVersionCurrent,
+        'baseUrl': 'https://example.com/v1',
+        'model': 'm',
+        'enabled': true,
+      }),
+    });
+    final loaded = await repository.load();
+    expect(loaded, isNotNull);
+    expect(loaded!.apiKey, isEmpty);
   });
 
   test('returns null for a corrupted blob', () async {

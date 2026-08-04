@@ -83,8 +83,8 @@ final class _AiSettingsContent extends ConsumerWidget {
           ),
         const SizedBox(height: 6),
         Text(
-          '调用模型时，所选文字或当前章节会发送到配置的模型服务；API Key 仅保存'
-          '在系统安全存储（macOS Keychain / Android Keystore），不写入书库。',
+          '调用模型时，所选文字或当前章节会发送到配置的模型服务；API Key 明文保存'
+          '在应用内配置中（不加密），请勿在共享或备份环境中使用高价值 Key。',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
             height: 1.5,
@@ -155,7 +155,7 @@ final class _AiSettingsContent extends ConsumerWidget {
       title: isReplace ? '更换 API Key' : '设置 API Key',
       label: 'API Key',
       obscureText: true,
-      helperText: '仅保存在本机安全存储（macOS Keychain / Android Keystore）',
+      helperText: '明文保存在应用内配置中',
       confirmLabel: '保存',
     );
     if (value == null) return;

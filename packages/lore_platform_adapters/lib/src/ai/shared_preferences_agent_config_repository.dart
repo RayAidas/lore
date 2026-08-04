@@ -9,7 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// 命名约定与 [SharedPreferencesAppPreferencesRepository] 一致：单一 JSON 字符串
 /// key（`lore.agent.config`），内嵌 `schemaVersion`；解析失败或版本不符时 [load]
-/// 返回 `null`，让上层回退默认值。API Key 不在此存储，见安全存储适配器。
+/// 返回 `null`，让上层回退默认值。API Key 明文随配置一起存储（应用内）。
 final class SharedPreferencesAgentConfigRepository
     implements AgentConfigRepository {
   SharedPreferencesAgentConfigRepository();
@@ -43,11 +43,14 @@ final class SharedPreferencesAgentConfigRepository
       if (baseUrl is! String || model is! String || enabled is! bool) {
         return null;
       }
+      // apiKey 是后加字段，老 blob 缺失时容错为空字符串。
+      final apiKey = value['apiKey'];
       return WritingAgentConfig(
         schemaVersion: _schemaVersion,
         baseUrl: baseUrl,
         model: model,
         enabled: enabled,
+        apiKey: apiKey is String ? apiKey : '',
       );
     } on FormatException {
       return null;
@@ -70,6 +73,7 @@ final class SharedPreferencesAgentConfigRepository
       'baseUrl': config.baseUrl,
       'model': config.model,
       'enabled': config.enabled,
+      'apiKey': config.apiKey,
     };
   }
 }

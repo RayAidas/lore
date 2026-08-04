@@ -8,6 +8,11 @@ AI 不进入早期核心版本，待基础写作、阅读和书库能力稳定�
 
 - 用户填写自己的 API Key 后才能启用 AI。
 - API Key 存储于 macOS Keychain 或 Android Keystore，不写入书库和普通配置文件。
+  > 偏离记录（2026-08-04）：当前实现按产品要求把 API Key 与配置一并**明文**存于
+  > 应用内 SharedPreferences，未使用系统安全存储。这是有意取舍（简化跨平台与离线
+  > 可用、避免 macOS 无签名环境的 keychain entitlement 限制），设置页已向用户提示
+  > 明文存储风险。后续如需恢复 Keychain/Keystore，需配置 macOS 开发签名并加回
+  > `keychain-access-groups`（非空值）entitlement。
 - 模型接口保持抽象，优先兼容通用的 OpenAI 风格接口，并允许后续接入其他服务。
 - 不在日志、崩溃报告或导出的书库数据中记录 API Key。
 
