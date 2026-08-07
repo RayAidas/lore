@@ -143,6 +143,34 @@ void main() {
     },
   );
 
+  test('novel length appears in both step messages', () async {
+    const lengthRequest = OutlineGenerationRequest(
+      theme: '龙渊纪元',
+      novelLength: NovelLength.epic,
+    );
+    final client = _FakeAiChatClient([step1Output, step2Output]);
+    final service = OutlineGenerationService(client: client);
+
+    await service.generate(
+      request: lengthRequest,
+      config: config,
+      apiKey: apiKey,
+    );
+
+    // 第 1 步据此把握世界观/人物铺陈规模，第 2 步据此规划卷数与章数。
+    expect(client.calls[0].messages[1].content, contains('小说长度：超长篇'));
+    expect(client.calls[1].messages[1].content, contains('小说长度：超长篇'));
+  });
+
+  test('novel length defaults to 中长篇', () async {
+    final client = _FakeAiChatClient([step1Output, step2Output]);
+    final service = OutlineGenerationService(client: client);
+
+    await service.generate(request: request, config: config, apiKey: apiKey);
+
+    expect(client.calls[0].messages[1].content, contains('小说长度：中长篇'));
+  });
+
   test(
     'empty world and character headings fall back to world section',
     () async {

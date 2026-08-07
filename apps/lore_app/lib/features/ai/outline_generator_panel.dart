@@ -53,6 +53,8 @@ final class _OutlineGeneratorPanelState
   final TextEditingController _chapterController = TextEditingController();
   final TextEditingController _extraController = TextEditingController();
 
+  NovelLength _novelLength = NovelLength.mediumLong;
+
   bool _busy = false;
   String _stepText = '';
   String? _error;
@@ -117,6 +119,48 @@ final class _OutlineGeneratorPanelState
           hint: '例如：龙渊纪元',
           required: true,
           enabled: !_busy,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          '小说长度',
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<NovelLength>(
+          initialValue: _novelLength,
+          isExpanded: true,
+          decoration: InputDecoration(
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: theme.colorScheme.primary),
+            ),
+          ),
+          items: [
+            for (final length in NovelLength.values)
+              DropdownMenuItem(value: length, child: Text(length.label)),
+          ],
+          onChanged: _busy
+              ? null
+              : (value) {
+                  if (value != null) {
+                    setState(() => _novelLength = value);
+                  }
+                },
         ),
         const SizedBox(height: 12),
         _OutlineField(
@@ -216,6 +260,7 @@ final class _OutlineGeneratorPanelState
 
     final request = OutlineGenerationRequest(
       theme: theme,
+      novelLength: _novelLength,
       worldSetting: _worldController.text,
       characterSetting: _characterController.text,
       volumeSetting: _volumeController.text,

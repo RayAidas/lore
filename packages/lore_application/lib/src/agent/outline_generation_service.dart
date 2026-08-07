@@ -76,6 +76,7 @@ final class OutlineGenerationService {
   ) {
     final reference = _referenceOnlyBlock(referenceText);
     final buffer = StringBuffer()..writeln('小说主题/书名：${request.theme}');
+    buffer.writeln('小说长度：${request.novelLength.label}');
     _appendIfPresent(buffer, label: '世界背景要求', value: request.worldSetting);
     _appendIfPresent(buffer, label: '人物设定要求', value: request.characterSetting);
     _appendIfPresent(buffer, label: '补充要求', value: request.extraPrompt);
@@ -91,6 +92,7 @@ final class OutlineGenerationService {
   ) {
     final reference = _buildOnBlock(step1Output);
     final buffer = StringBuffer()..writeln('小说主题/书名：${request.theme}');
+    buffer.writeln('小说长度：${request.novelLength.label}');
     _appendIfPresent(buffer, label: '卷设定', value: request.volumeSetting);
     _appendIfPresent(buffer, label: '章设定', value: request.chapterSetting);
     _appendIfPresent(buffer, label: '补充要求', value: request.extraPrompt);
@@ -156,8 +158,11 @@ final class OutlineGenerationService {
 
 /// 第 1 步：世界观 + 人物设定。
 const _worldCharacterSystemPrompt = '''
-你是一位资深的小说设定师。请根据用户提供的小说主题、世界背景要求与人物设定要求，
-创作一份内容充实、逻辑自洽的世界观与人物设定。
+你是一位资深的小说设定师。请根据用户提供的小说主题、小说长度、世界背景要求与
+人物设定要求，创作一份内容充实、逻辑自洽的世界观与人物设定。
+
+请结合用户指定的小说长度（超短篇至超长篇）把握铺陈规模：篇幅越长，世界观与人物
+设定越可详尽；超短篇/短篇则聚焦核心设定，避免过度铺陈。
 
 请严格按以下 Markdown 结构输出，只输出这两个一级章节，不要添加任何解释或额外内容：
 
@@ -170,8 +175,8 @@ const _worldCharacterSystemPrompt = '''
 
 /// 第 2 步：卷章大纲。要求每章一句话概括，控制篇幅防截断。
 const _chaptersSystemPrompt = '''
-你是一位经验丰富的网文结构师。请基于用户提供的小说主题、卷设定、章设定，以及
-给定的世界观与人物设定，规划一份完整、连贯的卷章大纲。
+你是一位经验丰富的网文结构师。请基于用户提供的小说主题、小说长度、卷设定、
+章设定，以及给定的世界观与人物设定，规划一份完整、连贯的卷章大纲。
 
 请严格按以下 Markdown 结构输出，只输出卷章大纲，不要添加任何解释或额外内容：
 
@@ -186,6 +191,7 @@ const _chaptersSystemPrompt = '''
 ## 第二卷 卷名
 （同上逐卷展开）
 
-若用户未指定卷或章数，请根据世界观与人物设定自行规划合理的规模，并保持章节
-之间因果与节奏连贯。
+若用户未指定卷或章数，请结合用户指定的小说长度规划合理的卷数与章数：超短篇/
+短篇只需一两卷数章，中篇约两三卷，中长篇/长篇约三五卷以上，超长篇则需十余卷
+并持续展开，同时保持章节之间因果与节奏连贯。
 ''';
