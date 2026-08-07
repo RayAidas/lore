@@ -13,6 +13,14 @@ import 'workspace_session.dart';
 /// 只是普通 Markdown 文件。创建与 AI 关联大纲共用此常量，避免两处漂移。
 const String outlineDirectoryName = '大纲';
 
+/// 小说根目录下「世界观」目录名（`正文` 的兄弟目录）。AI 生成的世界观分类文件
+/// 保存在此；与 [outlineDirectoryName] 同级的普通目录，不参与内容树。
+const String worldSettingDirectoryName = '世界观';
+
+/// 小说根目录下「人物」目录名（`正文` 的兄弟目录）。AI 生成的人物设定分类文件
+/// 保存在此；与 [outlineDirectoryName] 同级的普通目录，不参与内容树。
+const String characterDirectoryName = '人物';
+
 final class LibraryWorkspaceService {
   const LibraryWorkspaceService({
     required this.treeRepository,

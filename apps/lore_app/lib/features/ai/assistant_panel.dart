@@ -12,6 +12,8 @@ import 'package:path/path.dart' as p;
 import '../preferences/settings_page.dart';
 import '../workspace/workspace_controller.dart';
 import 'ai_providers.dart';
+import 'linked_outline_context.dart';
+import 'outline_generator_panel.dart';
 
 /// 发送给模型的上下文范围。
 enum AgentContextMode { selection, document }
@@ -84,10 +86,9 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
 
   Future<void> _loadCache(NovelSnapshot novel) async {
     try {
-      final cache = await ref.read(aiCacheServiceProvider).load(
-        controller.session,
-        novelRootPath: novel.rootPath,
-      );
+      final cache = await ref
+          .read(aiCacheServiceProvider)
+          .load(controller.session, novelRootPath: novel.rootPath);
       if (mounted && novel.metadata.id.value == _cacheNovelId) {
         setState(() => _cache = cache);
       }
@@ -102,11 +103,13 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
       return;
     }
     try {
-      await ref.read(aiCacheServiceProvider).save(
-        controller.session,
-        novelRootPath: novel.rootPath,
-        cache: cache,
-      );
+      await ref
+          .read(aiCacheServiceProvider)
+          .save(
+            controller.session,
+            novelRootPath: novel.rootPath,
+            cache: cache,
+          );
     } catch (error, stackTrace) {
       debugPrint('ai cache save failed: $error\n$stackTrace');
     }
@@ -164,6 +167,9 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
         _ActionSection(
           enabled: doc != null && !_busy,
           onAction: _runAction,
+          outlineEnabled: !_busy,
+          onGenerateOutline: () =>
+              showOutlineGeneratorSheet(context, controller),
         ),
         const SizedBox(height: 14),
         _CustomPromptSection(
@@ -198,7 +204,8 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
           documentOpen: doc != null,
           onUseInstruction: _useCachedInstruction,
           onRerun: _rerunCached,
-          onApply: (text) => _apply(doc!, AgentApplyTarget.replaceSelection, text),
+          onApply: (text) =>
+              _apply(doc!, AgentApplyTarget.replaceSelection, text),
           onDeleteEntry: (index) {
             if (novel != null) {
               unawaited(_deleteCacheEntry(novel, index));
@@ -292,36 +299,13 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
     );
   }
 
-  /// 读取当前小说已关联大纲的内容，合并成参考文本（每个文件带文件名头）。
-  ///
-  /// 文件缺失/读取失败时跳过，不阻断主请求；无关联时返回空串。
-  Future<String> _linkedOutlineContext() async {
-    final novel = controller.activeNovel;
-    if (novel == null) {
-      return '';
-    }
-    final links = ref.read(linkedOutlinesProvider).value;
-    final paths =
-        links?.forNovel(novel.metadata.id.value) ?? const <String>[];
-    if (paths.isEmpty) {
-      return '';
-    }
-    final parts = <String>[];
-    for (final path in paths) {
-      try {
-        final doc = await controller.service.readDocument(
-          controller.session,
-          DocumentRef(relativePath: path, format: DocumentFormat.markdown),
-        );
-        final text = doc.text.trim();
-        if (text.isNotEmpty) {
-          parts.add('【${p.basename(path)}】\n$text');
-        }
-      } catch (_) {
-        // 大纲被删或读取失败：跳过。
-      }
-    }
-    return parts.join('\n\n');
+  /// 读取当前小说已关联大纲的内容，合并成参考文本。实现见共享的
+  /// [buildLinkedOutlineReference]，写作助手与大纲生成面板共用。
+  Future<String> _linkedOutlineContext() {
+    return buildLinkedOutlineReference(
+      controller: controller,
+      links: ref.read(linkedOutlinesProvider).value,
+    );
   }
 
   Future<void> _runAction(WritingAgentAction action) {
@@ -345,7 +329,9 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
       return;
     }
     final configState = ref.read(agentConfigProvider).value;
-    if (configState == null || !configState.config.enabled || !configState.hasApiKey) {
+    if (configState == null ||
+        !configState.config.enabled ||
+        !configState.hasApiKey) {
       setState(() {
         _error = 'AI 未启用或未设置 API Key，请先到设置中配置';
         _result = null;
@@ -435,8 +421,7 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
     }
     final contextInfo = _currentContext();
     final links = ref.read(linkedOutlinesProvider).value;
-    final outlineCount =
-        links?.forNovel(novel.metadata.id.value).length ?? 0;
+    final outlineCount = links?.forNovel(novel.metadata.id.value).length ?? 0;
     final main = contextInfo.fromSelection
         ? '选中文字 · ${contextInfo.count} 字'
         : '当前章节正文 · ${contextInfo.count} 字';
@@ -475,17 +460,19 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
         AgentApplyTarget.replaceSelection ||
         AgentApplyTarget.insertAtCursor => TextEditingValue(
           text: selection.isValid
-              ? editor.text
-                    .replaceRange(selection.start, selection.end, text)
+              ? editor.text.replaceRange(selection.start, selection.end, text)
               : editor.text + text,
           selection: TextSelection.collapsed(
-            offset: (selection.isValid ? selection.start : editor.text.length) +
+            offset:
+                (selection.isValid ? selection.start : editor.text.length) +
                 text.length,
           ),
         ),
         AgentApplyTarget.append => TextEditingValue(
           text: '${editor.text}\n$text',
-          selection: TextSelection.collapsed(offset: editor.text.length + 1 + text.length),
+          selection: TextSelection.collapsed(
+            offset: editor.text.length + 1 + text.length,
+          ),
         ),
       };
     } else {
@@ -536,9 +523,7 @@ final class _ContextSection extends StatelessWidget {
             }
             final selection = doc.editorController.selection;
             final hasSelection = selection.isValid && !selection.isCollapsed;
-            final selected = hasSelection
-                ? selection.end - selection.start
-                : 0;
+            final selected = hasSelection ? selection.end - selection.start : 0;
             final bodyLength = doc.editorController.length;
             return Wrap(
               spacing: 8,
@@ -687,10 +672,7 @@ final class _OutlineSectionState extends ConsumerState<_OutlineSection> {
             }
             final entries = snapshot.data ?? const <LibraryEntry>[];
             if (entries.isEmpty) {
-              return Text(
-                '当前小说暂无大纲文件（可在结构面板「新建大纲」创建）',
-                style: muted,
-              );
+              return Text('当前小说暂无大纲文件（可在结构面板「新建大纲」创建）', style: muted);
             }
             return Wrap(
               spacing: 8,
@@ -724,9 +706,12 @@ final class _OutlineSectionState extends ConsumerState<_OutlineSection> {
     }
     final controller = ref.read(linkedOutlinesProvider.notifier);
     final currentlyLinked =
-        (ref.read(linkedOutlinesProvider).value
-                ?.forNovel(novel.metadata.id.value) ??
-            const <String>[]).contains(path);
+        (ref
+                    .read(linkedOutlinesProvider)
+                    .value
+                    ?.forNovel(novel.metadata.id.value) ??
+                const <String>[])
+            .contains(path);
     try {
       if (currentlyLinked) {
         await controller.unlink(novel.metadata.id.value, path);
@@ -798,10 +783,16 @@ final class _ActionSection extends StatelessWidget {
   const _ActionSection({
     required this.enabled,
     required this.onAction,
+    required this.outlineEnabled,
+    required this.onGenerateOutline,
   });
 
   final bool enabled;
   final ValueChanged<WritingAgentAction> onAction;
+
+  /// 「生成大纲」独立可用：不要求打开文档，只要求 AI 已配置。
+  final bool outlineEnabled;
+  final VoidCallback onGenerateOutline;
 
   @override
   Widget build(BuildContext context) {
@@ -828,6 +819,12 @@ final class _ActionSection extends StatelessWidget {
                 enabled: enabled,
                 onPressed: () => onAction(action),
               ),
+            _ActionButton(
+              label: '生成大纲',
+              icon: Icons.account_tree_outlined,
+              enabled: outlineEnabled,
+              onPressed: onGenerateOutline,
+            ),
           ],
         ),
       ],
@@ -1187,10 +1184,7 @@ final class _ConfigLoadErrorView extends StatelessWidget {
               color: colorScheme.onSurfaceVariant,
             ),
             const SizedBox(height: 10),
-            Text(
-              'AI 配置加载失败',
-              style: theme.textTheme.titleSmall,
-            ),
+            Text('AI 配置加载失败', style: theme.textTheme.titleSmall),
             const SizedBox(height: 12),
             FilledButton.tonalIcon(
               onPressed: onRetry,
@@ -1227,7 +1221,11 @@ final class _NotConfiguredView extends StatelessWidget {
                 color: colorScheme.primaryContainer.withValues(alpha: 0.6),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.auto_awesome, size: 26, color: colorScheme.primary),
+              child: Icon(
+                Icons.auto_awesome,
+                size: 26,
+                color: colorScheme.primary,
+              ),
             ),
             const SizedBox(height: 14),
             Text(
@@ -1292,7 +1290,8 @@ String _cacheEntryTime(int timestampMillis) {
   final time = DateTime.fromMillisecondsSinceEpoch(timestampMillis);
   final now = DateTime.now();
   final local = time.toLocal();
-  final sameDay = now.year == local.year &&
+  final sameDay =
+      now.year == local.year &&
       now.month == local.month &&
       now.day == local.day;
   String two(int n) => n.toString().padLeft(2, '0');
@@ -1358,10 +1357,7 @@ final class _CacheSectionState extends ConsumerState<_CacheSection> {
               ),
             const Spacer(),
             if (entries.isNotEmpty)
-              TextButton(
-                onPressed: widget.onClear,
-                child: const Text('清空缓存'),
-              ),
+              TextButton(onPressed: widget.onClear, child: const Text('清空缓存')),
           ],
         ),
         const SizedBox(height: 6),
@@ -1487,8 +1483,9 @@ final class _CacheEntryCard extends StatelessWidget {
                       width: double.infinity,
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: colorScheme.surfaceContainerHighest
-                            .withValues(alpha: 0.5),
+                        color: colorScheme.surfaceContainerHighest.withValues(
+                          alpha: 0.5,
+                        ),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: SelectableText(
@@ -1508,8 +1505,7 @@ final class _CacheEntryCard extends StatelessWidget {
                           )
                         else
                           TextButton(
-                            onPressed: () =>
-                                onUseInstruction(entry.prompt),
+                            onPressed: () => onUseInstruction(entry.prompt),
                             child: const Text('用此指令'),
                           ),
                         if (documentOpen)

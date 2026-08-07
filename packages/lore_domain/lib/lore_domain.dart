@@ -1,6 +1,8 @@
 export 'src/agent/agent_chat_message.dart';
 export 'src/agent/ai_cache.dart';
+export 'src/agent/generated_outline.dart';
 export 'src/agent/novel_outline_links.dart';
+export 'src/agent/outline_generation_request.dart';
 export 'src/agent/writing_agent_action.dart';
 export 'src/agent/writing_agent_config.dart';
 export 'src/content/chapter_title.dart';

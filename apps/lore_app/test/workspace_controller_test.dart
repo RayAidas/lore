@@ -1596,6 +1596,142 @@ void main() {
     expect(controller.activePath, 'left.txt');
     controller.dispose();
   });
+
+  test(
+    'saveGeneratedOutline writes categorized files and opens the outline',
+    () async {
+      final repository = _MemoryWorkspaceRepository();
+      final snapshot = _chapterNovelSnapshot();
+      final controller = WorkspaceController(
+        session: session,
+        service: LibraryWorkspaceService(
+          treeRepository: repository,
+          documentRepository: repository,
+          sessionRepository: _MemorySessionRepository(),
+        ),
+        novelStructureService: NovelStructureService(
+          novelRepository: _FakeNovelRepository(snapshot),
+          contentTreeRepository: _FakeContentTreeRepository(snapshot),
+        ),
+      );
+      addTearDown(repository.dispose);
+      addTearDown(controller.dispose);
+      await controller.initialize();
+
+      const outline = GeneratedOutline(
+        worldSection: '灵气复苏的东方世界。',
+        characterSection: '林晚：孤僻天才。',
+        chaptersSection: '# 卷章大纲\n\n## 第一卷\n### 第1章 觉醒\n（一句话情节）',
+      );
+      final entry = await controller.saveGeneratedOutline(
+        novelId: const NovelId('novel-1'),
+        outline: outline,
+        stem: '龙渊纪元',
+      );
+
+      expect(entry.relativePath, '我的小说/大纲/龙渊纪元.md');
+      expect(
+        repository.createdDocuments.keys,
+        containsAll([
+          '我的小说/世界观/龙渊纪元-世界观.md',
+          '我的小说/人物/龙渊纪元-人物.md',
+          '我的小说/大纲/龙渊纪元.md',
+        ]),
+      );
+      expect(
+        repository.createdDocuments['我的小说/世界观/龙渊纪元-世界观.md'],
+        startsWith('# 世界观'),
+      );
+      expect(
+        repository.createdDocuments['我的小说/人物/龙渊纪元-人物.md'],
+        contains('林晚：孤僻天才。'),
+      );
+      expect(repository.createdDocuments['我的小说/大纲/龙渊纪元.md'], contains('第一卷'));
+      // 卷章大纲文件被选中并打开。
+      expect(controller.activePath, '我的小说/大纲/龙渊纪元.md');
+    },
+  );
+
+  test('saveGeneratedOutline skips empty category sections', () async {
+    final repository = _MemoryWorkspaceRepository();
+    final snapshot = _chapterNovelSnapshot();
+    final controller = WorkspaceController(
+      session: session,
+      service: LibraryWorkspaceService(
+        treeRepository: repository,
+        documentRepository: repository,
+        sessionRepository: _MemorySessionRepository(),
+      ),
+      novelStructureService: NovelStructureService(
+        novelRepository: _FakeNovelRepository(snapshot),
+        contentTreeRepository: _FakeContentTreeRepository(snapshot),
+      ),
+    );
+    addTearDown(repository.dispose);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+
+    final entry = await controller.saveGeneratedOutline(
+      novelId: const NovelId('novel-1'),
+      outline: const GeneratedOutline(
+        worldSection: '',
+        characterSection: '',
+        chaptersSection: '# 卷章大纲\n\n正文',
+      ),
+      stem: '只有卷章',
+    );
+
+    expect(repository.createdDocuments.keys, ['我的小说/大纲/只有卷章.md']);
+    expect(entry.relativePath, '我的小说/大纲/只有卷章.md');
+  });
+
+  test(
+    'saveGeneratedOutline dedupes stem across the three directories',
+    () async {
+      final tree = _SeededTreeRepository(
+        seeded: {
+          '我的小说/世界观': ['龙渊-世界观.md'],
+        },
+      );
+      final repository = _MemoryWorkspaceRepository();
+      final snapshot = _chapterNovelSnapshot();
+      final controller = WorkspaceController(
+        session: session,
+        service: LibraryWorkspaceService(
+          treeRepository: tree,
+          documentRepository: repository,
+          sessionRepository: _MemorySessionRepository(),
+        ),
+        novelStructureService: NovelStructureService(
+          novelRepository: _FakeNovelRepository(snapshot),
+          contentTreeRepository: _FakeContentTreeRepository(snapshot),
+        ),
+      );
+      addTearDown(repository.dispose);
+      addTearDown(controller.dispose);
+      await controller.initialize();
+
+      final entry = await controller.saveGeneratedOutline(
+        novelId: const NovelId('novel-1'),
+        outline: const GeneratedOutline(
+          worldSection: '世界',
+          characterSection: '人物',
+          chaptersSection: '卷章',
+        ),
+        stem: '龙渊',
+      );
+
+      expect(entry.relativePath, '我的小说/大纲/龙渊-2.md');
+      expect(
+        tree.created.keys,
+        containsAll([
+          '我的小说/世界观/龙渊-2-世界观.md',
+          '我的小说/人物/龙渊-2-人物.md',
+          '我的小说/大纲/龙渊-2.md',
+        ]),
+      );
+    },
+  );
 }
 
 final class _MemoryWorkspaceRepository
@@ -1821,6 +1957,96 @@ final class _MemorySessionRepository implements WorkspaceSessionRepository {
     WorkspaceSessionSnapshot snapshot,
   ) async {
     value = snapshot;
+  }
+}
+
+/// 可预置目录内容的内存目录树仓库：按 `relativePath` 返回该目录下已存在的文件
+/// 列表，记录创建的文件；`renameEntry`/`deleteEntry` 在目录树相关测试中未用到。
+final class _SeededTreeRepository implements LibraryTreeRepository {
+  _SeededTreeRepository({Map<String, List<String>>? seeded})
+    : files = {
+        for (final entry in (seeded ?? const {}).entries)
+          entry.key: List.of(entry.value),
+      };
+
+  /// 目录 relativePath → 目录下已有的文件/子目录名。
+  final Map<String, List<String>> files;
+
+  /// 创建的文件：relativePath → initialText。
+  final created = <String, String>{};
+
+  @override
+  Future<List<LibraryEntry>> listChildren(
+    LibraryAccess access, {
+    String relativePath = '',
+  }) async {
+    final names = files[relativePath] ?? const <String>[];
+    return [
+      for (final name in names)
+        LibraryEntry(
+          name: name,
+          relativePath: relativePath.isEmpty ? name : '$relativePath/$name',
+          type: name.endsWith('.md')
+              ? LibraryEntryType.markdownFile
+              : LibraryEntryType.directory,
+        ),
+    ];
+  }
+
+  @override
+  Future<LibraryEntry> createDirectory(
+    LibraryAccess access, {
+    required String parentPath,
+    required String name,
+  }) async {
+    final relativePath = parentPath.isEmpty ? name : '$parentPath/$name';
+    files[relativePath] ??= <String>[];
+    return LibraryEntry(
+      name: name,
+      relativePath: relativePath,
+      type: LibraryEntryType.directory,
+    );
+  }
+
+  @override
+  Future<LibraryEntry> createDocument(
+    LibraryAccess access, {
+    required String parentPath,
+    required String name,
+    required DocumentFormat format,
+    String initialText = '',
+  }) async {
+    final extension = format == DocumentFormat.text ? '.txt' : '.md';
+    final fileName = name.endsWith(extension) ? name : '$name$extension';
+    final relativePath = parentPath.isEmpty
+        ? fileName
+        : '$parentPath/$fileName';
+    created[relativePath] = initialText;
+    (files[parentPath] ??= <String>[]).add(fileName);
+    return LibraryEntry(
+      name: fileName,
+      relativePath: relativePath,
+      type: format == DocumentFormat.text
+          ? LibraryEntryType.textFile
+          : LibraryEntryType.markdownFile,
+    );
+  }
+
+  @override
+  Future<LibraryEntry> renameEntry(
+    LibraryAccess access, {
+    required String relativePath,
+    required String newName,
+  }) {
+    throw UnimplementedError('renameEntry');
+  }
+
+  @override
+  Future<DeletionResult> deleteEntry(
+    LibraryAccess access, {
+    required String relativePath,
+  }) {
+    throw UnimplementedError('deleteEntry');
   }
 }
 

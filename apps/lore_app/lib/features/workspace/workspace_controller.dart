@@ -603,7 +603,9 @@ final class WorkspaceController extends ChangeNotifier {
     var number = 1;
     String stem;
     do {
-      stem = number == 1 ? outlineDirectoryName : '$outlineDirectoryName$number';
+      stem = number == 1
+          ? outlineDirectoryName
+          : '$outlineDirectoryName$number';
       number += 1;
     } while (existingNames.contains('$stem.md'));
 
@@ -620,6 +622,137 @@ final class WorkspaceController extends ChangeNotifier {
     await openPath(entry.relativePath);
     _notify();
     return entry;
+  }
+
+  /// 保存 AI 生成的大纲：按分类写入 `世界观/`、`人物/`、`大纲/` 三个目录
+  /// （`正文` 的兄弟目录），并选中、打开卷章大纲文件。与 [createOutline] 同源：
+  /// 不参与内容树，复用 `LibraryWorkspaceService` 原语，不经
+  /// `ContentTreeRepository`/content.json。
+  ///
+  /// [stem] 为输出文件命名主干（通常取主题/书名），跨三个目录统一去重；
+  /// [outline] 中为空的分类节会被跳过，不创建对应文件。
+  Future<LibraryEntry> saveGeneratedOutline({
+    required NovelId novelId,
+    required GeneratedOutline outline,
+    required String stem,
+  }) async {
+    final novel = _novelStore.novelById(novelId);
+    if (novel == null) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.notFound,
+          message: '小说不存在或尚未加载。',
+        ),
+      );
+    }
+
+    // 1. 确保三个分类目录存在（`正文` 的兄弟目录）。
+    await _ensureSiblingDirectory(novel.rootPath, outlineDirectoryName);
+    await _ensureSiblingDirectory(novel.rootPath, worldSettingDirectoryName);
+    await _ensureSiblingDirectory(novel.rootPath, characterDirectoryName);
+
+    // 2. 跨三目录统一去重命名主干，保证三份文件共享同一主干。
+    final safeStem = await _uniqueGeneratedStem(
+      baseStem: stem,
+      novelRootPath: novel.rootPath,
+    );
+
+    // 3. 依次创建分类文件；空分类节跳过。
+    if (outline.worldSection.trim().isNotEmpty) {
+      await service.createDocument(
+        session,
+        parentPath: p.join(novel.rootPath, worldSettingDirectoryName),
+        name: '$safeStem-世界观',
+        format: DocumentFormat.markdown,
+        initialText: '# 世界观\n\n${outline.worldSection.trim()}\n',
+      );
+    }
+    if (outline.characterSection.trim().isNotEmpty) {
+      await service.createDocument(
+        session,
+        parentPath: p.join(novel.rootPath, characterDirectoryName),
+        name: '$safeStem-人物',
+        format: DocumentFormat.markdown,
+        initialText: '# 人物设定\n\n${outline.characterSection.trim()}\n',
+      );
+    }
+    final entry = await service.createDocument(
+      session,
+      parentPath: p.join(novel.rootPath, outlineDirectoryName),
+      name: safeStem,
+      format: DocumentFormat.markdown,
+      initialText: _generatedOutlineSeed(outline.chaptersSection),
+    );
+
+    // 4. 选中 + 打开卷章大纲文件（与 createOutline 同型）。
+    _tabsStore.selectEntry(entry);
+    _treeRevision += 1;
+    await openPath(entry.relativePath);
+    _notify();
+    return entry;
+  }
+
+  /// 确保小说根目录下存在名为 [name] 的兄弟目录（如 `大纲`、`世界观`）。
+  Future<void> _ensureSiblingDirectory(
+    String novelRootPath,
+    String name,
+  ) async {
+    final rootChildren = await service.listChildren(
+      session,
+      relativePath: novelRootPath,
+    );
+    if (!rootChildren.any((entry) => entry.isDirectory && entry.name == name)) {
+      await service.createDirectory(
+        session,
+        parentPath: novelRootPath,
+        name: name,
+      );
+    }
+  }
+
+  /// 生成跨三目录唯一的命名主干：初值经 `sanitizeForFilename` 净化（空则回退
+  /// `大纲`），若 `大纲/<stem>.md`、`世界观/<stem>-世界观.md`、
+  /// `人物/<stem>-人物.md` 任一已存在则追加 `-2`、`-3`…
+  Future<String> _uniqueGeneratedStem({
+    required String baseStem,
+    required String novelRootPath,
+  }) async {
+    final sanitized = ChapterTitleText.sanitizeForFilename(baseStem);
+    final stem = sanitized.isEmpty ? outlineDirectoryName : sanitized;
+
+    final existing = <String>{};
+    for (final dirName in [
+      outlineDirectoryName,
+      worldSettingDirectoryName,
+      characterDirectoryName,
+    ]) {
+      final children = await service.listChildren(
+        session,
+        relativePath: p.join(novelRootPath, dirName),
+      );
+      existing.addAll(
+        children
+            .where((entry) => entry.type == LibraryEntryType.markdownFile)
+            .map((entry) => entry.name),
+      );
+    }
+
+    var candidate = stem;
+    var number = 2;
+    while (existing.contains('$candidate.md') ||
+        existing.contains('$candidate-世界观.md') ||
+        existing.contains('$candidate-人物.md')) {
+      candidate = '$stem-$number';
+      number += 1;
+    }
+    return candidate;
+  }
+
+  /// 卷章大纲文件的种子内容：保留模型输出的完整 Markdown；为空时给一个空标题，
+  /// 避免创建空文件导致打开异常。
+  String _generatedOutlineSeed(String chaptersSection) {
+    final trimmed = chaptersSection.trim();
+    return trimmed.isEmpty ? '# 卷章大纲\n' : '$trimmed\n';
   }
 
   Future<LibraryEntry> renameSelected(String newName) async {

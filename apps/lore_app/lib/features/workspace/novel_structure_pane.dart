@@ -6,6 +6,7 @@ import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_ui/lore_ui.dart';
 import 'package:path/path.dart' as p;
 
+import '../ai/outline_generator_panel.dart';
 import 'inspector_empty.dart';
 import 'novel_overview_pane.dart';
 import 'workspace_controller.dart';
@@ -45,91 +46,120 @@ final class NovelStructurePane extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(32, 28, 24, 18),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(
-                    isVolume
-                        ? Icons.folder_copy_outlined
-                        : Icons.menu_book_outlined,
-                    size: 23,
-                    color: colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        isVolume ? selectedEntry.name : snapshot.metadata.title,
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w700),
+                Row(
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer.withValues(
+                          alpha: 0.6,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                      Text(
+                      child: Icon(
                         isVolume
-                            ? '${nodes.length} 章'
-                            : '${snapshot.contentTree.nodes.where((node) => node.type == ContentNodeType.volume).length} 卷 · ${snapshot.contentTree.nodes.where((node) => node.type == ContentNodeType.chapter).length} 章',
-                        style: Theme.of(context).textTheme.bodySmall,
+                            ? Icons.folder_copy_outlined
+                            : Icons.menu_book_outlined,
+                        size: 23,
+                        color: colorScheme.primary,
                       ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: '小说概览',
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (context) => Scaffold(
-                        appBar: AppBar(title: const Text('小说概览')),
-                        body: NovelOverviewPage(
-                          controller: controller,
-                          novelId: snapshot.metadata.id,
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isVolume
+                                ? selectedEntry.name
+                                : snapshot.metadata.title,
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          Text(
+                            isVolume
+                                ? '${nodes.length} 章'
+                                : '${snapshot.contentTree.nodes.where((node) => node.type == ContentNodeType.volume).length} 卷 · ${snapshot.contentTree.nodes.where((node) => node.type == ContentNodeType.chapter).length} 章',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '小说概览',
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (context) => Scaffold(
+                            appBar: AppBar(title: const Text('小说概览')),
+                            body: NovelOverviewPage(
+                              controller: controller,
+                              novelId: snapshot.metadata.id,
+                            ),
+                          ),
                         ),
                       ),
+                      icon: const Icon(Icons.dashboard_outlined),
                     ),
-                  ),
-                  icon: const Icon(Icons.dashboard_outlined),
+                  ],
                 ),
-                FilledButton.tonalIcon(
-                  style: const ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: () => _run(
-                    () => controller.createOutline(snapshot.metadata.id),
-                  ),
-                  icon: const Icon(Icons.account_tree_outlined),
-                  label: const Text('新建大纲'),
-                ),
-                if (!isVolume)
-                  FilledButton.tonalIcon(
-                    style: const ButtonStyle(
-                      visualDensity: VisualDensity.compact,
+                // 操作按钮独立一行，用 Wrap 窄窗自动换行、不溢出。
+                const SizedBox(height: 12),
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.tonalIcon(
+                      style: const ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () => _run(
+                        () => controller.createOutline(snapshot.metadata.id),
+                      ),
+                      icon: const Icon(Icons.account_tree_outlined),
+                      label: const Text('新建大纲'),
                     ),
-                    onPressed: () => _run(
-                      () => controller.createVolume(snapshot.metadata.id),
+                    FilledButton.tonalIcon(
+                      style: const ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () => showOutlineGeneratorSheet(
+                        context,
+                        controller,
+                        novelId: snapshot.metadata.id,
+                      ),
+                      icon: const Icon(Icons.auto_awesome_outlined),
+                      label: const Text('AI 生成大纲'),
                     ),
-                    icon: const Icon(Icons.create_new_folder_outlined),
-                    label: const Text('新建卷'),
-                  ),
-                const SizedBox(width: 8),
-                FilledButton.icon(
-                  style: const ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: () => _run(
-                    () => controller.createChapter(
-                      snapshot.metadata.id,
-                      volumeId: isVolume ? _parentId : null,
+                    if (!isVolume)
+                      FilledButton.tonalIcon(
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () => _run(
+                          () => controller.createVolume(snapshot.metadata.id),
+                        ),
+                        icon: const Icon(Icons.create_new_folder_outlined),
+                        label: const Text('新建卷'),
+                      ),
+                    FilledButton.icon(
+                      style: const ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () => _run(
+                        () => controller.createChapter(
+                          snapshot.metadata.id,
+                          volumeId: isVolume ? _parentId : null,
+                        ),
+                      ),
+                      icon: const Icon(Icons.note_add_outlined),
+                      label: const Text('新建章'),
                     ),
-                  ),
-                  icon: const Icon(Icons.note_add_outlined),
-                  label: const Text('新建章'),
+                  ],
                 ),
               ],
             ),

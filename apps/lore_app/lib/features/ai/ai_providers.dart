@@ -31,11 +31,20 @@ final aiChatClientProvider = Provider<AiChatClient>((ref) {
 
 /// AI 请求缓存服务：经原始存储会话读写小说目录下的 `.cache` 文件。
 final aiCacheServiceProvider = Provider<AiCacheService>((ref) {
-  return AiCacheService(storageFactory: ref.watch(libraryStorageFactoryProvider));
+  return AiCacheService(
+    storageFactory: ref.watch(libraryStorageFactoryProvider),
+  );
 });
 
 final writingAgentServiceProvider = Provider<WritingAgentService>((ref) {
   return WritingAgentService(client: ref.watch(aiChatClientProvider));
+});
+
+/// AI 大纲生成服务：分两步生成完整大纲并解析为分类结果。
+final outlineGenerationServiceProvider = Provider<OutlineGenerationService>((
+  ref,
+) {
+  return OutlineGenerationService(client: ref.watch(aiChatClientProvider));
 });
 
 /// 写作 Agent 配置状态（含明文 API Key，均存于应用内 SharedPreferences）。

@@ -1,6 +1,8 @@
 export 'src/agent/agent_config_service.dart';
 export 'src/agent/ai_cache_service.dart';
+export 'src/agent/generated_outline_parser.dart';
 export 'src/agent/linked_outlines_service.dart';
+export 'src/agent/outline_generation_service.dart';
 export 'src/agent/writing_agent_service.dart';
 export 'src/highlight/paragraph_digest.dart';
 export 'src/history/history_service.dart';
