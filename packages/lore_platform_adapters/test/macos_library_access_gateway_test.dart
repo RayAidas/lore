@@ -64,6 +64,53 @@ void main() {
     );
   });
 
+  test('create invokes native create with the requested name', () async {
+    MethodCall? received;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      received = call;
+      return {'token': '/tmp/library', 'displayPath': '/tmp/library'};
+    });
+    final gateway = MacOsLibraryAccessGateway(channel: channel);
+
+    final access = await gateway.create(name: '我的书库');
+
+    expect(received?.method, 'createLibraryDirectory');
+    expect(received?.arguments, {'name': '我的书库'});
+    expect(access?.isPending, isTrue);
+  });
+
+  test('maps create name conflicts and invalid names', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      throw PlatformException(code: 'name_conflict', message: 'exists');
+    });
+    final gateway = MacOsLibraryAccessGateway(channel: channel);
+
+    await expectLater(
+      gateway.create(name: '我的书库'),
+      throwsA(
+        isA<LibraryAccessException>().having(
+          (error) => error.failure.code,
+          'code',
+          LibraryFailureCode.alreadyExists,
+        ),
+      ),
+    );
+
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      throw PlatformException(code: 'invalid_name', message: 'bad name');
+    });
+    await expectLater(
+      gateway.create(name: '..'),
+      throwsA(
+        isA<LibraryAccessException>().having(
+          (error) => error.failure.code,
+          'code',
+          LibraryFailureCode.invalidName,
+        ),
+      ),
+    );
+  });
+
   test('invokes native no-replace rename', () async {
     MethodCall? received;
     messenger.setMockMethodCallHandler(channel, (call) async {

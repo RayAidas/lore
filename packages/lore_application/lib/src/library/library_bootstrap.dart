@@ -91,6 +91,21 @@ final class LibraryBootstrapService {
     }
   }
 
+  /// 创建名为 [name] 的新书库目录并立即初始化。
+  /// 用户取消时返回 null。
+  Future<LibraryBootstrapResult?> create(String name) async {
+    try {
+      final access = await _accessGateway.create(name: name);
+      if (access == null) {
+        return null;
+      }
+      return initialize(access);
+    } on LibraryAccessException catch (error) {
+      await _discardSafely();
+      return LibraryBootstrapFailure(error.failure);
+    }
+  }
+
   Future<LibraryBootstrapResult> initialize(LibraryAccess access) async {
     try {
       final metadata = await _repository.initialize(access);

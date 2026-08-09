@@ -200,6 +200,8 @@ final class LibraryAccessController {
       restore(result: result)
     case "selectLibraryDirectory":
       select(result: result)
+    case "createLibraryDirectory":
+      create(result: result, call: call)
     case "commitLibraryDirectory":
       commit(result: result)
     case "discardLibraryDirectorySelection":
@@ -455,6 +457,84 @@ final class LibraryAccessController {
         code: "selection_failed",
         message: "无法保存所选目录的访问权限。"))
     }
+  }
+
+  private func create(
+    result: @escaping FlutterResult,
+    call: FlutterMethodCall
+  ) {
+    guard
+      let arguments = call.arguments as? [String: Any],
+      let name = arguments["name"] as? String,
+      isValidLibraryName(name)
+    else {
+      result(flutterError(code: "invalid_name", message: "书库名称无效。"))
+      return
+    }
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    discardPending()
+
+    let panel = NSOpenPanel()
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.allowsMultipleSelection = false
+    panel.canCreateDirectories = true
+    panel.prompt = "选择书库位置"
+
+    guard panel.runModal() == .OK, let parentURL = panel.url else {
+      result(nil)
+      return
+    }
+
+    let parent = parentURL.standardizedFileURL.resolvingSymlinksInPath()
+    guard parent.path != "/" else {
+      result(flutterError(
+        code: "invalid_location",
+        message: "不能将文件系统根目录设为书库位置。"))
+      return
+    }
+
+    let url = parent.appendingPathComponent(trimmedName)
+    let fileManager = FileManager.default
+    guard !fileManager.fileExists(atPath: url.path) else {
+      result(flutterError(code: "name_conflict", message: "同名目录已存在。"))
+      return
+    }
+    do {
+      try fileManager.createDirectory(
+        at: url,
+        withIntermediateDirectories: false)
+    } catch {
+      result(flutterError(code: "create_failed", message: "无法创建书库目录。"))
+      return
+    }
+
+    do {
+      let bookmark = try createBookmark(for: url)
+      guard url.startAccessingSecurityScopedResource() else {
+        result(flutterError(
+          code: "access_denied",
+          message: "无法访问新建的书库目录。"))
+        return
+      }
+      pendingURL = url
+      pendingBookmark = bookmark
+      result(accessResult(for: url))
+    } catch {
+      result(flutterError(
+        code: "selection_failed",
+        message: "无法保存新建目录的访问权限。"))
+    }
+  }
+
+  private func isValidLibraryName(_ name: String) -> Bool {
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return !trimmed.isEmpty
+      && trimmed != "."
+      && trimmed != ".."
+      && !trimmed.contains("/")
+      && !trimmed.contains("\\")
+      && trimmed.utf8.count <= 255
   }
 
   private func commit(result: @escaping FlutterResult) {

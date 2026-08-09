@@ -129,13 +129,108 @@ void main() {
     expect(result, isA<LibraryBootstrapReady>());
     expect(gateway.commitCount, 0);
   });
+
+  test('created library directory initializes and commits once', () async {
+    final gateway = _FakeAccessGateway(createAccess: pendingAccess);
+    final repository = _FakeLibraryRepository(
+      inspection: const LibraryInspectionNeedsInitialization(),
+      metadata: metadata,
+    );
+    final service = LibraryBootstrapService(
+      accessGateway: gateway,
+      repository: repository,
+    );
+
+    final result = await service.create('我的书库');
+
+    expect(result, isA<LibraryBootstrapReady>());
+    final ready = result! as LibraryBootstrapReady;
+    expect(ready.session.access.isPending, isFalse);
+    expect(gateway.createdName, '我的书库');
+    expect(repository.initializeCount, 1);
+    expect(gateway.commitCount, 1);
+  });
+
+  test('cancelled creation writes nothing and does not commit', () async {
+    final gateway = _FakeAccessGateway();
+    final repository = _FakeLibraryRepository(
+      inspection: const LibraryInspectionNeedsInitialization(),
+      metadata: metadata,
+    );
+    final service = LibraryBootstrapService(
+      accessGateway: gateway,
+      repository: repository,
+    );
+
+    final result = await service.create('我的书库');
+
+    expect(result, isNull);
+    expect(gateway.createdName, '我的书库');
+    expect(repository.initializeCount, 0);
+    expect(gateway.commitCount, 0);
+  });
+
+  test('failed creation discards pending access', () async {
+    final gateway = _FakeAccessGateway(
+      createFailure: const LibraryAccessException(
+        LibraryFailure(
+          code: LibraryFailureCode.alreadyExists,
+          message: 'exists',
+        ),
+      ),
+    );
+    final repository = _FakeLibraryRepository(
+      inspection: const LibraryInspectionNeedsInitialization(),
+      metadata: metadata,
+    );
+    final service = LibraryBootstrapService(
+      accessGateway: gateway,
+      repository: repository,
+    );
+
+    final result = await service.create('我的书库');
+
+    expect(result, isA<LibraryBootstrapFailure>());
+    final failure = result! as LibraryBootstrapFailure;
+    expect(failure.failure.code, LibraryFailureCode.alreadyExists);
+    expect(gateway.discardCount, 1);
+  });
+
+  test('creation failing to write metadata discards pending access', () async {
+    final gateway = _FakeAccessGateway(createAccess: pendingAccess);
+    final repository = _FakeLibraryRepository(
+      inspection: const LibraryInspectionNeedsInitialization(),
+      metadata: metadata,
+      initializeFailure: const LibraryOperationException(
+        LibraryFailure(code: LibraryFailureCode.notWritable, message: 'denied'),
+      ),
+    );
+    final service = LibraryBootstrapService(
+      accessGateway: gateway,
+      repository: repository,
+    );
+
+    final result = await service.create('我的书库');
+
+    expect(result, isA<LibraryBootstrapFailure>());
+    expect(repository.initializeCount, 1);
+    expect(gateway.discardCount, 1);
+  });
 }
 
 final class _FakeAccessGateway implements LibraryAccessGateway {
-  _FakeAccessGateway({this.restoreAccess, this.selectAccess});
+  _FakeAccessGateway({
+    this.restoreAccess,
+    this.selectAccess,
+    this.createAccess,
+    this.createFailure,
+  });
 
   final LibraryAccess? restoreAccess;
   final LibraryAccess? selectAccess;
+  final LibraryAccess? createAccess;
+  final LibraryAccessException? createFailure;
+  String? createdName;
   int commitCount = 0;
   int discardCount = 0;
 
@@ -145,6 +240,16 @@ final class _FakeAccessGateway implements LibraryAccessGateway {
   @override
   Future<void> commit() async {
     commitCount += 1;
+  }
+
+  @override
+  Future<LibraryAccess?> create({required String name}) async {
+    createdName = name;
+    final failure = createFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    return createAccess;
   }
 
   @override
@@ -160,15 +265,24 @@ final class _FakeAccessGateway implements LibraryAccessGateway {
 }
 
 final class _FakeLibraryRepository implements LibraryRepository {
-  _FakeLibraryRepository({required this.inspection, required this.metadata});
+  _FakeLibraryRepository({
+    required this.inspection,
+    required this.metadata,
+    this.initializeFailure,
+  });
 
   final LibraryInspection inspection;
   final LibraryMetadata metadata;
+  final LibraryOperationException? initializeFailure;
   int initializeCount = 0;
 
   @override
   Future<LibraryMetadata> initialize(LibraryAccess access) async {
     initializeCount += 1;
+    final failure = initializeFailure;
+    if (failure != null) {
+      throw failure;
+    }
     return metadata;
   }
 

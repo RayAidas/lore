@@ -32,6 +32,40 @@ void main() {
     expect(access?.isPending, isTrue);
   });
 
+  test('create invokes native create with the requested name', () async {
+    MethodCall? received;
+    messenger.setMockMethodCallHandler(accessChannel, (call) async {
+      received = call;
+      return {'token': 'content://provider/tree/child', 'displayPath': '我的书库'};
+    });
+    final gateway = AndroidSafLibraryAccessGateway(channel: accessChannel);
+
+    final access = await gateway.create(name: '我的书库');
+
+    expect(received?.method, 'createLibraryDirectory');
+    expect(received?.arguments, {'name': '我的书库'});
+    expect(access?.backend, LibraryBackendKind.androidSaf);
+    expect(access?.isPending, isTrue);
+  });
+
+  test('maps create name conflicts', () async {
+    messenger.setMockMethodCallHandler(accessChannel, (call) async {
+      throw PlatformException(code: 'already_exists', message: 'exists');
+    });
+    final gateway = AndroidSafLibraryAccessGateway(channel: accessChannel);
+
+    await expectLater(
+      gateway.create(name: '我的书库'),
+      throwsA(
+        isA<LibraryAccessException>().having(
+          (error) => error.failure.code,
+          'code',
+          LibraryFailureCode.alreadyExists,
+        ),
+      ),
+    );
+  });
+
   test('maps SAF storage entries and revision conflicts', () async {
     final calls = <MethodCall>[];
     messenger.setMockMethodCallHandler(storageChannel, (call) async {

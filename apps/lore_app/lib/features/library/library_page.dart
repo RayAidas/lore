@@ -21,6 +21,7 @@ class LibraryPage extends ConsumerWidget {
       data: (state) => switch (state) {
         LibraryNeedsSelectionState() => _SelectionPage(
           onSelect: () => _selectDirectory(context, ref),
+          onCreate: () => _createDirectory(context, ref),
         ),
         LibraryNeedsInitializationState current => _InitializationPage(
           state: current,
@@ -70,6 +71,48 @@ class LibraryPage extends ConsumerWidget {
           .cancelInitialization(next);
     }
   }
+
+  Future<void> _createDirectory(BuildContext context, WidgetRef ref) async {
+    final name = await showLoreTextPromptDialog(
+      context: context,
+      title: '创建书库目录',
+      label: '书库名称',
+      initialValue: '我的书库',
+      confirmLabel: '创建',
+      helperText: '将在你选择的位置新建一个空目录并初始化为书库。',
+    );
+    if (name == null) {
+      return;
+    }
+    final trimmed = name.trim();
+    final error = _validateLibraryName(trimmed);
+    if (error != null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(error)));
+      }
+      return;
+    }
+    await ref.read(libraryControllerProvider.notifier).createDirectory(trimmed);
+  }
+
+  /// 返回书库名称的校验错误信息；名称合法时返回 null。
+  String? _validateLibraryName(String name) {
+    if (name.isEmpty) {
+      return '书库名称不能为空。';
+    }
+    if (name == '.' || name == '..') {
+      return '书库名称不能是 “.” 或 “..”。';
+    }
+    if (name.contains('/') || name.contains('\\')) {
+      return '书库名称不能包含 “/” 或 “\\”。';
+    }
+    if (name.length > 100) {
+      return '书库名称过长（最多 100 个字符）。';
+    }
+    return null;
+  }
 }
 
 class _LoadingPage extends StatelessWidget {
@@ -82,9 +125,10 @@ class _LoadingPage extends StatelessWidget {
 }
 
 class _SelectionPage extends StatelessWidget {
-  const _SelectionPage({required this.onSelect});
+  const _SelectionPage({required this.onSelect, required this.onCreate});
 
   final VoidCallback onSelect;
+  final VoidCallback onCreate;
 
   @override
   Widget build(BuildContext context) {
@@ -123,6 +167,12 @@ class _SelectionPage extends StatelessWidget {
                   onPressed: onSelect,
                   icon: const Icon(Icons.folder_open_outlined),
                   label: const Text('选择书库目录'),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.tonalIcon(
+                  onPressed: onCreate,
+                  icon: const Icon(Icons.create_new_folder_outlined),
+                  label: const Text('创建书库目录'),
                 ),
               ],
             ),

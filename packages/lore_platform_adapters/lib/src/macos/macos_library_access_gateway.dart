@@ -21,6 +21,15 @@ final class MacOsLibraryAccessGateway implements LibraryAccessGateway {
   }
 
   @override
+  Future<LibraryAccess?> create({required String name}) {
+    return _invokeAccess(
+      'createLibraryDirectory',
+      isPending: true,
+      arguments: {'name': name},
+    );
+  }
+
+  @override
   Future<void> commit() => _invokeVoid('commitLibraryDirectory');
 
   @override
@@ -32,9 +41,10 @@ final class MacOsLibraryAccessGateway implements LibraryAccessGateway {
   Future<LibraryAccess?> _invokeAccess(
     String method, {
     required bool isPending,
+    Map<String, Object?>? arguments,
   }) async {
     try {
-      final value = await _channel.invokeMethod<Object?>(method);
+      final value = await _channel.invokeMethod<Object?>(method, arguments);
       if (value == null) {
         return null;
       }
@@ -87,6 +97,8 @@ final class MacOsLibraryAccessGateway implements LibraryAccessGateway {
       'bookmark_unavailable' => LibraryFailureCode.permissionDenied,
       'bookmark_resolution_failed' => LibraryFailureCode.permissionDenied,
       'invalid_location' => LibraryFailureCode.invalidLocation,
+      'invalid_name' => LibraryFailureCode.invalidName,
+      'name_conflict' => LibraryFailureCode.alreadyExists,
       'platform_unsupported' => LibraryFailureCode.platformUnsupported,
       _ => LibraryFailureCode.io,
     };

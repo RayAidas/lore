@@ -18,6 +18,13 @@ final class AndroidSafLibraryAccessGateway implements LibraryAccessGateway {
       _invokeAccess('selectLibraryDirectory', isPending: true);
 
   @override
+  Future<LibraryAccess?> create({required String name}) => _invokeAccess(
+    'createLibraryDirectory',
+    isPending: true,
+    arguments: {'name': name},
+  );
+
+  @override
   Future<void> commit() => _invokeVoid('commitLibraryDirectory');
 
   @override
@@ -29,9 +36,10 @@ final class AndroidSafLibraryAccessGateway implements LibraryAccessGateway {
   Future<LibraryAccess?> _invokeAccess(
     String method, {
     required bool isPending,
+    Map<String, Object?>? arguments,
   }) async {
     try {
-      final value = await _channel.invokeMethod<Object?>(method);
+      final value = await _channel.invokeMethod<Object?>(method, arguments);
       if (value == null) {
         return null;
       }
@@ -77,7 +85,10 @@ final class AndroidSafLibraryAccessGateway implements LibraryAccessGateway {
       code: switch (error.code) {
         'access_denied' => LibraryFailureCode.permissionDenied,
         'invalid_location' => LibraryFailureCode.invalidLocation,
+        'invalid_name' => LibraryFailureCode.invalidName,
+        'already_exists' => LibraryFailureCode.alreadyExists,
         'not_found' => LibraryFailureCode.notFound,
+        'not_writable' => LibraryFailureCode.notWritable,
         _ => LibraryFailureCode.io,
       },
       message: error.message ?? '无法访问 Android 书库目录。',

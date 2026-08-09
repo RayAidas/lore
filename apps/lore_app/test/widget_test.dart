@@ -1385,6 +1385,66 @@ void main() {
     expect(gateway.discardCount, 1);
   });
 
+  testWidgets('creates and initializes a new library directory', (
+    tester,
+  ) async {
+    const pendingAccess = LibraryAccess(
+      token: '/tmp/我的书库',
+      displayPath: '/tmp/我的书库',
+      isPending: true,
+    );
+    final metadata = LibraryMetadata(
+      schemaVersion: 1,
+      id: const LibraryId('11111111-1111-4111-8111-111111111111'),
+      createdAt: DateTime.utc(2026, 7, 17),
+      updatedAt: DateTime.utc(2026, 7, 17),
+    );
+    final gateway = _FakeAccessGateway(createAccess: pendingAccess);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          libraryAccessGatewayProvider.overrideWithValue(gateway),
+          libraryRepositoryProvider.overrideWithValue(
+            _FakeLibraryRepository(
+              inspection: const LibraryInspectionNeedsInitialization(),
+              metadata: metadata,
+            ),
+          ),
+          libraryTreeRepositoryProvider.overrideWithValue(
+            _FakeWorkspaceRepository(),
+          ),
+          documentRepositoryProvider.overrideWithValue(
+            _FakeWorkspaceRepository(),
+          ),
+          novelRepositoryProvider.overrideWithValue(_FakeNovelRepository()),
+          contentTreeRepositoryProvider.overrideWithValue(
+            _FakeNovelRepository(),
+          ),
+          workspaceSessionRepositoryProvider.overrideWithValue(
+            _MemoryWorkspaceSessionRepository(),
+          ),
+          agentConfigRepositoryProvider.overrideWithValue(
+            _FakeAgentConfigRepository(),
+          ),
+        ],
+        child: const LoreApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('创建书库目录'), findsOneWidget);
+    await tester.tap(find.text('创建书库目录'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('书库名称'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '我的新书库');
+    await tester.tap(find.text('创建'));
+    await tester.pumpAndSettle();
+
+    expect(gateway.createdName, '我的新书库');
+    expect(find.text('书库'), findsOneWidget);
+  });
+
   testWidgets('shows unsupported state on Android gateway', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -1409,10 +1469,12 @@ void main() {
 }
 
 final class _FakeAccessGateway implements LibraryAccessGateway {
-  _FakeAccessGateway({this.restoreAccess, this.selectAccess});
+  _FakeAccessGateway({this.restoreAccess, this.selectAccess, this.createAccess});
 
   final LibraryAccess? restoreAccess;
   final LibraryAccess? selectAccess;
+  final LibraryAccess? createAccess;
+  String? createdName;
   int discardCount = 0;
 
   @override
@@ -1420,6 +1482,12 @@ final class _FakeAccessGateway implements LibraryAccessGateway {
 
   @override
   Future<void> commit() async {}
+
+  @override
+  Future<LibraryAccess?> create({required String name}) async {
+    createdName = name;
+    return createAccess;
+  }
 
   @override
   Future<void> discard() async {
@@ -1434,13 +1502,14 @@ final class _FakeAccessGateway implements LibraryAccessGateway {
 }
 
 final class _FakeLibraryRepository implements LibraryRepository {
-  _FakeLibraryRepository({required this.inspection});
+  _FakeLibraryRepository({required this.inspection, this.metadata});
 
   final LibraryInspection inspection;
+  final LibraryMetadata? metadata;
 
   @override
   Future<LibraryMetadata> initialize(LibraryAccess access) async {
-    throw UnimplementedError();
+    return metadata ?? (throw UnimplementedError());
   }
 
   @override

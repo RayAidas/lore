@@ -25,4 +25,8 @@ final class UnsupportedLibraryAccessGateway implements LibraryAccessGateway {
 
   @override
   Future<LibraryAccess?> select() => Future<LibraryAccess?>.error(_error);
+
+  @override
+  Future<LibraryAccess?> create({required String name}) =>
+      Future<LibraryAccess?>.error(_error);
 }

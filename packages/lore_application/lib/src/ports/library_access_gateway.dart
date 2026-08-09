@@ -6,6 +6,10 @@ abstract interface class LibraryAccessGateway {
 
   Future<LibraryAccess?> select();
 
+  /// 创建名为 [name] 的空目录并作为待确认的书库目录返回；
+  /// 用户取消时返回 null。
+  Future<LibraryAccess?> create({required String name});
+
   Future<void> commit();
 
   Future<void> discard();

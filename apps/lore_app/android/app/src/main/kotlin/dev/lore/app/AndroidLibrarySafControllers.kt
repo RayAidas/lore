@@ -19,6 +19,8 @@ internal class AndroidLibraryAccessController(
     private val preferences = activity.getSharedPreferences(PREFERENCES_NAME, Activity.MODE_PRIVATE)
     private var pendingResult: MethodChannel.Result? = null
     private var pendingUri: Uri? = null
+    private var pendingBaseUri: Uri? = null
+    private var pendingName: String? = null
 
     init {
         channel.setMethodCallHandler(this)
@@ -28,6 +30,7 @@ internal class AndroidLibraryAccessController(
         when (call.method) {
             "restoreLibraryDirectory" -> restore(result)
             "selectLibraryDirectory" -> select(result)
+            "createLibraryDirectory" -> create(result, call)
             "commitLibraryDirectory" -> commit(result)
             "discardLibraryDirectorySelection" -> {
                 discardPending()
@@ -46,18 +49,65 @@ internal class AndroidLibraryAccessController(
         val result = pendingResult ?: return true
         pendingResult = null
         if (resultCode != Activity.RESULT_OK || data?.data == null) {
+            clearPendingCreateState()
             result.success(null)
             return true
         }
-        val uri = data.data!!
+        val baseUri = data.data!!
         val flags = data.flags and
             (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        val alreadyGranted = activity.contentResolver.persistedUriPermissions.any {
+            it.uri == baseUri && it.isReadPermission && it.isWritePermission
+        }
+        if (!alreadyGranted) {
+            try {
+                activity.contentResolver.takePersistableUriPermission(baseUri, flags)
+            } catch (error: SecurityException) {
+                clearPendingCreateState()
+                result.error("access_denied", "无法保留所选目录的访问权限。", null)
+                return true
+            }
+        }
+
+        val name = pendingName
+        if (name == null) {
+            pendingBaseUri = baseUri
+            pendingUri = baseUri
+            result.success(accessValue(baseUri))
+            return true
+        }
+
+        val rootDocUri = DocumentsContract.buildDocumentUriUsingTree(
+            baseUri,
+            DocumentsContract.getTreeDocumentId(baseUri),
+        )
         try {
-            activity.contentResolver.takePersistableUriPermission(uri, flags)
-            pendingUri = uri
-            result.success(accessValue(uri))
-        } catch (error: SecurityException) {
-            result.error("access_denied", "无法保留所选目录的访问权限。", null)
+            val created = DocumentsContract.createDocument(
+                activity.contentResolver,
+                rootDocUri,
+                Document.MIME_TYPE_DIR,
+                name,
+            )
+            if (created == null) {
+                rollbackPendingCreate(baseUri, alreadyGranted)
+                result.error("already_exists", "同名目录已存在。", null)
+                return true
+            }
+            val tokenUri = DocumentsContract.buildTreeDocumentUri(
+                created.authority,
+                DocumentsContract.getDocumentId(created),
+            )
+            pendingBaseUri = baseUri
+            pendingUri = tokenUri
+            result.success(accessValue(tokenUri, name))
+        } catch (error: Exception) {
+            rollbackPendingCreate(baseUri, alreadyGranted)
+            val code = when (error) {
+                is SecurityException -> "permission_denied"
+                is java.io.FileNotFoundException -> "not_writable"
+                else -> "io"
+            }
+            result.error(code, "无法在所选位置创建书库目录。", null)
         }
         return true
     }
@@ -74,16 +124,23 @@ internal class AndroidLibraryAccessController(
             result.success(null)
             return
         }
-        val uri = Uri.parse(value)
+        val baseUri = Uri.parse(value)
         val granted = activity.contentResolver.persistedUriPermissions.any {
-            it.uri == uri && it.isReadPermission && it.isWritePermission
+            it.uri == baseUri && it.isReadPermission && it.isWritePermission
         }
         if (!granted) {
-            preferences.edit().remove(URI_KEY).apply()
+            preferences.edit()
+                .remove(URI_KEY)
+                .remove(LIBRARY_URI_KEY)
+                .apply()
             result.error("access_denied", "书库目录授权已失效，请重新选择。", null)
             return
         }
-        result.success(accessValue(uri))
+        // 兼容旧版本单 key（treeUri）安装：此时 token 即授权树本身。
+        val token = preferences.getString(LIBRARY_URI_KEY, null)
+            ?.let { Uri.parse(it) }
+            ?: baseUri
+        result.success(accessValue(token, displayName(token)))
     }
 
     private fun select(result: MethodChannel.Result) {
@@ -91,8 +148,29 @@ internal class AndroidLibraryAccessController(
             result.error("selection_in_progress", "正在选择书库目录。", null)
             return
         }
+        pendingName = null
         discardPending()
         pendingResult = result
+        launchTreePicker()
+    }
+
+    private fun create(result: MethodChannel.Result, call: MethodCall) {
+        if (pendingResult != null) {
+            result.error("selection_in_progress", "正在选择书库目录。", null)
+            return
+        }
+        val name = call.argument<String>("name")?.trim().orEmpty()
+        if (!isValidLibraryName(name)) {
+            result.error("invalid_name", "书库名称无效。", null)
+            return
+        }
+        discardPending()
+        pendingName = name
+        pendingResult = result
+        launchTreePicker()
+    }
+
+    private fun launchTreePicker() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -102,27 +180,47 @@ internal class AndroidLibraryAccessController(
         activity.startActivityForResult(intent, REQUEST_LIBRARY_DIRECTORY)
     }
 
+    private fun isValidLibraryName(name: String): Boolean {
+        return name.isNotEmpty() &&
+            name != "." &&
+            name != ".." &&
+            !name.contains('/') &&
+            !name.contains('\\') &&
+            name.length <= 255
+    }
+
     private fun commit(result: MethodChannel.Result) {
+        val baseUri = pendingBaseUri
         val uri = pendingUri
-        if (uri == null) {
+        if (baseUri == null || uri == null) {
             result.error("access_denied", "没有等待提交的目录授权。", null)
             return
         }
-        preferences.edit().putString(URI_KEY, uri.toString()).apply()
+        preferences.edit()
+            .putString(URI_KEY, baseUri.toString())
+            .putString(LIBRARY_URI_KEY, uri.toString())
+            .apply()
+        pendingBaseUri = null
         pendingUri = null
+        pendingName = null
         result.success(null)
     }
 
     private fun discardPending() {
-        val uri = pendingUri ?: return
+        val uri = pendingBaseUri ?: pendingUri ?: return
         release(uri)
         pendingUri = null
+        pendingBaseUri = null
+        pendingName = null
     }
 
     private fun clear() {
         discardPending()
         preferences.getString(URI_KEY, null)?.let { release(Uri.parse(it)) }
-        preferences.edit().remove(URI_KEY).apply()
+        preferences.edit()
+            .remove(URI_KEY)
+            .remove(LIBRARY_URI_KEY)
+            .apply()
     }
 
     private fun release(uri: Uri) {
@@ -135,15 +233,49 @@ internal class AndroidLibraryAccessController(
         }
     }
 
-    private fun accessValue(uri: Uri) = mapOf(
+    private fun clearPendingCreateState() {
+        pendingName = null
+        pendingBaseUri = null
+        pendingUri = null
+    }
+
+    private fun rollbackPendingCreate(baseUri: Uri, alreadyGranted: Boolean) {
+        if (!alreadyGranted) {
+            release(baseUri)
+        }
+        clearPendingCreateState()
+    }
+
+    private fun accessValue(uri: Uri, displayPath: String? = null) = mapOf(
         "token" to uri.toString(),
-        "displayPath" to uri.lastPathSegment.orEmpty(),
+        "displayPath" to (displayPath ?: uri.lastPathSegment.orEmpty()),
     )
+
+    private fun displayName(uri: Uri): String? {
+        return try {
+            val documentUri = DocumentsContract.buildDocumentUriUsingTree(
+                uri,
+                DocumentsContract.getTreeDocumentId(uri),
+            )
+            activity.contentResolver.query(
+                documentUri,
+                arrayOf(Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     companion object {
         private const val CHANNEL_NAME = "dev.lore.app/android_library_access"
         private const val PREFERENCES_NAME = "lore.library.access"
         private const val URI_KEY = "treeUri"
+        private const val LIBRARY_URI_KEY = "libraryTreeUri"
         private const val REQUEST_LIBRARY_DIRECTORY = 4172
     }
 }

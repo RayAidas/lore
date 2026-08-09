@@ -224,6 +224,20 @@ final class LibraryController extends AsyncNotifier<LibraryUiState> {
     return next;
   }
 
+  Future<LibraryUiState?> createDirectory(String name) async {
+    final previous = _currentReadyState();
+    state = const AsyncLoading();
+    final result = await _service.create(name);
+    if (result == null) {
+      final restored = previous ?? const LibraryNeedsSelectionState();
+      state = AsyncData(restored);
+      return null;
+    }
+    final next = _mapResult(result, previous: previous);
+    state = AsyncData(next);
+    return next;
+  }
+
   Future<void> initialize(LibraryNeedsInitializationState current) async {
     state = const AsyncLoading();
     final result = await _service.initialize(current.access);
