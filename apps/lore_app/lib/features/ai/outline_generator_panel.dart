@@ -119,6 +119,9 @@ final class _OutlineGeneratorPanelState
           hint: '例如：龙渊纪元',
           required: true,
           enabled: !_busy,
+          // 固定单行：macOS 下多行输入框随输入增高会在组字时打断输入法
+          // （见 flutter#120557/#120763 一类问题），表单字段统一固定高度。
+          maxLines: 1,
         ),
         const SizedBox(height: 12),
         Text(
@@ -167,8 +170,10 @@ final class _OutlineGeneratorPanelState
           label: '世界背景',
           controller: _worldController,
           hint: '例如：东方玄幻，灵气复苏；王朝与宗门并立…（留空由 AI 自行构思）',
+          // minLines == maxLines：固定高度，内容超长时内部滚动而非增高，
+          // 避免组字期间字段布局变化打断输入法。
           minLines: 3,
-          maxLines: 5,
+          maxLines: 3,
           enabled: !_busy,
         ),
         const SizedBox(height: 12),
@@ -177,7 +182,7 @@ final class _OutlineGeneratorPanelState
           controller: _characterController,
           hint: '例如：主角林晚，孤僻天才；反派为当朝丞相…（留空由 AI 自行构思）',
           minLines: 3,
-          maxLines: 5,
+          maxLines: 3,
           enabled: !_busy,
         ),
         const SizedBox(height: 12),
@@ -185,6 +190,7 @@ final class _OutlineGeneratorPanelState
           label: '卷设定',
           controller: _volumeController,
           hint: '例如：5 卷；或逐卷名称',
+          maxLines: 1,
           enabled: !_busy,
         ),
         const SizedBox(height: 12),
@@ -192,6 +198,7 @@ final class _OutlineGeneratorPanelState
           label: '章设定',
           controller: _chapterController,
           hint: '例如：每卷 8-12 章；第 1 章作开篇',
+          maxLines: 1,
           enabled: !_busy,
         ),
         const SizedBox(height: 12),
@@ -200,7 +207,7 @@ final class _OutlineGeneratorPanelState
           controller: _extraController,
           hint: '其他创作约束或风格提示（可选）',
           minLines: 2,
-          maxLines: 4,
+          maxLines: 2,
           enabled: !_busy,
         ),
         const SizedBox(height: 10),
@@ -336,13 +343,18 @@ final class _OutlineGeneratorPanelState
 }
 
 /// 单个表单字段：标签 + 输入框（样式与写作助手的自定义指令输入一致）。
+///
+/// 注意：字段应保持固定高度 —— 单行用 `maxLines: 1`，多行用
+/// `minLines == maxLines`（超长内容内部滚动）。不要用 `minLines < maxLines`
+/// 的自动增高：macOS 下输入法组字期间字段增高/布局变化会打断中文输入
+/// （见 flutter#120557 / #120763 一类引擎问题）。
 final class _OutlineField extends StatelessWidget {
   const _OutlineField({
     required this.label,
     required this.controller,
     this.hint,
     this.minLines = 1,
-    this.maxLines = 3,
+    this.maxLines = 1,
     this.enabled = true,
     this.required = false,
   });
