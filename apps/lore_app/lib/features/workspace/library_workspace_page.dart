@@ -8,7 +8,6 @@ import 'package:lore_domain/lore_domain.dart';
 import 'package:lore_editor/lore_editor.dart';
 import 'package:lore_ui/lore_ui.dart';
 
-import '../ai/assistant_panel.dart';
 import '../library/library_providers.dart';
 import '../preferences/keybinding_activators.dart';
 import '../preferences/preferences_providers.dart';
@@ -307,20 +306,6 @@ final class _LibraryWorkspacePageState
                               style: _appBarIconButtonStyle,
                               icon: const Icon(
                                 Icons.settings_outlined,
-                                size: 18,
-                              ),
-                            ),
-                            IconButton(
-                              onPressed: () => _toggleAssistant(
-                                context,
-                                desktop: desktop,
-                                inspectorContentAvailable:
-                                    inspectorContentAvailable,
-                              ),
-                              tooltip: 'AI 写作助手',
-                              style: _appBarIconButtonStyle,
-                              icon: const Icon(
-                                Icons.auto_awesome_outlined,
                                 size: 18,
                               ),
                             ),
@@ -704,24 +689,6 @@ final class _LibraryWorkspacePageState
 
   /// 切换页面级全屏。进入时丢弃既有查找替换覆盖层（全屏下仍可用 Cmd+F/H 重开）。
   ///
-  /// 切换右侧「助手」面板：桌面宽屏停靠 inspector，窄屏/移动端走面板弹层。
-  void _toggleAssistant(
-    BuildContext context, {
-    required bool desktop,
-    required bool inspectorContentAvailable,
-  }) {
-    if (desktop && inspectorContentAvailable) {
-      setState(() {
-        _activeInspectorTab =
-            _activeInspectorTab == WorkspaceInspectorTab.assistant
-            ? null
-            : WorkspaceInspectorTab.assistant;
-      });
-      return;
-    }
-    showAiAssistantSheet(context, _controller);
-  }
-
   /// 兜底保留滚动：结构层已让 DocumentPane 不重挂载，但作为防御仍保存所有已挂载
   /// 文档的滚动偏移并在下一帧恢复，覆盖任何漏网的重挂载路径。
   void _toggleFullscreen() {

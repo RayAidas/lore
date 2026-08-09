@@ -30,25 +30,10 @@ enum AgentApplyTarget {
   append,
 }
 
-/// 以辅助面板弹层打开写作助手（窄屏自动降级为 bottom sheet），移动端入口。
-Future<void> showAiAssistantSheet(
-  BuildContext context,
-  WorkspaceController controller,
-) {
-  return showLorePanelSheet<void>(
-    context: context,
-    title: 'AI 写作助手',
-    icon: Icons.auto_awesome_outlined,
-    maxWidth: 560,
-    child: AiAssistantPanel(controller: controller),
-  );
-}
-
 /// 工作区「助手」面板：预置写作指令 + 自定义指令 + 结果应用回文档。
 ///
-/// 桌面端嵌入右侧 inspector；移动端经 [showAiAssistantSheet] 以面板弹层展示。
-/// 第一版不做流式输出与多轮对话历史：每次请求是「指令 + 当前上下文」的单轮，
-/// 结果可一键替换选区 / 插入 / 追加（自动保存兜底）。
+/// 桌面端嵌入右侧 inspector。第一版不做流式输出与多轮对话历史：每次请求是
+/// 「指令 + 当前上下文」的单轮，结果可一键替换选区 / 插入 / 追加（自动保存兜底）。
 final class AiAssistantPanel extends ConsumerStatefulWidget {
   const AiAssistantPanel({required this.controller, super.key});
 
