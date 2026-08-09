@@ -54,9 +54,14 @@ final class _AiSettingsContent extends ConsumerWidget {
         _SettingRow(
           label: '模型',
           subtitle: config.model,
-          trailing: TextButton(
-            onPressed: () => _editModel(context, controller, config.model),
-            child: const Text('编辑'),
+          trailing: _ModelDropdown(
+            config: config,
+            onPresetSelected: (preset) {
+              guardVoid(
+                () => controller.applyPreset(preset.baseUrl, preset.model),
+              );
+            },
+            onCustomRequested: () => _editModel(context, controller, config.model),
           ),
         ),
         _SettingRow(
@@ -169,5 +174,60 @@ final class _AiSettingsContent extends ConsumerWidget {
         LoreToast.error(context, '设置保存失败，请重试');
       }
     }
+  }
+}
+
+/// 「自定义模型…」选项的哨兵值，与任一内置预设实例都不相等。
+final class _CustomModelChoice {
+  const _CustomModelChoice();
+}
+
+/// 模型选择下拉：内置常用模型预设 + 「自定义模型…」手动输入入口。
+///
+/// 当前配置命中某个预设（接口地址与模型名都一致）时高亮该预设；否则高亮
+/// 「自定义模型…」。实际模型名始终显示在设置行的副标题里，避免下拉收起时
+/// 看不到当前用的具体模型。
+final class _ModelDropdown extends StatelessWidget {
+  const _ModelDropdown({
+    required this.config,
+    required this.onPresetSelected,
+    required this.onCustomRequested,
+  });
+
+  final WritingAgentConfig config;
+  final ValueChanged<LlmPreset> onPresetSelected;
+  final VoidCallback onCustomRequested;
+
+  static const _CustomModelChoice _customChoice = _CustomModelChoice();
+
+  /// 当前配置命中的预设；接口地址或模型名任一不一致则视为自定义。
+  LlmPreset? get _matchedPreset {
+    for (final preset in kLlmPresets) {
+      if (preset.baseUrl == config.baseUrl && preset.model == config.model) {
+        return preset;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final matched = _matchedPreset;
+    return _Dropdown<Object>(
+      key: const ValueKey('ai-model-dropdown'),
+      value: matched ?? _customChoice,
+      onChanged: (choice) {
+        if (identical(choice, _customChoice)) {
+          onCustomRequested();
+        } else {
+          onPresetSelected(choice as LlmPreset);
+        }
+      },
+      items: [
+        for (final preset in kLlmPresets)
+          _DropdownOption<Object>(preset, preset.label),
+        _DropdownOption<Object>(_customChoice, '自定义模型…'),
+      ],
+    );
   }
 }

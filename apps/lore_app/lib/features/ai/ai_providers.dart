@@ -77,6 +77,10 @@ final class AgentConfigController extends AsyncNotifier<AgentConfigState> {
       _updateConfig((config) => config.copyWith(baseUrl: value));
   Future<void> setModel(String value) =>
       _updateConfig((config) => config.copyWith(model: value));
+  /// 一键应用内置模型预设：同时写入接口地址与模型名。
+  Future<void> applyPreset(String baseUrl, String model) => _updateConfig(
+    (config) => config.copyWith(baseUrl: baseUrl, model: model),
+  );
   Future<void> setApiKey(String apiKey) =>
       _updateConfig((config) => config.copyWith(apiKey: apiKey));
   Future<void> clearApiKey() =>

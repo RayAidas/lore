@@ -728,6 +728,7 @@ final class _Dropdown<T> extends StatelessWidget {
     required this.value,
     required this.items,
     required this.onChanged,
+    super.key,
   });
 
   final T value;

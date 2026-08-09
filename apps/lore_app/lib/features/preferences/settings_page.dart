@@ -10,6 +10,7 @@ import 'package:lore_ui/lore_ui.dart';
 import 'font_options.dart';
 import 'background_image_storage.dart';
 import 'keybinding_recorder.dart';
+import 'llm_presets.dart';
 import 'preferences_providers.dart';
 import 'theme_options.dart';
 import '../ai/ai_providers.dart';
