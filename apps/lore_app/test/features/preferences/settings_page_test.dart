@@ -284,7 +284,7 @@ void main() {
     },
   );
 
-  testWidgets('model dropdown applies built-in presets and custom input', (
+  testWidgets('interface dropdown switches provider, model dropdown lists its models', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -303,40 +303,94 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 默认配置命中 OpenAI 预设。
+    // 默认配置命中 OpenAI 提供商，模型下拉展示其默认模型。
     await tester.tap(find.byKey(const ValueKey('settings-nav-ai')));
     await tester.pumpAndSettle();
-    final dropdown = find.byKey(const ValueKey('ai-model-dropdown'));
-    expect(dropdown, findsOneWidget);
+    final providerDropdown = find.byKey(
+      const ValueKey('ai-provider-dropdown'),
+    );
+    final modelDropdown = find.byKey(const ValueKey('ai-model-dropdown'));
+    expect(providerDropdown, findsOneWidget);
+    expect(modelDropdown, findsOneWidget);
     expect(find.byTooltip('当前：OpenAI'), findsOneWidget);
+    expect(find.byTooltip('当前：gpt-4o-mini'), findsOneWidget);
 
-    // 选择 DeepSeek 预设 → 接口地址与模型名一并落盘。
-    await tester.tap(dropdown);
+    // 接口地址选 DeepSeek → 写入其地址与默认模型，模型下拉切到 DeepSeek 列表。
+    await tester.tap(providerDropdown);
     await tester.pumpAndSettle();
     await tester.tap(find.text('DeepSeek'));
     await tester.pumpAndSettle();
 
-    final stored = jsonDecode(
+    Future<Map<String, Object?>> stored() async => jsonDecode(
       (await SharedPreferences.getInstance()).getString('lore.agent.config')!,
     ) as Map<String, Object?>;
-    expect(stored['baseUrl'], 'https://api.deepseek.com');
-    expect(stored['model'], 'deepseek-chat');
+    expect((await stored())['baseUrl'], 'https://api.deepseek.com');
+    expect((await stored())['model'], 'deepseek-chat');
     expect(find.byTooltip('当前：DeepSeek'), findsOneWidget);
+    expect(find.byTooltip('当前：deepseek-chat'), findsOneWidget);
+
+    // 模型下拉选同提供商的另一模型 → 只改模型名、保留当前接口地址。
+    await tester.tap(modelDropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('deepseek-reasoner'));
+    await tester.pumpAndSettle();
+    expect((await stored())['model'], 'deepseek-reasoner');
+    expect((await stored())['baseUrl'], 'https://api.deepseek.com');
+    expect(find.byTooltip('当前：deepseek-reasoner'), findsOneWidget);
 
     // 「自定义模型…」→ 手动输入，只改模型名、保留当前接口地址。
-    await tester.tap(dropdown);
+    await tester.tap(modelDropdown);
     await tester.pumpAndSettle();
     await tester.tap(find.text('自定义模型…'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'my-custom-model');
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
+    expect((await stored())['model'], 'my-custom-model');
+    expect((await stored())['baseUrl'], 'https://api.deepseek.com');
+  });
 
-    final afterCustom = jsonDecode(
+  testWidgets('custom interface falls back model dropdown to custom input', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(900, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: LoreTheme.light(),
+          home: const Scaffold(body: SettingsContent()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('settings-nav-ai')));
+    await tester.pumpAndSettle();
+
+    // 接口地址选「自定义接口…」→ 手动输入地址，模型下拉随之退化为自定义项。
+    await tester.tap(find.byKey(const ValueKey('ai-provider-dropdown')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自定义接口…'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField),
+      'https://my-proxy.example.com/v1',
+    );
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    final stored = jsonDecode(
       (await SharedPreferences.getInstance()).getString('lore.agent.config')!,
     ) as Map<String, Object?>;
-    expect(afterCustom['model'], 'my-custom-model');
-    expect(afterCustom['baseUrl'], 'https://api.deepseek.com');
+    expect(stored['baseUrl'], 'https://my-proxy.example.com/v1');
+    // 地址不再命中任何提供商 → 接口下拉显示自定义，模型下拉只能自定义填写。
+    expect(find.byTooltip('当前：自定义接口…'), findsOneWidget);
+    expect(find.byTooltip('当前：自定义模型…'), findsOneWidget);
   });
 
   testWidgets('tapping a theme card persists the selection', (tester) async {

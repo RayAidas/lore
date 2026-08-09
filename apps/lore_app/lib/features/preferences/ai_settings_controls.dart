@@ -46,9 +46,19 @@ final class _AiSettingsContent extends ConsumerWidget {
         _SettingRow(
           label: '接口地址',
           subtitle: config.baseUrl,
-          trailing: TextButton(
-            onPressed: () => _editBaseUrl(context, controller, config.baseUrl),
-            child: const Text('编辑'),
+          trailing: _ProviderDropdown(
+            config: config,
+            onProviderSelected: (provider) {
+              // 切换提供商同时带上其默认模型，模型下拉随之展示对应列表。
+              guardVoid(
+                () => controller.applyPreset(
+                  provider.baseUrl,
+                  provider.defaultModel,
+                ),
+              );
+            },
+            onCustomRequested: () =>
+                _editBaseUrl(context, controller, config.baseUrl),
           ),
         ),
         _SettingRow(
@@ -56,11 +66,7 @@ final class _AiSettingsContent extends ConsumerWidget {
           subtitle: config.model,
           trailing: _ModelDropdown(
             config: config,
-            onPresetSelected: (preset) {
-              guardVoid(
-                () => controller.applyPreset(preset.baseUrl, preset.model),
-              );
-            },
+            onModelSelected: (model) => guard(controller.setModel)(model),
             onCustomRequested: () => _editModel(context, controller, config.model),
           ),
         ),
@@ -177,34 +183,33 @@ final class _AiSettingsContent extends ConsumerWidget {
   }
 }
 
-/// 「自定义模型…」选项的哨兵值，与任一内置预设实例都不相等。
-final class _CustomModelChoice {
-  const _CustomModelChoice();
+/// 「自定义接口…」选项的哨兵值，与任一内置提供商实例都不相等。
+final class _CustomProviderChoice {
+  const _CustomProviderChoice();
 }
 
-/// 模型选择下拉：内置常用模型预设 + 「自定义模型…」手动输入入口。
+/// 接口地址下拉：内置常用提供商 + 「自定义接口…」手动输入入口。
 ///
-/// 当前配置命中某个预设（接口地址与模型名都一致）时高亮该预设；否则高亮
-/// 「自定义模型…」。实际模型名始终显示在设置行的副标题里，避免下拉收起时
-/// 看不到当前用的具体模型。
-final class _ModelDropdown extends StatelessWidget {
-  const _ModelDropdown({
+/// 当前配置的接口地址命中某个提供商时高亮该提供商；否则高亮「自定义接口…」。
+/// 实际地址始终显示在设置行的副标题里，避免下拉收起时看不到当前用的地址。
+final class _ProviderDropdown extends StatelessWidget {
+  const _ProviderDropdown({
     required this.config,
-    required this.onPresetSelected,
+    required this.onProviderSelected,
     required this.onCustomRequested,
   });
 
   final WritingAgentConfig config;
-  final ValueChanged<LlmPreset> onPresetSelected;
+  final ValueChanged<LlmProvider> onProviderSelected;
   final VoidCallback onCustomRequested;
 
-  static const _CustomModelChoice _customChoice = _CustomModelChoice();
+  static const _CustomProviderChoice _customChoice = _CustomProviderChoice();
 
-  /// 当前配置命中的预设；接口地址或模型名任一不一致则视为自定义。
-  LlmPreset? get _matchedPreset {
-    for (final preset in kLlmPresets) {
-      if (preset.baseUrl == config.baseUrl && preset.model == config.model) {
-        return preset;
+  /// 当前接口地址命中的提供商；未命中（自定义地址）则为 null。
+  LlmProvider? get _matchedProvider {
+    for (final provider in kLlmProviders) {
+      if (provider.baseUrl == config.baseUrl) {
+        return provider;
       }
     }
     return null;
@@ -212,20 +217,76 @@ final class _ModelDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final matched = _matchedPreset;
+    final matched = _matchedProvider;
     return _Dropdown<Object>(
-      key: const ValueKey('ai-model-dropdown'),
+      key: const ValueKey('ai-provider-dropdown'),
       value: matched ?? _customChoice,
       onChanged: (choice) {
         if (identical(choice, _customChoice)) {
           onCustomRequested();
         } else {
-          onPresetSelected(choice as LlmPreset);
+          onProviderSelected(choice as LlmProvider);
         }
       },
       items: [
-        for (final preset in kLlmPresets)
-          _DropdownOption<Object>(preset, preset.label),
+        for (final provider in kLlmProviders)
+          _DropdownOption<Object>(provider, provider.label),
+        _DropdownOption<Object>(_customChoice, '自定义接口…'),
+      ],
+    );
+  }
+}
+
+/// 「自定义模型…」选项的哨兵值。
+final class _CustomModelChoice {
+  const _CustomModelChoice();
+}
+
+/// 模型选择下拉：当前接口地址对应提供商的常用模型列表 + 「自定义模型…」入口。
+///
+/// 接口地址命中提供商时展示该提供商的模型列表；未命中（自定义接口）或当前
+/// 模型不在列表里则高亮「自定义模型…」。实际模型名始终显示在设置行的副标题里。
+final class _ModelDropdown extends StatelessWidget {
+  const _ModelDropdown({
+    required this.config,
+    required this.onModelSelected,
+    required this.onCustomRequested,
+  });
+
+  final WritingAgentConfig config;
+  final ValueChanged<String> onModelSelected;
+  final VoidCallback onCustomRequested;
+
+  static const _CustomModelChoice _customChoice = _CustomModelChoice();
+
+  /// 当前接口地址命中的提供商；未命中（自定义地址）则为 null。
+  LlmProvider? get _matchedProvider {
+    for (final provider in kLlmProviders) {
+      if (provider.baseUrl == config.baseUrl) {
+        return provider;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = _matchedProvider;
+    final modelIsPreset = provider != null && provider.models.contains(config.model);
+    return _Dropdown<Object>(
+      key: const ValueKey('ai-model-dropdown'),
+      value: modelIsPreset ? config.model : _customChoice,
+      onChanged: (choice) {
+        if (identical(choice, _customChoice)) {
+          onCustomRequested();
+        } else {
+          onModelSelected(choice as String);
+        }
+      },
+      items: [
+        if (provider != null)
+          for (final model in provider.models)
+            _DropdownOption<Object>(model, model),
         _DropdownOption<Object>(_customChoice, '自定义模型…'),
       ],
     );

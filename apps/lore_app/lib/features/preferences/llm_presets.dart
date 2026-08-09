@@ -1,12 +1,12 @@
-/// 常用大模型预设：提供商显示名 + OpenAI 兼容接口地址 + 默认模型名。
+/// 常用大模型提供商预设：显示名 + OpenAI 兼容接口地址 + 常用模型列表。
 ///
-/// 选择预设会同时写入 `baseUrl` 与 `model`（两者配套服务才可用）；若想用预设
-/// 之外的模型，走设置里的「自定义模型…」入口只改模型名、保留当前接口地址。
-final class LlmPreset {
-  const LlmPreset({
+/// 设置页「接口地址」下拉按提供商选择并写入 `baseUrl`；「模型」下拉按当前
+/// 接口地址匹配的提供商展示对应模型列表。两者都支持「自定义…」入口手动填写。
+final class LlmProvider {
+  const LlmProvider({
     required this.label,
     required this.baseUrl,
-    required this.model,
+    required this.models,
   });
 
   /// 下拉框中展示的提供商名称，如「DeepSeek」。
@@ -15,50 +15,58 @@ final class LlmPreset {
   /// OpenAI 风格 Chat Completions 接口地址（不含 `/chat/completions`）。
   final String baseUrl;
 
-  /// 该提供商常用的模型标识。
-  final String model;
+  /// 该提供商常用的模型标识列表（首个为默认模型）。
+  final List<String> models;
+
+  /// 切到该提供商时采用的默认模型。
+  String get defaultModel => models.first;
 }
 
-/// 内置常用大模型预设表。若某提供商调整了默认模型，可在此处更新条目。
-const List<LlmPreset> kLlmPresets = [
-  LlmPreset(
+/// 内置常用大模型提供商表。若某提供商调整了默认模型或新增模型，可在此处更新。
+const List<LlmProvider> kLlmProviders = [
+  LlmProvider(
     label: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-chat',
+    models: ['deepseek-chat', 'deepseek-reasoner'],
   ),
-  LlmPreset(
+  LlmProvider(
     label: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini',
+    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'o3-mini'],
   ),
-  LlmPreset(
+  LlmProvider(
     label: 'Kimi（月之暗面）',
     baseUrl: 'https://api.moonshot.cn/v1',
-    model: 'kimi-k2-0711-preview',
+    models: ['kimi-k2-0711-preview', 'kimi-latest'],
   ),
-  LlmPreset(
+  LlmProvider(
     label: '智谱 GLM',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    model: 'glm-4-flash',
+    models: ['glm-4-flash', 'glm-4-plus', 'glm-4-air', 'glm-4.5'],
   ),
-  LlmPreset(
+  LlmProvider(
     label: '通义千问',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    model: 'qwen-plus',
+    models: ['qwen-plus', 'qwen-turbo', 'qwen-max', 'qwen-long'],
   ),
-  LlmPreset(
+  LlmProvider(
     label: '硅基流动',
     baseUrl: 'https://api.siliconflow.cn/v1',
-    model: 'deepseek-ai/DeepSeek-V3',
+    models: [
+      'deepseek-ai/DeepSeek-V3',
+      'Qwen/Qwen2.5-7B-Instruct',
+      'meta-llama/Llama-3.3-70B-Instruct',
+      'THUDM/GLM-4-9B-Chat',
+    ],
   ),
-  LlmPreset(
+  LlmProvider(
     label: '文心一言',
     baseUrl: 'https://qianfan.baidubce.com/v2',
-    model: 'ernie-4.0-8k',
+    models: ['ernie-4.0-8k', 'ernie-4.0-turbo-8k', 'ernie-3.5-8k'],
   ),
-  LlmPreset(
+  LlmProvider(
     label: 'Ollama（本地）',
     baseUrl: 'http://localhost:11434/v1',
-    model: 'qwen2.5:7b',
+    models: ['qwen2.5:7b', 'qwen2.5:14b', 'qwen2.5:32b', 'llama3.2:3b'],
   ),
 ];
