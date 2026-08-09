@@ -161,12 +161,17 @@ extension MainFlutterWindow: NSWindowDelegate {
 final class LibraryAccessController {
   private static let channelName = "dev.lore.app/library_access"
   private static let bookmarkKey = "dev.lore.app.libraryBookmark.v1"
+  private static let parentBookmarkKey = "dev.lore.app.libraryParentBookmark.v1"
+  private static let libraryNameKey = "dev.lore.app.libraryName.v1"
 
   private let channel: FlutterMethodChannel
   private let defaults: UserDefaults
   private var activeURL: URL?
+  private var activeParentURL: URL?
   private var pendingURL: URL?
+  private var pendingParentURL: URL?
   private var pendingBookmark: Data?
+  private var pendingLibraryName: String?
 
   init(
     binaryMessenger: FlutterBinaryMessenger,
@@ -211,6 +216,8 @@ final class LibraryAccessController {
       discardPending()
       stopActiveAccess()
       defaults.removeObject(forKey: Self.bookmarkKey)
+      defaults.removeObject(forKey: Self.parentBookmarkKey)
+      defaults.removeObject(forKey: Self.libraryNameKey)
       result(nil)
     case "renameLibraryEntry":
       renameEntry(call: call, result: result)
@@ -379,6 +386,46 @@ final class LibraryAccessController {
       result(accessResult(for: activeURL))
       return
     }
+    // 创建书库流程：持久化的是父目录的安全域书签 + 子目录名，恢复时解析父目录后进入子目录。
+    if let parentBookmark = defaults.data(forKey: Self.parentBookmarkKey),
+       let name = defaults.string(forKey: Self.libraryNameKey) {
+      do {
+        var isStale = false
+        let parent = try URL(
+          resolvingBookmarkData: parentBookmark,
+          options: [.withSecurityScope],
+          relativeTo: nil,
+          bookmarkDataIsStale: &isStale)
+        guard parent.startAccessingSecurityScopedResource() else {
+          result(flutterError(
+            code: "access_denied",
+            message: "无法恢复书库目录访问权限。"))
+          return
+        }
+        if isStale {
+          do {
+            let refreshedBookmark = try createBookmark(for: parent)
+            defaults.set(refreshedBookmark, forKey: Self.parentBookmarkKey)
+          } catch {
+            parent.stopAccessingSecurityScopedResource()
+            result(flutterError(
+              code: "bookmark_resolution_failed",
+              message: "无法刷新书库目录授权，请重新选择目录。"))
+            return
+          }
+        }
+        let libraryURL = parent.appendingPathComponent(name).standardizedFileURL
+        activeParentURL = parent
+        activeURL = libraryURL
+        result(accessResult(for: libraryURL))
+        return
+      } catch {
+        result(flutterError(
+          code: "bookmark_resolution_failed",
+          message: "书库目录授权已失效，请重新选择目录。"))
+        return
+      }
+    }
     guard let bookmark = defaults.data(forKey: Self.bookmarkKey) else {
       result(nil)
       return
@@ -493,10 +540,19 @@ final class LibraryAccessController {
         message: "不能将文件系统根目录设为书库位置。"))
       return
     }
+    // 子目录不是用户在面板里选中的 URL，无法独立获取安全域访问；必须先激活父目录的安全域，
+    // 在父目录授权范围内创建并访问子目录。
+    guard parent.startAccessingSecurityScopedResource() else {
+      result(flutterError(
+        code: "access_denied",
+        message: "无法访问所选目录。"))
+      return
+    }
 
     let url = parent.appendingPathComponent(trimmedName)
     let fileManager = FileManager.default
     guard !fileManager.fileExists(atPath: url.path) else {
+      parent.stopAccessingSecurityScopedResource()
       result(flutterError(code: "name_conflict", message: "同名目录已存在。"))
       return
     }
@@ -505,22 +561,22 @@ final class LibraryAccessController {
         at: url,
         withIntermediateDirectories: false)
     } catch {
+      parent.stopAccessingSecurityScopedResource()
       result(flutterError(code: "create_failed", message: "无法创建书库目录。"))
       return
     }
 
     do {
-      let bookmark = try createBookmark(for: url)
-      guard url.startAccessingSecurityScopedResource() else {
-        result(flutterError(
-          code: "access_denied",
-          message: "无法访问新建的书库目录。"))
-        return
-      }
+      // 书签记在父目录上（用户选中、可持久化的安全域 URL），连同子目录名一起保存，
+      // 恢复时解析父目录再进入子目录。
+      let parentBookmark = try createBookmark(for: parent)
       pendingURL = url
-      pendingBookmark = bookmark
+      pendingParentURL = parent
+      pendingBookmark = parentBookmark
+      pendingLibraryName = trimmedName
       result(accessResult(for: url))
     } catch {
+      parent.stopAccessingSecurityScopedResource()
       result(flutterError(
         code: "selection_failed",
         message: "无法保存新建目录的访问权限。"))
@@ -544,11 +600,19 @@ final class LibraryAccessController {
         message: "没有等待保存的书库目录授权。"))
       return
     }
-    defaults.set(pendingBookmark, forKey: Self.bookmarkKey)
+    if let name = pendingLibraryName {
+      defaults.set(pendingBookmark, forKey: Self.parentBookmarkKey)
+      defaults.set(name, forKey: Self.libraryNameKey)
+    } else {
+      defaults.set(pendingBookmark, forKey: Self.bookmarkKey)
+    }
     stopActiveAccess()
     activeURL = pendingURL
+    activeParentURL = pendingParentURL
     self.pendingURL = nil
+    self.pendingParentURL = nil
     self.pendingBookmark = nil
+    self.pendingLibraryName = nil
     result(nil)
   }
 
@@ -561,13 +625,18 @@ final class LibraryAccessController {
 
   private func discardPending() {
     pendingURL?.stopAccessingSecurityScopedResource()
+    pendingParentURL?.stopAccessingSecurityScopedResource()
     pendingURL = nil
+    pendingParentURL = nil
     pendingBookmark = nil
+    pendingLibraryName = nil
   }
 
   private func stopActiveAccess() {
     activeURL?.stopAccessingSecurityScopedResource()
+    activeParentURL?.stopAccessingSecurityScopedResource()
     activeURL = nil
+    activeParentURL = nil
   }
 
   private func accessResult(for url: URL) -> [String: String] {
