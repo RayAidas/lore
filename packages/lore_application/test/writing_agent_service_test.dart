@@ -109,6 +109,56 @@ void main() {
     expect(client.lastMessages![1].content, '正文');
   });
 
+  test('runAction prepends memory block before the outline reference', () async {
+    await service.runAction(
+      action: WritingAgentAction.continueWriting,
+      contextText: '正文',
+      referenceText: '大纲内容',
+      memoryText: '第1章：林晚觉醒。',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    final user = client.lastMessages![1].content;
+    expect(user, contains('章节记忆'));
+    expect(user, contains('第1章：林晚觉醒。'));
+    expect(user, contains('参考大纲'));
+    expect(user, contains('大纲内容'));
+    // 章节记忆（长期一致）在前，参考大纲在后，正文在最后。
+    expect(user.indexOf('章节记忆'), lessThan(user.indexOf('参考大纲')));
+    expect(user.indexOf('参考大纲'), lessThan(user.indexOf('需要处理的文字')));
+  });
+
+  test('runAction with memory only has no outline block', () async {
+    await service.runAction(
+      action: WritingAgentAction.polish,
+      contextText: '正文',
+      memoryText: '第1章：林晚觉醒。',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    final user = client.lastMessages![1].content;
+    expect(user, contains('章节记忆'));
+    expect(user, isNot(contains('参考大纲')));
+    expect(user, contains('需要处理的文字'));
+  });
+
+  test('runCustom includes the memory block before the instruction', () async {
+    await service.runCustom(
+      instruction: '继续写下一章',
+      contextText: '上下文文字',
+      memoryText: '第2章：她出现了。',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    final user = client.lastMessages![1].content;
+    expect(user, contains('章节记忆'));
+    expect(user, contains('第2章：她出现了。'));
+    expect(user.indexOf('章节记忆'), lessThan(user.indexOf('继续写下一章')));
+  });
+
   test('runCustom prepends the outline reference before the instruction',
       () async {
     await service.runCustom(

@@ -1732,6 +1732,69 @@ void main() {
       );
     },
   );
+
+  group('saveGeneratedMemory', () {
+    WorkspaceController controllerFor(
+      _WorkspaceRepositoryWithChildren repository,
+      NovelSnapshot snapshot,
+    ) {
+      return WorkspaceController(
+        session: session,
+        service: LibraryWorkspaceService(
+          treeRepository: repository,
+          documentRepository: repository,
+          sessionRepository: _MemorySessionRepository(),
+        ),
+        novelStructureService: NovelStructureService(
+          novelRepository: _FakeNovelRepository(snapshot),
+          contentTreeRepository: _FakeContentTreeRepository(snapshot),
+        ),
+      );
+    }
+
+    test('creates 小说记忆.md at the novel root when missing', () async {
+      final repository = _WorkspaceRepositoryWithChildren();
+      final controller = controllerFor(repository, _chapterNovelSnapshot());
+      addTearDown(repository.dispose);
+      addTearDown(controller.dispose);
+      await controller.initialize();
+
+      const text = '# 章节记忆\n> 基于 1 章生成 · 2026-07-17';
+      final entry = await controller.saveGeneratedMemory(
+        novelId: const NovelId('novel-1'),
+        memoryText: text,
+      );
+
+      expect(entry.relativePath, '我的小说/小说记忆.md');
+      expect(repository.createdDocuments, contains('我的小说/小说记忆.md'));
+      expect(repository.createdDocuments['我的小说/小说记忆.md'], text);
+    });
+
+    test('overwrites an existing memory document instead of duplicating', () async {
+      final repository = _WorkspaceRepositoryWithChildren();
+      final controller = controllerFor(repository, _chapterNovelSnapshot());
+      addTearDown(repository.dispose);
+      addTearDown(controller.dispose);
+      await controller.initialize();
+
+      await controller.saveGeneratedMemory(
+        novelId: const NovelId('novel-1'),
+        memoryText: 'v1',
+      );
+      await controller.saveGeneratedMemory(
+        novelId: const NovelId('novel-1'),
+        memoryText: 'v2',
+      );
+
+      final memoryPaths = repository.createdDocuments.keys
+          .where((path) => path == '我的小说/小说记忆.md')
+          .toList();
+      expect(memoryPaths, hasLength(1));
+      expect(repository.createdDocuments['我的小说/小说记忆.md'], 'v2');
+      // 覆盖路径经 saveDocument 写入（savedTexts 有记录），而非再次 createDocument。
+      expect(repository.savedTexts, contains('v2'));
+    });
+  });
 }
 
 final class _MemoryWorkspaceRepository
@@ -2238,4 +2301,26 @@ class _FakeContentTreeRepository implements ContentTreeRepository {
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
     '_FakeContentTreeRepository.${invocation.memberName}',
   );
+}
+
+/// 让 `listChildren` 反映已创建的文档，供「再次生成记忆走覆盖路径」测试使用
+/// （基类 [_MemoryWorkspaceRepository] 的 `listChildren` 恒为空）。
+final class _WorkspaceRepositoryWithChildren extends _MemoryWorkspaceRepository {
+  @override
+  Future<List<LibraryEntry>> listChildren(
+    LibraryAccess access, {
+    String relativePath = '',
+  }) async {
+    return [
+      for (final path in createdDocuments.keys)
+        if (p.dirname(path) == relativePath)
+          LibraryEntry(
+            name: p.basename(path),
+            relativePath: path,
+            type: path.endsWith('.md')
+                ? LibraryEntryType.markdownFile
+                : LibraryEntryType.textFile,
+          ),
+    ];
+  }
 }

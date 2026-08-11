@@ -15,10 +15,13 @@ final class WritingAgentService {
   ///
   /// [referenceText] 为可选参考材料（如关联的大纲），前置在用户消息里并明确
   /// 标注「仅作参考、不要改写」，让模型据此把握设定与风格，而不把它当作业目标。
+  /// [memoryText] 为可选的章节记忆（历史章节摘要），置于参考大纲之前，让模型
+  /// 与已写情节、人物、伏笔保持一致。
   Future<String> runAction({
     required WritingAgentAction action,
     required String contextText,
     String? referenceText,
+    String? memoryText,
     required WritingAgentConfig config,
     required String apiKey,
     Duration timeout = const Duration(seconds: 60),
@@ -26,7 +29,11 @@ final class WritingAgentService {
     return _complete(
       messages: _messagesForAction(
         action,
-        _composeUserContent(contextText, referenceText: referenceText),
+        _composeUserContent(
+          contextText,
+          referenceText: referenceText,
+          memoryText: memoryText,
+        ),
       ),
       config: config,
       apiKey: apiKey,
@@ -39,14 +46,15 @@ final class WritingAgentService {
     required String instruction,
     required String contextText,
     String? referenceText,
+    String? memoryText,
     required WritingAgentConfig config,
     required String apiKey,
     Duration timeout = const Duration(seconds: 60),
   }) {
-    final reference = _referenceBlock(referenceText);
+    final blocks = _referenceBlocks(memoryText: memoryText, referenceText: referenceText);
     final content = contextText.trim().isEmpty
-        ? '$reference$instruction'
-        : '$reference$instruction\n\n以下是参考上下文（仅作依据，不要求保留原文）：\n\n$contextText';
+        ? '$blocks$instruction'
+        : '$blocks$instruction\n\n以下是参考上下文（仅作依据，不要求保留原文）：\n\n$contextText';
     return _complete(
       messages: [
         const AiChatMessage(role: AiChatRole.system, content: _customSystemPrompt),
@@ -58,13 +66,38 @@ final class WritingAgentService {
     );
   }
 
-  /// 把可选的参考材料（如大纲）拼进用户消息正文。无参考时原样返回正文。
-  String _composeUserContent(String body, {String? referenceText}) {
-    final reference = _referenceBlock(referenceText);
-    if (reference.isEmpty) {
+  /// 把可选的参考材料（章节记忆、大纲）拼进用户消息正文。无参考时原样返回正文。
+  String _composeUserContent(
+    String body, {
+    String? referenceText,
+    String? memoryText,
+  }) {
+    final blocks = _referenceBlocks(memoryText: memoryText, referenceText: referenceText);
+    if (blocks.isEmpty) {
       return body;
     }
-    return '$reference需要处理的文字：\n$body';
+    return '$blocks需要处理的文字：\n$body';
+  }
+
+  /// 前置参考块：章节记忆（长期一致性）在前，参考大纲（设定/风格）在后。
+  String _referenceBlocks({String? memoryText, String? referenceText}) {
+    final memory = _memoryBlock(memoryText);
+    final reference = _referenceBlock(referenceText);
+    if (memory.isEmpty) {
+      return reference;
+    }
+    if (reference.isEmpty) {
+      return memory;
+    }
+    return '$memory\n$reference';
+  }
+
+  String _memoryBlock(String? memoryText) {
+    final text = memoryText?.trim();
+    if (text == null || text.isEmpty) {
+      return '';
+    }
+    return '章节记忆（本小说历史章节摘要，写作时保持与已有情节、人物、伏笔一致，不要改写或输出它）：\n$text';
   }
 
   String _referenceBlock(String? referenceText) {

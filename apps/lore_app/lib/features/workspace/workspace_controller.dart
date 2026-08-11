@@ -692,6 +692,81 @@ final class WorkspaceController extends ChangeNotifier {
     return entry;
   }
 
+  /// 保存 AI 生成的章节记忆：写入小说根目录下的固定文件 `小说记忆.md`（可见、
+  /// 可打开审阅修正），已存在时覆盖、不存在时创建。与 [saveGeneratedOutline]
+  /// 同源：不参与内容树，复用 `LibraryWorkspaceService` 原语，不经
+  /// `ContentTreeRepository`/content.json。保存后选中并打开，便于审阅。
+  ///
+  /// 用固定文件名而非去重命名：记忆是单一、可再生的文档，「更新记忆」应覆盖
+  /// 而非堆积副本；已存在时走 `saveDocument` 覆盖路径（`createDocument` 底层
+  /// `createFile` 为 `exclusive: true`，对已存在文件会失败）。
+  Future<LibraryEntry> saveGeneratedMemory({
+    required NovelId novelId,
+    required String memoryText,
+  }) async {
+    final novel = _novelStore.novelById(novelId);
+    if (novel == null) {
+      throw const LibraryOperationException(
+        LibraryFailure(
+          code: LibraryFailureCode.notFound,
+          message: '小说不存在或尚未加载。',
+        ),
+      );
+    }
+
+    final filePath = p.join(novel.rootPath, '$chapterMemoryDocName.md');
+    final rootChildren = await service.listChildren(
+      session,
+      relativePath: novel.rootPath,
+    );
+    final existing = rootChildren
+        .where(
+          (entry) =>
+              entry.type != LibraryEntryType.directory &&
+              entry.relativePath == filePath,
+        )
+        .firstOrNull;
+
+    final LibraryEntry entry;
+    if (existing != null) {
+      final snapshot = await service.readDocument(
+        session,
+        DocumentRef(
+          relativePath: filePath,
+          format: DocumentFormat.markdown,
+        ),
+      );
+      final result = await service.saveDocument(
+        session,
+        original: snapshot,
+        text: memoryText,
+      );
+      if (result is! DocumentSaveSuccess) {
+        throw const LibraryOperationException(
+          LibraryFailure(
+            code: LibraryFailureCode.externalModification,
+            message: '章节记忆已被外部修改，请重新打开后再更新。',
+          ),
+        );
+      }
+      entry = existing;
+    } else {
+      entry = await service.createDocument(
+        session,
+        parentPath: novel.rootPath,
+        name: chapterMemoryDocName,
+        format: DocumentFormat.markdown,
+        initialText: memoryText,
+      );
+    }
+
+    _tabsStore.selectEntry(entry);
+    _treeRevision += 1;
+    await openPath(entry.relativePath);
+    _notify();
+    return entry;
+  }
+
   /// 确保小说根目录下存在名为 [name] 的兄弟目录（如 `大纲`、`世界观`）。
   Future<void> _ensureSiblingDirectory(
     String novelRootPath,

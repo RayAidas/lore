@@ -47,6 +47,14 @@ final outlineGenerationServiceProvider = Provider<OutlineGenerationService>((
   return OutlineGenerationService(client: ref.watch(aiChatClientProvider));
 });
 
+/// AI 章节记忆生成服务：读小说全部章节、分批生成逐章摘要文档。
+final memoryGenerationServiceProvider = Provider<MemoryGenerationService>((ref) {
+  return MemoryGenerationService(
+    client: ref.watch(aiChatClientProvider),
+    documentRepository: ref.watch(documentRepositoryProvider),
+  );
+});
+
 /// 写作 Agent 配置状态（含明文 API Key，均存于应用内 SharedPreferences）。
 final class AgentConfigState {
   const AgentConfigState({required this.config});

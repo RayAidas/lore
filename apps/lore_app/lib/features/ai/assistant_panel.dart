@@ -164,6 +164,15 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
           novel: novel,
         ),
         const SizedBox(height: 14),
+        // 按小说 id 作 key：切换小说时重载记忆状态。
+        _MemorySection(
+          key: novel == null
+              ? null
+              : ValueKey('memory-section-${novel.metadata.id.value}'),
+          controller: controller,
+          novel: novel,
+        ),
+        const SizedBox(height: 14),
         _ActionSection(
           enabled: doc != null && !_busy,
           onAction: _runAction,
@@ -308,6 +317,24 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
     );
   }
 
+  /// 读取当前小说的章节记忆文档（`小说记忆.md`），不存在或读失败返回空串。
+  Future<String> _readMemoryContext() async {
+    final novel = controller.activeNovel;
+    if (novel == null) {
+      return '';
+    }
+    final path = p.join(novel.rootPath, '$chapterMemoryDocName.md');
+    try {
+      final snapshot = await controller.service.readDocument(
+        controller.session,
+        DocumentRef(relativePath: path, format: DocumentFormat.markdown),
+      );
+      return snapshot.text;
+    } on LibraryOperationException {
+      return '';
+    }
+  }
+
   Future<void> _runAction(WritingAgentAction action) {
     return _execute(action: action);
   }
@@ -340,10 +367,14 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
     }
     final contextInfo = _currentContext();
     final referenceText = await _linkedOutlineContext();
-    // 主上下文与大纲参考都为空才拦截；仅关联了大纲时也允许执行（如按大纲规划）。
-    if (contextInfo.text.trim().isEmpty && referenceText.trim().isEmpty) {
+    final memoryText = await _readMemoryContext();
+    // 主上下文与参考材料（大纲、章节记忆）都为空才拦截；仅关联了大纲或已有章节
+    // 记忆时也允许执行（如按记忆规划续写）。
+    if (contextInfo.text.trim().isEmpty &&
+        referenceText.trim().isEmpty &&
+        memoryText.trim().isEmpty) {
       setState(() {
-        _error = '没有可用的上下文：请先选中文字、打开文档或关联大纲';
+        _error = '没有可用的上下文：请先选中文字、打开文档、关联大纲或生成章节记忆';
         _result = null;
       });
       return;
@@ -365,6 +396,7 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
           action: action,
           contextText: contextInfo.text,
           referenceText: referenceText,
+          memoryText: memoryText,
           config: configState.config,
           apiKey: configState.config.apiKey,
         );
@@ -373,6 +405,7 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
           instruction: custom,
           contextText: contextInfo.text,
           referenceText: referenceText,
+          memoryText: memoryText,
           config: configState.config,
           apiKey: configState.config.apiKey,
         );
@@ -724,6 +757,232 @@ final class _OutlineSectionState extends ConsumerState<_OutlineSection> {
       }
     }
   }
+}
+
+/// 章节记忆区块：展示当前小说 `小说记忆.md` 的状态，提供生成/更新与打开入口。
+///
+/// 记忆文档由 AI 依据全部已写章节生成，注入写作请求时让输出与历史情节一致。
+final class _MemorySection extends ConsumerStatefulWidget {
+  const _MemorySection({
+    required this.controller,
+    required this.novel,
+    super.key,
+  });
+
+  final WorkspaceController controller;
+
+  /// 当前小说；null 表示没有可记忆的小说。
+  final NovelSnapshot? novel;
+
+  @override
+  ConsumerState<_MemorySection> createState() => _MemorySectionState();
+}
+
+final class _MemorySectionState extends ConsumerState<_MemorySection> {
+  late Future<_MemoryStatus> _statusFuture = _loadStatus();
+  bool _busy = false;
+
+  Future<_MemoryStatus> _loadStatus() async {
+    final novel = widget.novel;
+    final chapterCount = novel == null
+        ? 0
+        : novel.contentTree.nodes
+            .where((node) => node.type == ContentNodeType.chapter)
+            .length;
+    if (novel == null) {
+      return const _MemoryStatus(exists: false);
+    }
+    final path = p.join(novel.rootPath, '$chapterMemoryDocName.md');
+    final rootChildren = await widget.controller.listChildren(
+      relativePath: novel.rootPath,
+    );
+    final entry = rootChildren
+        .where(
+          (entry) =>
+              entry.type != LibraryEntryType.directory &&
+              entry.relativePath == path,
+        )
+        .firstOrNull;
+    if (entry == null) {
+      return _MemoryStatus(exists: false, chapterCount: chapterCount);
+    }
+    try {
+      final snapshot = await widget.controller.service.readDocument(
+        widget.controller.session,
+        DocumentRef(relativePath: path, format: DocumentFormat.markdown),
+      );
+      return _MemoryStatus(
+        exists: true,
+        memoryChapterCount: parseMemoryChapterCount(snapshot.text),
+        chapterCount: chapterCount,
+      );
+    } on LibraryOperationException {
+      return const _MemoryStatus(exists: false);
+    }
+  }
+
+  Future<void> _generate() async {
+    final novel = widget.novel;
+    if (novel == null) {
+      return;
+    }
+    final configState = ref.read(agentConfigProvider).value;
+    if (configState == null ||
+        !configState.config.enabled ||
+        !configState.hasApiKey) {
+      if (mounted) {
+        LoreToast.error(context, 'AI 未启用或未设置 API Key，请先到设置中配置');
+      }
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final text = await ref
+          .read(memoryGenerationServiceProvider)
+          .generateMemory(
+            session: widget.controller.session,
+            novel: novel,
+            config: configState.config,
+            apiKey: configState.config.apiKey,
+          );
+      await widget.controller.saveGeneratedMemory(
+        novelId: novel.metadata.id,
+        memoryText: text,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _statusFuture = _loadStatus();
+      });
+      LoreToast.success(context, '章节记忆已生成');
+    } on AiRequestException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      LoreToast.error(context, error.message);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      LoreToast.error(context, '保存章节记忆失败：$error');
+    }
+  }
+
+  Future<void> _open() async {
+    final novel = widget.novel;
+    if (novel == null) {
+      return;
+    }
+    final path = p.join(novel.rootPath, '$chapterMemoryDocName.md');
+    try {
+      await widget.controller.openPath(path);
+    } on LibraryOperationException {
+      if (mounted) {
+        LoreToast.error(context, '无法打开章节记忆');
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final novel = widget.novel;
+    if (novel == null) {
+      return Text('未打开小说，无法生成章节记忆', style: muted);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('章节记忆', style: theme.textTheme.labelMedium),
+        const SizedBox(height: 8),
+        FutureBuilder<_MemoryStatus>(
+          future: _statusFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return Text('加载中…', style: muted);
+            }
+            final status =
+                snapshot.data ?? const _MemoryStatus(exists: false);
+            if (_busy) {
+              return const _BusyIndicator();
+            }
+            if (!status.exists) {
+              return Row(
+                children: [
+                  Expanded(
+                    child: Text('尚未生成章节记忆：AI 将无法参考已写章节', style: muted),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.tonalIcon(
+                    onPressed: _generate,
+                    icon: const Icon(Icons.auto_awesome_rounded, size: 16),
+                    label: const Text('生成记忆'),
+                  ),
+                ],
+              );
+            }
+            final stale = status.memoryChapterCount != null &&
+                status.memoryChapterCount != status.chapterCount;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  status.memoryChapterCount == null
+                      ? '章节记忆已生成'
+                      : '已基于 ${status.memoryChapterCount} 章生成',
+                  style: muted,
+                ),
+                if (stale) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '当前 ${status.chapterCount} 章，记忆可能落后，建议更新',
+                    style: muted?.copyWith(color: theme.colorScheme.error),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.tonalIcon(
+                      onPressed: _generate,
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text('更新记忆'),
+                    ),
+                    TextButton.icon(
+                      onPressed: _open,
+                      icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                      label: const Text('打开'),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// 章节记忆状态：文件是否存在、记忆基于的章节数与当前章节数。
+final class _MemoryStatus {
+  const _MemoryStatus({
+    required this.exists,
+    this.memoryChapterCount,
+    this.chapterCount = 0,
+  });
+
+  final bool exists;
+  final int? memoryChapterCount;
+  final int chapterCount;
 }
 
 final class _OutlineChip extends StatelessWidget {
