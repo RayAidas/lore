@@ -10,6 +10,7 @@ import 'package:lore_ui/lore_ui.dart';
 import 'package:path/path.dart' as p;
 
 import '../preferences/settings_page.dart';
+import '../workspace/chapter_navigation.dart';
 import '../workspace/workspace_controller.dart';
 import 'ai_providers.dart';
 import 'linked_outline_context.dart';
@@ -784,14 +785,11 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
 
   Future<_MemoryStatus> _loadStatus() async {
     final novel = widget.novel;
-    final chapterCount = novel == null
-        ? 0
-        : novel.contentTree.nodes
-            .where((node) => node.type == ContentNodeType.chapter)
-            .length;
     if (novel == null) {
       return const _MemoryStatus(exists: false);
     }
+    final chapters = _memoryChapterItems(novel);
+    final chapterCount = chapters.length;
     final path = p.join(novel.rootPath, '$chapterMemoryDocName.md');
     final rootChildren = await widget.controller.listChildren(
       relativePath: novel.rootPath,
@@ -804,20 +802,53 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
         )
         .firstOrNull;
     if (entry == null) {
-      return _MemoryStatus(exists: false, chapterCount: chapterCount);
+      return _MemoryStatus(
+        exists: false,
+        chapterCount: chapterCount,
+        chapters: chapters,
+      );
     }
     try {
       final snapshot = await widget.controller.service.readDocument(
         widget.controller.session,
         DocumentRef(relativePath: path, format: DocumentFormat.markdown),
       );
+      final docEntries = parseMemoryEntries(snapshot.text);
+      final docKeys = docEntries
+          .map((entry) => entry.key)
+          .whereType<MemoryKey>()
+          .toSet();
+      final coveredItems = [
+        for (final item in chapters)
+          _MemoryChapterItem(
+            id: item.id,
+            label: item.label,
+            volumeLabel: item.volumeLabel,
+            key: item.key,
+            covered: docKeys.contains(item.key),
+          ),
+      ];
+      final chapterKeys = chapters.map((item) => item.key).toSet();
+      final orphanCount = docEntries
+          .where((entry) {
+            final key = entry.key;
+            return key != null && !chapterKeys.contains(key);
+          })
+          .length;
       return _MemoryStatus(
         exists: true,
         memoryChapterCount: parseMemoryChapterCount(snapshot.text),
         chapterCount: chapterCount,
+        chapters: coveredItems,
+        missingCount: coveredItems.where((item) => !item.covered).length,
+        orphanCount: orphanCount,
       );
     } on LibraryOperationException {
-      return const _MemoryStatus(exists: false);
+      return _MemoryStatus(
+        exists: false,
+        chapterCount: chapterCount,
+        chapters: chapters,
+      );
     }
   }
 
@@ -887,6 +918,90 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
     }
   }
 
+  /// 增量更新记忆：[chapterIds] 为空时只补缺失章节，非空时只更新指定章节。
+  Future<void> _updateMemory({Set<ContentId>? chapterIds}) async {
+    final novel = widget.novel;
+    if (novel == null) {
+      return;
+    }
+    final configState = ref.read(agentConfigProvider).value;
+    if (configState == null ||
+        !configState.config.enabled ||
+        !configState.hasApiKey) {
+      if (mounted) {
+        LoreToast.error(context, 'AI 未启用或未设置 API Key，请先到设置中配置');
+      }
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final result = await ref
+          .read(memoryGenerationServiceProvider)
+          .updateMemory(
+            session: widget.controller.session,
+            novel: novel,
+            config: configState.config,
+            apiKey: configState.config.apiKey,
+            chapterIds: chapterIds,
+          );
+      await widget.controller.saveGeneratedMemory(
+        novelId: novel.metadata.id,
+        memoryText: result.text,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _statusFuture = _loadStatus();
+      });
+      if (result.updatedChapters.isEmpty) {
+        LoreToast.show(
+          context,
+          message: '所选章节已在记忆中',
+          type: LoreToastType.info,
+        );
+      } else if (result.rebuilt) {
+        LoreToast.success(context, '检测到编号冲突或旧格式，已整篇重建记忆');
+      } else {
+        LoreToast.success(context, '章节记忆已更新');
+      }
+    } on AiRequestException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      LoreToast.error(context, error.message);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      LoreToast.error(context, '保存章节记忆失败：$error');
+    }
+  }
+
+  Future<void> _showChapterPicker(_MemoryStatus status) async {
+    final novel = widget.novel;
+    if (novel == null || status.chapters.isEmpty) {
+      return;
+    }
+    final selected = await showDialog<Set<ContentId>>(
+      context: context,
+      builder: (context) => _MemoryChapterPickerDialog(
+        chapters: status.chapters,
+        initiallySelected: {
+          for (final item in status.chapters)
+            if (!item.covered) item.id,
+        },
+      ),
+    );
+    if (selected == null || selected.isEmpty) {
+      return;
+    }
+    await _updateMemory(chapterIds: selected);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -928,8 +1043,8 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
                 ],
               );
             }
-            final stale = status.memoryChapterCount != null &&
-                status.memoryChapterCount != status.chapterCount;
+            final missing = status.missingCount;
+            final stale = missing > 0;
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -942,7 +1057,14 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
                 if (stale) ...[
                   const SizedBox(height: 4),
                   Text(
-                    '当前 ${status.chapterCount} 章，记忆可能落后，建议更新',
+                    '当前 ${status.chapterCount} 章，$missing 章尚未在记忆中，建议更新',
+                    style: muted?.copyWith(color: theme.colorScheme.error),
+                  ),
+                ],
+                if (status.orphanCount > 0) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '${status.orphanCount} 条记忆对应章节已不存在（可能被移动/删除），可在「全部重新生成」清理',
                     style: muted?.copyWith(color: theme.colorScheme.error),
                   ),
                 ],
@@ -950,16 +1072,39 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     FilledButton.tonalIcon(
-                      onPressed: _generate,
+                      onPressed: missing > 0
+                          ? () => _updateMemory()
+                          : () => _showChapterPicker(status),
                       icon: const Icon(Icons.refresh_rounded, size: 16),
                       label: const Text('更新记忆'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _showChapterPicker(status),
+                      icon: const Icon(Icons.playlist_add_check_rounded, size: 16),
+                      label: const Text('选择章节…'),
                     ),
                     TextButton.icon(
                       onPressed: _open,
                       icon: const Icon(Icons.open_in_new_rounded, size: 16),
                       label: const Text('打开'),
+                    ),
+                    PopupMenuButton<String>(
+                      tooltip: '更多',
+                      onSelected: (value) {
+                        if (value == 'rebuild') {
+                          _generate();
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: 'rebuild',
+                          child: Text('全部重新生成'),
+                        ),
+                      ],
+                      icon: const Icon(Icons.more_horiz_rounded, size: 18),
                     ),
                   ],
                 ),
@@ -972,17 +1117,211 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
   }
 }
 
-/// 章节记忆状态：文件是否存在、记忆基于的章节数与当前章节数。
+/// 章节记忆状态：文件是否存在、记忆基于的章节数、当前章节及其覆盖情况。
 final class _MemoryStatus {
   const _MemoryStatus({
     required this.exists,
     this.memoryChapterCount,
     this.chapterCount = 0,
+    this.chapters = const [],
+    this.missingCount = 0,
+    this.orphanCount = 0,
   });
 
   final bool exists;
   final int? memoryChapterCount;
   final int chapterCount;
+  final List<_MemoryChapterItem> chapters;
+  final int missingCount;
+  final int orphanCount;
+}
+
+/// 单章记忆覆盖状态（阅读序、按卷分组），供「选择章节」对话框使用。
+final class _MemoryChapterItem {
+  const _MemoryChapterItem({
+    required this.id,
+    required this.label,
+    required this.volumeLabel,
+    required this.key,
+    required this.covered,
+  });
+
+  final ContentId id;
+  final String label;
+  final String? volumeLabel;
+  final MemoryKey key;
+  final bool covered;
+}
+
+/// 按阅读序枚举当前小说的可记忆章节（跳过空章），纯元数据零额外 IO。
+List<_MemoryChapterItem> _memoryChapterItems(NovelSnapshot novel) {
+  final tree = novel.contentTree;
+  final mode = novel.metadata.numberingMode;
+  return [
+    for (final node in chaptersInReadingOrder(novel))
+      if (node.characterCount != 0)
+        _MemoryChapterItem(
+          id: node.id,
+          label: _memoryChapterLabel(node, mode: mode, tree: tree),
+          volumeLabel: _volumeLabelOf(node, tree),
+          key: memoryKeyForNode(node: node, mode: mode, tree: tree),
+          covered: false,
+        ),
+  ];
+}
+
+/// 章节条目展示名（纯元数据，不带副标题）：`第3章` / `第1卷 第3章` / `未分卷 第3章` / `序章`。
+String _memoryChapterLabel(
+  ContentNode node, {
+  required NumberingMode mode,
+  required ContentTree tree,
+}) {
+  final number = node.number;
+  if (number == null) {
+    return p.basenameWithoutExtension(node.relativePath);
+  }
+  if (mode != NumberingMode.perVolume) {
+    return '第$number章';
+  }
+  final volume = _volumeNumber(node, tree);
+  return volume == null ? '未分卷 第$number章' : '第$volume卷 第$number章';
+}
+
+/// 章节所在卷号；父节点非卷或卷号缺失时返回 null（按「正文根级」分组）。
+int? _volumeNumber(ContentNode node, ContentTree tree) {
+  final parent = tree.nodeById(node.parentId);
+  if (parent == null || parent.type != ContentNodeType.volume) {
+    return null;
+  }
+  return parent.number;
+}
+
+/// 卷分组名：有卷号的目录用「第V卷」，否则用目录名。
+String? _volumeLabelOf(ContentNode node, ContentTree tree) {
+  final parent = tree.nodeById(node.parentId);
+  if (parent == null || parent.type != ContentNodeType.volume) {
+    return null;
+  }
+  final number = parent.number;
+  if (number != null) {
+    return '第$number卷';
+  }
+  return p.basenameWithoutExtension(parent.relativePath);
+}
+
+/// 「选择要更新的章节」对话框：按卷分组的多选列表，默认勾选缺失章节。
+final class _MemoryChapterPickerDialog extends StatefulWidget {
+  const _MemoryChapterPickerDialog({
+    required this.chapters,
+    required this.initiallySelected,
+  });
+
+  final List<_MemoryChapterItem> chapters;
+  final Set<ContentId> initiallySelected;
+
+  @override
+  State<_MemoryChapterPickerDialog> createState() =>
+      _MemoryChapterPickerDialogState();
+}
+
+final class _MemoryChapterPickerDialogState
+    extends State<_MemoryChapterPickerDialog> {
+  late final Set<ContentId> _selected = {...widget.initiallySelected};
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final groups = <String?, List<_MemoryChapterItem>>{};
+    for (final item in widget.chapters) {
+      groups.putIfAbsent(item.volumeLabel, () => []).add(item);
+    }
+    return AlertDialog(
+      title: const Text('选择要更新的章节'),
+      content: SizedBox(
+        width: 420,
+        height: 380,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                TextButton(
+                  onPressed: () => setState(
+                    () => _selected.addAll(
+                      widget.chapters.map((item) => item.id),
+                    ),
+                  ),
+                  child: const Text('全选'),
+                ),
+                TextButton(
+                  onPressed: () => setState(_selected.clear),
+                  child: const Text('清空'),
+                ),
+                const Spacer(),
+                Text('缺失章节默认已勾选', style: muted),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Expanded(
+              child: ListView(
+                children: [
+                  for (final group in groups.entries) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+                      child: Text(
+                        group.key ?? '正文',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                    for (final item in group.value)
+                      CheckboxListTile(
+                        dense: true,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        value: _selected.contains(item.id),
+                        onChanged: (value) => setState(() {
+                          if (value == true) {
+                            _selected.add(item.id);
+                          } else {
+                            _selected.remove(item.id);
+                          }
+                        }),
+                        title: Text(
+                          item.label,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        subtitle: item.covered
+                            ? null
+                            : Text(
+                                '尚未生成',
+                                style: muted?.copyWith(
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_selected),
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
 }
 
 final class _OutlineChip extends StatelessWidget {
