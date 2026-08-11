@@ -919,7 +919,13 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
   }
 
   /// 增量更新记忆：[chapterIds] 为空时只补缺失章节，非空时只更新指定章节。
-  Future<void> _updateMemory({Set<ContentId>? chapterIds}) async {
+  ///
+  /// [asGenerate] 为真表示当前尚无记忆文档（初始「选择章节」生成），成功提示
+  /// 用「已生成」而非「已更新」。
+  Future<void> _updateMemory({
+    Set<ContentId>? chapterIds,
+    bool asGenerate = false,
+  }) async {
     final novel = widget.novel;
     if (novel == null) {
       return;
@@ -963,6 +969,8 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
         );
       } else if (result.rebuilt) {
         LoreToast.success(context, '检测到编号冲突或旧格式，已整篇重建记忆');
+      } else if (asGenerate) {
+        LoreToast.success(context, '章节记忆已生成');
       } else {
         LoreToast.success(context, '章节记忆已更新');
       }
@@ -999,7 +1007,7 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
     if (selected == null || selected.isEmpty) {
       return;
     }
-    await _updateMemory(chapterIds: selected);
+    await _updateMemory(chapterIds: selected, asGenerate: !status.exists);
   }
 
   @override
@@ -1029,16 +1037,28 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
               return const _BusyIndicator();
             }
             if (!status.exists) {
-              return Row(
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Text('尚未生成章节记忆：AI 将无法参考已写章节', style: muted),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.tonalIcon(
-                    onPressed: _generate,
-                    icon: const Icon(Icons.auto_awesome_rounded, size: 16),
-                    label: const Text('生成记忆'),
+                  Text('尚未生成章节记忆：AI 将无法参考已写章节', style: muted),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      FilledButton.tonalIcon(
+                        onPressed: _generate,
+                        icon: const Icon(Icons.auto_awesome_rounded, size: 16),
+                        label: const Text('生成记忆'),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        onPressed: () => _showChapterPicker(status),
+                        icon: const Icon(
+                          Icons.playlist_add_check_rounded,
+                          size: 16,
+                        ),
+                        label: const Text('选择章节…'),
+                      ),
+                    ],
                   ),
                 ],
               );
@@ -1261,7 +1281,7 @@ final class _MemoryChapterPickerDialogState
                   child: const Text('清空'),
                 ),
                 const Spacer(),
-                Text('缺失章节默认已勾选', style: muted),
+                Text('默认勾选未生成章节', style: muted),
               ],
             ),
             const SizedBox(height: 4),
