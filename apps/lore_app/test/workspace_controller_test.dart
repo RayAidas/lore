@@ -1794,6 +1794,27 @@ void main() {
       // 覆盖路径经 saveDocument 写入（savedTexts 有记录），而非再次 createDocument。
       expect(repository.savedTexts, contains('v2'));
     });
+
+    test('writes 设定记忆.md at the novel root when docName is given', () async {
+      final repository = _WorkspaceRepositoryWithChildren();
+      final controller = controllerFor(repository, _chapterNovelSnapshot());
+      addTearDown(repository.dispose);
+      addTearDown(controller.dispose);
+      await controller.initialize();
+
+      const text = '# 设定记忆\n> 基于章节记忆生成 · 2026-08-13\n\n## 人物\n### 林晚';
+      final entry = await controller.saveGeneratedMemory(
+        novelId: const NovelId('novel-1'),
+        memoryText: text,
+        docName: settingMemoryDocName,
+      );
+
+      expect(entry.relativePath, '我的小说/设定记忆.md');
+      expect(repository.createdDocuments, contains('我的小说/设定记忆.md'));
+      expect(repository.createdDocuments['我的小说/设定记忆.md'], text);
+      // 不影响既有章节记忆文档名。
+      expect(repository.createdDocuments.keys, isNot(contains('我的小说/小说记忆.md')));
+    });
   });
 }
 

@@ -144,6 +144,62 @@ void main() {
     expect(user, contains('需要处理的文字'));
   });
 
+  test('runAction prepends setting memory before chapter memory and outline',
+      () async {
+    await service.runAction(
+      action: WritingAgentAction.consistencyCheck,
+      contextText: '正文',
+      settingText: '## 人物\n### 林晚\n- 身份：主角',
+      memoryText: '第1章：林晚觉醒。',
+      referenceText: '大纲内容',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    final user = client.lastMessages![1].content;
+    expect(user, contains('设定记忆'));
+    expect(user, contains('### 林晚'));
+    expect(user, contains('章节记忆'));
+    expect(user, contains('参考大纲'));
+    expect(user, contains('需要处理的文字'));
+    // 顺序：设定记忆（结构化设定）< 章节记忆 < 参考大纲 < 正文。
+    expect(user.indexOf('设定记忆'), lessThan(user.indexOf('章节记忆')));
+    expect(user.indexOf('章节记忆'), lessThan(user.indexOf('参考大纲')));
+    expect(user.indexOf('参考大纲'), lessThan(user.indexOf('需要处理的文字')));
+  });
+
+  test('runAction with setting memory only has no chapter or outline blocks',
+      () async {
+    await service.runAction(
+      action: WritingAgentAction.continueWriting,
+      contextText: '正文',
+      settingText: '## 人物\n### 林晚',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    final user = client.lastMessages![1].content;
+    expect(user, contains('设定记忆'));
+    expect(user, isNot(contains('章节记忆')));
+    expect(user, isNot(contains('参考大纲')));
+    expect(user, contains('需要处理的文字'));
+  });
+
+  test('runCustom includes the setting memory block before the instruction',
+      () async {
+    await service.runCustom(
+      instruction: '核对一下设定',
+      contextText: '上下文文字',
+      settingText: '## 人物\n### 林晚',
+      config: config,
+      apiKey: apiKey,
+    );
+
+    final user = client.lastMessages![1].content;
+    expect(user, contains('设定记忆'));
+    expect(user.indexOf('设定记忆'), lessThan(user.indexOf('核对一下设定')));
+  });
+
   test('runCustom includes the memory block before the instruction', () async {
     await service.runCustom(
       instruction: '继续写下一章',

@@ -6,6 +6,8 @@ export 'src/agent/linked_outlines_service.dart';
 export 'src/agent/memory_doc_entries.dart';
 export 'src/agent/memory_generation_service.dart';
 export 'src/agent/outline_generation_service.dart';
+export 'src/agent/setting_memory_doc.dart';
+export 'src/agent/setting_memory_generation_service.dart';
 export 'src/agent/writing_agent_service.dart';
 export 'src/highlight/paragraph_digest.dart';
 export 'src/history/history_service.dart';

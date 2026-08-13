@@ -55,6 +55,15 @@ final memoryGenerationServiceProvider = Provider<MemoryGenerationService>((ref) 
   );
 });
 
+/// AI 设定记忆生成服务：从章节记忆二次提炼结构化设定文档。
+final settingMemoryGenerationServiceProvider =
+    Provider<SettingMemoryGenerationService>((ref) {
+  return SettingMemoryGenerationService(
+    client: ref.watch(aiChatClientProvider),
+    documentRepository: ref.watch(documentRepositoryProvider),
+  );
+});
+
 /// 写作 Agent 配置状态（含明文 API Key，均存于应用内 SharedPreferences）。
 final class AgentConfigState {
   const AgentConfigState({required this.config});

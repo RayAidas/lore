@@ -17,11 +17,14 @@ final class WritingAgentService {
   /// 标注「仅作参考、不要改写」，让模型据此把握设定与风格，而不把它当作业目标。
   /// [memoryText] 为可选的章节记忆（历史章节摘要），置于参考大纲之前，让模型
   /// 与已写情节、人物、伏笔保持一致。
+  /// [settingText] 为可选的设定记忆（人物/地点/时间线/伏笔结构化设定），置于
+  /// 章节记忆之前，让模型优先按结构化设定核对一致性。
   Future<String> runAction({
     required WritingAgentAction action,
     required String contextText,
     String? referenceText,
     String? memoryText,
+    String? settingText,
     required WritingAgentConfig config,
     required String apiKey,
     Duration timeout = const Duration(seconds: 60),
@@ -33,6 +36,7 @@ final class WritingAgentService {
           contextText,
           referenceText: referenceText,
           memoryText: memoryText,
+          settingText: settingText,
         ),
       ),
       config: config,
@@ -47,11 +51,16 @@ final class WritingAgentService {
     required String contextText,
     String? referenceText,
     String? memoryText,
+    String? settingText,
     required WritingAgentConfig config,
     required String apiKey,
     Duration timeout = const Duration(seconds: 60),
   }) {
-    final blocks = _referenceBlocks(memoryText: memoryText, referenceText: referenceText);
+    final blocks = _referenceBlocks(
+      settingText: settingText,
+      memoryText: memoryText,
+      referenceText: referenceText,
+    );
     final content = contextText.trim().isEmpty
         ? '$blocks$instruction'
         : '$blocks$instruction\n\n以下是参考上下文（仅作依据，不要求保留原文）：\n\n$contextText';
@@ -71,25 +80,41 @@ final class WritingAgentService {
     String body, {
     String? referenceText,
     String? memoryText,
+    String? settingText,
   }) {
-    final blocks = _referenceBlocks(memoryText: memoryText, referenceText: referenceText);
+    final blocks = _referenceBlocks(
+      settingText: settingText,
+      memoryText: memoryText,
+      referenceText: referenceText,
+    );
     if (blocks.isEmpty) {
       return body;
     }
     return '$blocks需要处理的文字：\n$body';
   }
 
-  /// 前置参考块：章节记忆（长期一致性）在前，参考大纲（设定/风格）在后。
-  String _referenceBlocks({String? memoryText, String? referenceText}) {
-    final memory = _memoryBlock(memoryText);
-    final reference = _referenceBlock(referenceText);
-    if (memory.isEmpty) {
-      return reference;
+  /// 前置参考块：设定记忆（结构化设定）在前，其后章节记忆（长期一致性），
+  /// 参考大纲（设定/风格）在后；空块跳过。
+  String _referenceBlocks({
+    String? settingText,
+    String? memoryText,
+    String? referenceText,
+  }) {
+    final blocks = <String>[
+      if (settingText?.trim().isNotEmpty ?? false) _settingBlock(settingText),
+      if (memoryText?.trim().isNotEmpty ?? false) _memoryBlock(memoryText),
+      if (referenceText?.trim().isNotEmpty ?? false)
+        _referenceBlock(referenceText),
+    ];
+    return blocks.join('\n');
+  }
+
+  String _settingBlock(String? settingText) {
+    final text = settingText?.trim();
+    if (text == null || text.isEmpty) {
+      return '';
     }
-    if (reference.isEmpty) {
-      return memory;
-    }
-    return '$memory\n$reference';
+    return '设定记忆（本书人物/地点/时间线/伏笔的结构化设定，核对当前文字与之一致，不要改写或输出它）：\n$text';
   }
 
   String _memoryBlock(String? memoryText) {
@@ -149,6 +174,7 @@ final class WritingAgentService {
       WritingAgentAction.polish => _polishPrompt,
       WritingAgentAction.summarize => _summarizePrompt,
       WritingAgentAction.continueWriting => _continueWritingPrompt,
+      WritingAgentAction.consistencyCheck => _consistencyCheckPrompt,
     };
   }
 }
@@ -172,6 +198,18 @@ const _summarizePrompt = '''
 const _continueWritingPrompt = '''
 你是与原文同一作者的续写者。根据以下正文的风格、人物与情节，自然续写约 500 字。
 只返回续写内容，不要复述或解释。''';
+
+/// 一致性检查：对照章节记忆与设定记忆，只输出矛盾清单，不改写正文。
+const _consistencyCheckPrompt = '''
+你是一位严谨的小说连续性检查员。请把「需要处理的文字」与前置的「章节记忆」和
+「设定记忆」逐项对照，找出当前文字中与已写情节、人物、称呼、身份、时间线、伏笔
+或设定相矛盾的地方。
+
+要求：
+- 只输出矛盾清单；每条列出：矛盾点、涉及文字、依据（来自哪条章节记忆/设定记忆）。
+- 不要改写、润色或复述正文。
+- 若没有发现矛盾，只输出「未发现矛盾」。
+- 若缺少章节记忆或设定记忆，先说明缺什么，再按现有材料检查。''';
 
 const _customSystemPrompt = '''
 你是嵌入在写作应用中的写作助手。请直接执行用户的指令，结合提供的上下文给出有帮助的结果。

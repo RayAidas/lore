@@ -14,4 +14,7 @@ enum WritingAgentAction {
 
   /// 续写：基于给定正文继续写作，返回续写内容。
   continueWriting,
+
+  /// 一致性检查：对照章节记忆与设定记忆，输出当前文字的矛盾清单，不改写正文。
+  consistencyCheck,
 }

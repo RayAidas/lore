@@ -69,6 +69,9 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
   WritingAgentAction? _lastAction;
   String? _lastCustom;
 
+  /// 当前结果是否允许应用回文档（一致性检查等清单型结果置 false）。
+  bool _allowApplyResult = true;
+
   /// 当前小说已加载的 AI 请求缓存（null = 未加载）。
   AiCache? _cache;
 
@@ -174,6 +177,15 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
           novel: novel,
         ),
         const SizedBox(height: 14),
+        // 按小说 id 作 key：切换小说时重载设定记忆状态。
+        _SettingMemorySection(
+          key: novel == null
+              ? null
+              : ValueKey('setting-memory-section-${novel.metadata.id.value}'),
+          controller: controller,
+          novel: novel,
+        ),
+        const SizedBox(height: 14),
         _ActionSection(
           enabled: doc != null && !_busy,
           onAction: _runAction,
@@ -197,6 +209,7 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
             hasSelection: _hasNonCollapsedSelection(doc),
             documentOpen: doc != null,
             busy: _busy,
+            allowApply: _allowApplyResult,
             onApply: (target) => _apply(doc!, target, _result!),
             onCopy: _copyResult,
             onClear: () => setState(() {
@@ -336,6 +349,24 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
     }
   }
 
+  /// 读取当前小说的设定记忆文档（`设定记忆.md`），不存在或读失败返回空串。
+  Future<String> _readSettingMemoryContext() async {
+    final novel = controller.activeNovel;
+    if (novel == null) {
+      return '';
+    }
+    final path = p.join(novel.rootPath, '$settingMemoryDocName.md');
+    try {
+      final snapshot = await controller.service.readDocument(
+        controller.session,
+        DocumentRef(relativePath: path, format: DocumentFormat.markdown),
+      );
+      return snapshot.text;
+    } on LibraryOperationException {
+      return '';
+    }
+  }
+
   Future<void> _runAction(WritingAgentAction action) {
     return _execute(action: action);
   }
@@ -369,11 +400,23 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
     final contextInfo = _currentContext();
     final referenceText = await _linkedOutlineContext();
     final memoryText = await _readMemoryContext();
-    // 主上下文与参考材料（大纲、章节记忆）都为空才拦截；仅关联了大纲或已有章节
-    // 记忆时也允许执行（如按记忆规划续写）。
+    final settingText = await _readSettingMemoryContext();
+    // 一致性检查依赖记忆材料：章节记忆与设定记忆都没有时无法对照，先拦截。
+    if (action == WritingAgentAction.consistencyCheck &&
+        memoryText.trim().isEmpty &&
+        settingText.trim().isEmpty) {
+      setState(() {
+        _error = '一致性检查需要章节记忆或设定记忆，请先生成';
+        _result = null;
+      });
+      return;
+    }
+    // 主上下文与参考材料（大纲、章节记忆、设定记忆）都为空才拦截；仅关联了大纲或
+    // 已有章节/设定记忆时也允许执行（如按记忆规划续写）。
     if (contextInfo.text.trim().isEmpty &&
         referenceText.trim().isEmpty &&
-        memoryText.trim().isEmpty) {
+        memoryText.trim().isEmpty &&
+        settingText.trim().isEmpty) {
       setState(() {
         _error = '没有可用的上下文：请先选中文字、打开文档、关联大纲或生成章节记忆';
         _result = null;
@@ -398,8 +441,12 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
           contextText: contextInfo.text,
           referenceText: referenceText,
           memoryText: memoryText,
+          settingText: settingText,
           config: configState.config,
           apiKey: configState.config.apiKey,
+          timeout: action == WritingAgentAction.consistencyCheck
+              ? const Duration(seconds: 120)
+              : const Duration(seconds: 60),
         );
       } else if (custom != null) {
         text = await service.runCustom(
@@ -407,6 +454,7 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
           contextText: contextInfo.text,
           referenceText: referenceText,
           memoryText: memoryText,
+          settingText: settingText,
           config: configState.config,
           apiKey: configState.config.apiKey,
         );
@@ -419,6 +467,7 @@ final class _AiAssistantPanelState extends ConsumerState<AiAssistantPanel> {
       setState(() {
         _result = text;
         _busy = false;
+        _allowApplyResult = action != WritingAgentAction.consistencyCheck;
       });
       await _recordCacheEntry(action: action, custom: custom, output: text);
     } on AiRequestException catch (error) {
@@ -1137,6 +1186,219 @@ final class _MemorySectionState extends ConsumerState<_MemorySection> {
   }
 }
 
+/// 设定记忆区块：展示当前小说 `设定记忆.md` 的状态，提供生成与打开入口。
+///
+/// 设定记忆由 AI 依据章节记忆二次提炼（人物/地点/时间线/伏笔结构化设定），
+/// v1 只做整篇重建，供一致性检查与续写参考。
+final class _SettingMemorySection extends ConsumerStatefulWidget {
+  const _SettingMemorySection({
+    required this.controller,
+    required this.novel,
+    super.key,
+  });
+
+  final WorkspaceController controller;
+
+  /// 当前小说；null 表示没有可记忆的小说。
+  final NovelSnapshot? novel;
+
+  @override
+  ConsumerState<_SettingMemorySection> createState() =>
+      _SettingMemorySectionState();
+}
+
+final class _SettingMemorySectionState
+    extends ConsumerState<_SettingMemorySection> {
+  late Future<_SettingMemoryStatus> _statusFuture = _loadStatus();
+  bool _busy = false;
+
+  Future<_SettingMemoryStatus> _loadStatus() async {
+    final novel = widget.novel;
+    if (novel == null) {
+      return const _SettingMemoryStatus(exists: false);
+    }
+    final path = p.join(novel.rootPath, '$settingMemoryDocName.md');
+    final rootChildren = await widget.controller.listChildren(
+      relativePath: novel.rootPath,
+    );
+    final entry = rootChildren
+        .where(
+          (entry) =>
+              entry.type != LibraryEntryType.directory &&
+              entry.relativePath == path,
+        )
+        .firstOrNull;
+    if (entry == null) {
+      return const _SettingMemoryStatus(exists: false);
+    }
+    try {
+      final snapshot = await widget.controller.service.readDocument(
+        widget.controller.session,
+        DocumentRef(relativePath: path, format: DocumentFormat.markdown),
+      );
+      return _SettingMemoryStatus(
+        exists: true,
+        counts: parseSettingMemoryCounts(snapshot.text),
+      );
+    } on LibraryOperationException {
+      return const _SettingMemoryStatus(exists: false);
+    }
+  }
+
+  Future<void> _generate() async {
+    final novel = widget.novel;
+    if (novel == null) {
+      return;
+    }
+    final configState = ref.read(agentConfigProvider).value;
+    if (configState == null ||
+        !configState.config.enabled ||
+        !configState.hasApiKey) {
+      if (mounted) {
+        LoreToast.error(context, 'AI 未启用或未设置 API Key，请先到设置中配置');
+      }
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final text = await ref
+          .read(settingMemoryGenerationServiceProvider)
+          .generateSettingMemory(
+            session: widget.controller.session,
+            novel: novel,
+            config: configState.config,
+            apiKey: configState.config.apiKey,
+          );
+      await widget.controller.saveGeneratedMemory(
+        novelId: novel.metadata.id,
+        memoryText: text,
+        docName: settingMemoryDocName,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _statusFuture = _loadStatus();
+      });
+      LoreToast.success(context, '设定记忆已生成');
+    } on AiRequestException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      LoreToast.error(context, error.message);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      LoreToast.error(context, '保存设定记忆失败：$error');
+    }
+  }
+
+  Future<void> _open() async {
+    final novel = widget.novel;
+    if (novel == null) {
+      return;
+    }
+    final path = p.join(novel.rootPath, '$settingMemoryDocName.md');
+    try {
+      await widget.controller.openPath(path);
+    } on LibraryOperationException {
+      if (mounted) {
+        LoreToast.error(context, '无法打开设定记忆');
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final novel = widget.novel;
+    if (novel == null) {
+      return Text('未打开小说，无法生成设定记忆', style: muted);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('设定记忆', style: theme.textTheme.labelMedium),
+        const SizedBox(height: 8),
+        FutureBuilder<_SettingMemoryStatus>(
+          future: _statusFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return Text('加载中…', style: muted);
+            }
+            final status =
+                snapshot.data ?? const _SettingMemoryStatus(exists: false);
+            if (_busy) {
+              return const _BusyIndicator();
+            }
+            if (!status.exists) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('尚未生成设定记忆：AI 将无法核对设定一致性', style: muted),
+                  const SizedBox(height: 8),
+                  FilledButton.tonalIcon(
+                    onPressed: _generate,
+                    icon: const Icon(Icons.auto_awesome_rounded, size: 16),
+                    label: const Text('生成设定记忆'),
+                  ),
+                ],
+              );
+            }
+            final counts = status.counts;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '人物 ${counts.characters} · 地点 ${counts.locations} · '
+                  '时间线 ${counts.timeline} · 伏笔 ${counts.foreshadowing}',
+                  style: muted,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    FilledButton.tonalIcon(
+                      onPressed: _generate,
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text('重新生成'),
+                    ),
+                    TextButton.icon(
+                      onPressed: _open,
+                      icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                      label: const Text('打开'),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// 设定记忆区块状态：文档是否存在 + 四类条目计数。
+final class _SettingMemoryStatus {
+  const _SettingMemoryStatus({
+    required this.exists,
+    this.counts = const SettingMemoryCounts(),
+  });
+
+  final bool exists;
+  final SettingMemoryCounts counts;
+}
+
 /// 章节记忆状态：文件是否存在、记忆基于的章节数、当前章节及其覆盖情况。
 final class _MemoryStatus {
   const _MemoryStatus({
@@ -1420,6 +1682,11 @@ final class _ActionSection extends StatelessWidget {
       (WritingAgentAction.polish, '润色', Icons.auto_awesome_outlined),
       (WritingAgentAction.summarize, '总结', Icons.compress_outlined),
       (WritingAgentAction.continueWriting, '续写', Icons.edit_note_outlined),
+      (
+        WritingAgentAction.consistencyCheck,
+        '一致性检查',
+        Icons.rule_outlined,
+      ),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1644,6 +1911,7 @@ final class _ResultSection extends StatelessWidget {
     required this.hasSelection,
     required this.documentOpen,
     required this.busy,
+    this.allowApply = true,
     required this.onApply,
     required this.onCopy,
     required this.onClear,
@@ -1653,6 +1921,9 @@ final class _ResultSection extends StatelessWidget {
   final bool hasSelection;
   final bool documentOpen;
   final bool busy;
+
+  /// 清单型结果（如一致性检查）置 false 时隐藏应用按钮。
+  final bool allowApply;
   final void Function(AgentApplyTarget target) onApply;
   final VoidCallback onCopy;
   final VoidCallback onClear;
@@ -1679,7 +1950,7 @@ final class _ResultSection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        if (documentOpen)
+        if (documentOpen && allowApply)
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -1855,7 +2126,7 @@ final class _NotConfiguredView extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               '在设置中填写模型接口与 API Key 并启用后，即可对选中文字或当前章节'
-              '执行校对、润色、总结与续写。',
+              '执行校对、润色、总结、续写与一致性检查。',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: colorScheme.onSurfaceVariant,
@@ -1881,6 +2152,7 @@ String _actionLabel(WritingAgentAction action) => switch (action) {
   WritingAgentAction.polish => '润色',
   WritingAgentAction.summarize => '总结',
   WritingAgentAction.continueWriting => '续写',
+  WritingAgentAction.consistencyCheck => '一致性检查',
 };
 
 WritingAgentAction? _actionFromName(String name) {
@@ -2029,6 +2301,10 @@ final class _CacheEntryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    // 一致性检查输出为矛盾清单，不应应用回正文（连同历史记录里的该条）。
+    final isConsistencyCheck =
+        entry.kind == AiCacheEntryKind.action &&
+        _actionFromName(entry.prompt) == WritingAgentAction.consistencyCheck;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
@@ -2126,7 +2402,7 @@ final class _CacheEntryCard extends StatelessWidget {
                             onPressed: () => onUseInstruction(entry.prompt),
                             child: const Text('用此指令'),
                           ),
-                        if (documentOpen)
+                        if (documentOpen && !isConsistencyCheck)
                           TextButton(
                             onPressed: onApply,
                             child: const Text('应用结果'),

@@ -703,6 +703,7 @@ final class WorkspaceController extends ChangeNotifier {
   Future<LibraryEntry> saveGeneratedMemory({
     required NovelId novelId,
     required String memoryText,
+    String docName = chapterMemoryDocName,
   }) async {
     final novel = _novelStore.novelById(novelId);
     if (novel == null) {
@@ -714,7 +715,7 @@ final class WorkspaceController extends ChangeNotifier {
       );
     }
 
-    final filePath = p.join(novel.rootPath, '$chapterMemoryDocName.md');
+    final filePath = p.join(novel.rootPath, '$docName.md');
     final rootChildren = await service.listChildren(
       session,
       relativePath: novel.rootPath,
@@ -745,7 +746,7 @@ final class WorkspaceController extends ChangeNotifier {
         throw const LibraryOperationException(
           LibraryFailure(
             code: LibraryFailureCode.externalModification,
-            message: '章节记忆已被外部修改，请重新打开后再更新。',
+            message: '记忆文档已被外部修改，请重新打开后再更新。',
           ),
         );
       }
@@ -754,7 +755,7 @@ final class WorkspaceController extends ChangeNotifier {
       entry = await service.createDocument(
         session,
         parentPath: novel.rootPath,
-        name: chapterMemoryDocName,
+        name: docName,
         format: DocumentFormat.markdown,
         initialText: memoryText,
       );
